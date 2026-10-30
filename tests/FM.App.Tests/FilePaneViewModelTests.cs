@@ -154,6 +154,67 @@ public class FilePaneViewModelTests : IDisposable
     }
 
     [Fact]
+    public async Task Sort_PreservesAllSelectedItems_ByFullPath()
+    {
+        string dir = Path.Combine(_testRoot, "MultiSortDir");
+        Directory.CreateDirectory(dir);
+
+        _fakeDirService.AddDirectory(dir, new[]
+        {
+            new FileEntry("zebra.txt", Path.Combine(dir, "zebra.txt"), false, 1000, DateTime.Now),
+            new FileEntry("apple.txt", Path.Combine(dir, "apple.txt"), false, 10, DateTime.Now),
+            new FileEntry("banana.txt", Path.Combine(dir, "banana.txt"), false, 500, DateTime.Now),
+            new FileEntry("cherry.txt", Path.Combine(dir, "cherry.txt"), false, 250, DateTime.Now)
+        });
+
+        await _viewModel.NavigateInternalAsync(dir, NavigationPhaseType.New);
+
+        // Select apple.txt and banana.txt
+        var selected = _viewModel.Items.Where(i => i.Name == "apple.txt" || i.Name == "banana.txt").ToList();
+        _viewModel.UpdateSelectedItems(selected);
+
+        Assert.Equal(2, _viewModel.SelectedItems.Count);
+
+        // Sort by Size
+        await _viewModel.Sort("Size");
+
+        // Verify BOTH items are still selected after sort
+        Assert.Equal(2, _viewModel.SelectedItems.Count);
+        Assert.Contains(_viewModel.SelectedItems, i => i.Name == "apple.txt");
+        Assert.Contains(_viewModel.SelectedItems, i => i.Name == "banana.txt");
+    }
+
+    [Fact]
+    public async Task Refresh_PreservesAllSelectedItems_ByFullPath()
+    {
+        string dir = Path.Combine(_testRoot, "MultiRefreshDir");
+        Directory.CreateDirectory(dir);
+
+        _fakeDirService.AddDirectory(dir, new[]
+        {
+            new FileEntry("file1.txt", Path.Combine(dir, "file1.txt"), false, 100, DateTime.Now),
+            new FileEntry("file2.txt", Path.Combine(dir, "file2.txt"), false, 200, DateTime.Now),
+            new FileEntry("file3.txt", Path.Combine(dir, "file3.txt"), false, 300, DateTime.Now)
+        });
+
+        await _viewModel.NavigateInternalAsync(dir, NavigationPhaseType.New);
+
+        // Select file1 and file3
+        var selected = _viewModel.Items.Where(i => i.Name == "file1.txt" || i.Name == "file3.txt").ToList();
+        _viewModel.UpdateSelectedItems(selected);
+
+        Assert.Equal(2, _viewModel.SelectedItems.Count);
+
+        // Refresh
+        await _viewModel.RefreshCommand.ExecuteAsync(null);
+
+        // Verify BOTH items remain selected after refresh
+        Assert.Equal(2, _viewModel.SelectedItems.Count);
+        Assert.Contains(_viewModel.SelectedItems, i => i.Name == "file1.txt");
+        Assert.Contains(_viewModel.SelectedItems, i => i.Name == "file3.txt");
+    }
+
+    [Fact]
     public async Task MultiSelect_SyncUpdatesSelectionStatusText()
     {
         string dir = Path.Combine(_testRoot, "MultiSelectDir");

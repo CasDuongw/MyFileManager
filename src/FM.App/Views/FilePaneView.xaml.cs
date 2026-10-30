@@ -13,10 +13,45 @@ namespace FM.App.Views;
 public partial class FilePaneView : UserControl
 {
     public FilePaneViewModel? ViewModel => DataContext as FilePaneViewModel;
+    private bool _isSyncingSelection;
 
     public FilePaneView()
     {
         InitializeComponent();
+        DataContextChanged += OnDataContextChanged;
+    }
+
+    private void OnDataContextChanged(object sender, DependencyPropertyChangedEventArgs e)
+    {
+        if (e.OldValue is FilePaneViewModel oldVm)
+        {
+            oldVm.PropertyChanged -= OnViewModelPropertyChanged;
+        }
+
+        if (e.NewValue is FilePaneViewModel newVm)
+        {
+            newVm.PropertyChanged += OnViewModelPropertyChanged;
+        }
+    }
+
+    private void OnViewModelPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(FilePaneViewModel.SelectedItems) && !_isSyncingSelection && ViewModel != null)
+        {
+            _isSyncingSelection = true;
+            try
+            {
+                FileListView.SelectedItems.Clear();
+                foreach (var item in ViewModel.SelectedItems)
+                {
+                    FileListView.SelectedItems.Add(item);
+                }
+            }
+            finally
+            {
+                _isSyncingSelection = false;
+            }
+        }
     }
 
     public void FocusAddressBar()
@@ -103,10 +138,17 @@ public partial class FilePaneView : UserControl
 
     private void OnFileListViewSelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        if (ViewModel != null)
+        if (_isSyncingSelection || ViewModel == null) return;
+
+        _isSyncingSelection = true;
+        try
         {
             var selected = FileListView.SelectedItems.Cast<FileItemViewModel>().ToList();
             ViewModel.UpdateSelectedItems(selected);
+        }
+        finally
+        {
+            _isSyncingSelection = false;
         }
     }
 }

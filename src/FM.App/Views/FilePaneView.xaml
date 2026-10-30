@@ -137,7 +137,6 @@
                       Grid.Row="3"
                       Margin="2"
                       ItemsSource="{Binding Items}"
-                      SelectedItem="{Binding SelectedItem}"
                       SelectionMode="Extended"
                       SelectionChanged="OnFileListViewSelectionChanged"
                       VirtualizingPanel.IsVirtualizing="True"

@@ -262,10 +262,13 @@ public partial class FilePaneViewModel : ObservableObject
                 UpdateHistoryCommandStates();
             }
 
-            string? previousSelection = SelectedItem?.FullPath;
+            var previousSelectedPaths = phaseType == NavigationPhaseType.Refresh
+                ? new HashSet<string>(SelectedItems.Select(i => i.FullPath), StringComparer.OrdinalIgnoreCase)
+                : new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
             // Clear view items immediately
             Items.ReplaceAll(Array.Empty<FileItemViewModel>());
+            UpdateSelectedItems(Array.Empty<FileItemViewModel>());
             OnPropertyChanged(nameof(SelectionStatusText));
 
             var statusUpdateSw = Stopwatch.StartNew();
@@ -291,9 +294,11 @@ public partial class FilePaneViewModel : ObservableObject
 
             if (!IsCurrent()) return;
 
-            if (previousSelection != null && SelectedItem == null)
+            // Restore all selected items by FullPath on Refresh
+            if (previousSelectedPaths.Count > 0)
             {
-                SelectedItem = Items.FirstOrDefault(i => string.Equals(i.FullPath, previousSelection, StringComparison.OrdinalIgnoreCase));
+                var restored = Items.Where(i => previousSelectedPaths.Contains(i.FullPath)).ToList();
+                UpdateSelectedItems(restored);
             }
 
             OnPropertyChanged(nameof(SelectionStatusText));
@@ -357,7 +362,7 @@ public partial class FilePaneViewModel : ObservableObject
 
         if (!IsCurrent()) return;
 
-        string? selectedPath = SelectedItem?.FullPath;
+        var selectedPaths = new HashSet<string>(SelectedItems.Select(i => i.FullPath), StringComparer.OrdinalIgnoreCase);
 
         var currentItems = Items.ToList();
         var map = currentItems.ToDictionary(i => i.FullPath, StringComparer.OrdinalIgnoreCase);
@@ -397,10 +402,11 @@ public partial class FilePaneViewModel : ObservableObject
 
         Items.ReplaceAll(sortedVms);
 
-        // Restore selection by FullPath
-        if (selectedPath != null)
+        // Restore ALL selections by FullPath
+        if (selectedPaths.Count > 0)
         {
-            SelectedItem = Items.FirstOrDefault(i => string.Equals(i.FullPath, selectedPath, StringComparison.OrdinalIgnoreCase));
+            var restored = Items.Where(i => selectedPaths.Contains(i.FullPath)).ToList();
+            UpdateSelectedItems(restored);
         }
     }
 
