@@ -8,6 +8,16 @@ namespace FM.Core.Services;
 public interface IDirectoryService
 {
     /// <summary>
+    /// Enumerates accessible file entries in batches from a dedicated background producer.
+    /// Inaccessible entries are skipped without throwing exceptions.
+    /// </summary>
+    /// <param name="path">Absolute directory path to enumerate.</param>
+    /// <param name="batchSize">Maximum number of entries per batch.</param>
+    /// <param name="ct">Cancellation token to cancel ongoing enumeration.</param>
+    /// <returns>An async stream of <see cref="IReadOnlyList{FileEntry}"/> batches.</returns>
+    IAsyncEnumerable<IReadOnlyList<FileEntry>> EnumerateBatchesAsync(string path, int batchSize = 200, CancellationToken ct = default);
+
+    /// <summary>
     /// Enumerates all accessible file entries in the specified directory path.
     /// Inaccessible entries are skipped without throwing exceptions.
     /// </summary>

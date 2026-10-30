@@ -1,11 +1,13 @@
 using System.Runtime.CompilerServices;
+using System.Threading.Channels;
 using FM.Core.Models;
 
 namespace FM.Core.Services;
 
 /// <summary>
-/// Default implementation of <see cref="IDirectoryService"/> using .NET standard file system APIs.
-/// Honors cancellation, ignores inaccessible entries, and yields execution periodically to prevent UI freezes.
+/// Implementation of <see cref="IDirectoryService"/> using a background producer and bounded Channel.
+/// Completely decouples directory enumeration from the caller's SynchronizationContext, ensuring
+/// that slow I/O and file metadata queries never execute on the UI thread.
 /// </summary>
 public class DirectoryService : IDirectoryService
 {
@@ -13,14 +15,25 @@ public class DirectoryService : IDirectoryService
         string path,
         [EnumeratorCancellation] CancellationToken ct = default)
     {
+        await foreach (var batch in EnumerateBatchesAsync(path, batchSize: 200, ct).ConfigureAwait(false))
+        {
+            foreach (var item in batch)
+            {
+                ct.ThrowIfCancellationRequested();
+                yield return item;
+            }
+        }
+    }
+
+    public async IAsyncEnumerable<IReadOnlyList<FileEntry>> EnumerateBatchesAsync(
+        string path,
+        int batchSize = 200,
+        [EnumeratorCancellation] CancellationToken ct = default)
+    {
         if (string.IsNullOrWhiteSpace(path))
         {
             throw new ArgumentException("Path cannot be null or empty.", nameof(path));
         }
-
-        // Shift execution to the thread pool immediately to never block the caller (UI thread)
-        await Task.Yield();
-        ct.ThrowIfCancellationRequested();
 
         string normalizedPath = NormalizePath(path);
 
@@ -29,113 +42,155 @@ public class DirectoryService : IDirectoryService
             throw new DirectoryNotFoundException($"Directory not found: '{path}'");
         }
 
-        var dirInfo = new DirectoryInfo(normalizedPath);
+        if (batchSize <= 0) batchSize = 200;
 
-        // EnumerationOptions with IgnoreInaccessible ensures Windows API level access errors are ignored
-        var options = new EnumerationOptions
+        // Bounded channel to prevent background producer from outrunning consumer and bloating memory
+        var channel = Channel.CreateBounded<IReadOnlyList<FileEntry>>(new BoundedChannelOptions(capacity: 8)
         {
-            IgnoreInaccessible = true,
-            RecurseSubdirectories = false,
-            ReturnSpecialDirectories = false,
-            AttributesToSkip = 0 // Include hidden and system files for full file manager visibility
-        };
+            FullMode = BoundedChannelFullMode.Wait,
+            SingleWriter = true,
+            SingleReader = true
+        });
 
-        IEnumerator<FileSystemInfo> enumerator;
-        try
-        {
-            enumerator = dirInfo.EnumerateFileSystemInfos("*", options).GetEnumerator();
-        }
-        catch (Exception ex) when (ex is UnauthorizedAccessException or IOException)
-        {
-            // Re-throw if the root directory itself cannot be opened, allowing the caller to show "Access Denied"
-            throw;
-        }
+        using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        var producerCt = linkedCts.Token;
 
-        using (enumerator)
+        // Start producer on a clean ThreadPool thread, completely independent of caller's SynchronizationContext
+        _ = Task.Run(async () =>
         {
-            int counter = 0;
-            while (true)
+            try
             {
-                ct.ThrowIfCancellationRequested();
+                var dirInfo = new DirectoryInfo(normalizedPath);
+                var options = new EnumerationOptions
+                {
+                    IgnoreInaccessible = true,
+                    RecurseSubdirectories = false,
+                    ReturnSpecialDirectories = false,
+                    AttributesToSkip = 0 // Show all files in a file manager
+                };
 
-                FileSystemInfo current;
+                IEnumerator<FileSystemInfo> enumerator;
                 try
                 {
-                    if (!enumerator.MoveNext())
-                    {
-                        break;
-                    }
-                    current = enumerator.Current;
+                    enumerator = dirInfo.EnumerateFileSystemInfos("*", options).GetEnumerator();
                 }
                 catch (Exception ex) when (ex is UnauthorizedAccessException or IOException)
                 {
-                    // Skip entries that fail during MoveNext (e.g. locked files or inaccessible junction targets)
-                    continue;
+                    channel.Writer.Complete(ex);
+                    return;
                 }
 
-                FileEntry? entry = null;
-                try
+                using (enumerator)
                 {
-                    bool isDirectory = (current.Attributes & FileAttributes.Directory) == FileAttributes.Directory;
-                    long size = 0;
+                    var buffer = new List<FileEntry>(batchSize);
 
-                    if (!isDirectory && current is FileInfo fileInfo)
+                    while (true)
                     {
+                        producerCt.ThrowIfCancellationRequested();
+
+                        FileSystemInfo current;
                         try
                         {
-                            size = fileInfo.Length;
+                            if (!enumerator.MoveNext())
+                            {
+                                break;
+                            }
+                            current = enumerator.Current;
                         }
                         catch (Exception ex) when (ex is UnauthorizedAccessException or IOException)
                         {
-                            size = 0;
+                            continue;
+                        }
+
+                        FileEntry? entry = null;
+                        try
+                        {
+                            bool isDirectory = (current.Attributes & FileAttributes.Directory) == FileAttributes.Directory;
+                            long size = 0;
+
+                            if (!isDirectory && current is FileInfo fileInfo)
+                            {
+                                try
+                                {
+                                    size = fileInfo.Length;
+                                }
+                                catch (Exception ex) when (ex is UnauthorizedAccessException or IOException)
+                                {
+                                    size = 0;
+                                }
+                            }
+
+                            DateTime modified = DateTime.MinValue;
+                            try
+                            {
+                                modified = current.LastWriteTime;
+                            }
+                            catch (Exception ex) when (ex is UnauthorizedAccessException or IOException)
+                            {
+                                modified = DateTime.MinValue;
+                            }
+
+                            entry = new FileEntry(current.Name, current.FullName, isDirectory, size, modified);
+                        }
+                        catch (Exception ex) when (ex is UnauthorizedAccessException or IOException)
+                        {
+                            continue;
+                        }
+
+                        if (entry != null)
+                        {
+                            buffer.Add(entry);
+                            if (buffer.Count >= batchSize)
+                            {
+                                var chunk = buffer.ToArray();
+                                buffer.Clear();
+                                await channel.Writer.WriteAsync(chunk, producerCt).ConfigureAwait(false);
+                            }
                         }
                     }
 
-                    DateTime modified = DateTime.MinValue;
-                    try
+                    if (buffer.Count > 0)
                     {
-                        modified = current.LastWriteTime;
+                        await channel.Writer.WriteAsync(buffer.ToArray(), producerCt).ConfigureAwait(false);
                     }
-                    catch (Exception ex) when (ex is UnauthorizedAccessException or IOException)
-                    {
-                        modified = DateTime.MinValue;
-                    }
-
-                    entry = new FileEntry(current.Name, current.FullName, isDirectory, size, modified);
-                }
-                catch (Exception ex) when (ex is UnauthorizedAccessException or IOException)
-                {
-                    // Skip individual entry if attribute resolution fails
-                    continue;
                 }
 
-                if (entry != null)
-                {
-                    yield return entry;
-                }
+                channel.Writer.Complete();
+            }
+            catch (Exception ex)
+            {
+                channel.Writer.Complete(ex);
+            }
+        }, CancellationToken.None);
 
-                // Periodically yield thread to keep thread pool balanced and responsive when reading 50,000+ files
-                if (++counter % 256 == 0)
+        try
+        {
+            while (await channel.Reader.WaitToReadAsync(ct).ConfigureAwait(false))
+            {
+                while (channel.Reader.TryRead(out var batch))
                 {
-                    await Task.Yield();
+                    yield return batch;
                 }
             }
+
+            // Propagate any exceptions that occurred inside the producer task
+            await channel.Reader.Completion.ConfigureAwait(false);
+        }
+        finally
+        {
+            // If the consumer broke out of the loop early, cancel producer
+            linkedCts.Cancel();
         }
     }
 
-    /// <summary>
-    /// Normalizes path and prepends the Win32 extended path prefix (\\?\) for paths >= 240 chars.
-    /// </summary>
     private static string NormalizePath(string path)
     {
         string fullPath = Path.GetFullPath(path);
 
-        // Prepend \\?\ if path is long and rooted on Windows to bypass standard MAX_PATH (260 char) limitation
         if (OperatingSystem.IsWindows() && fullPath.Length >= 240 && !fullPath.StartsWith(@"\\?\") && !fullPath.StartsWith(@"\\.\"))
         {
             if (fullPath.StartsWith(@"\\"))
             {
-                // UNC path: \\server\share -> \\?\UNC\server\share
                 return @"\\?\UNC\" + fullPath.Substring(2);
             }
             return @"\\?\" + fullPath;

@@ -147,4 +147,52 @@ public class DirectoryServiceTests : IDisposable
         Assert.True(items.Count >= 5);
         Assert.True(items.Count < 50);
     }
+
+    private class StrictSyncContext : SynchronizationContext
+    {
+        public int PostedCallbacks { get; private set; }
+
+        public override void Post(SendOrPostCallback d, object? state)
+        {
+            PostedCallbacks++;
+            d(state);
+        }
+
+        public override void Send(SendOrPostCallback d, object? state)
+        {
+            PostedCallbacks++;
+            d(state);
+        }
+    }
+
+    [Fact]
+    public async Task EnumerateBatchesAsync_DoesNotRunEnumerationWorkOnCallerSynchronizationContext()
+    {
+        for (int i = 0; i < 20; i++)
+        {
+            File.WriteAllText(Path.Combine(_testRoot, $"test_{i}.txt"), "content");
+        }
+
+        var customContext = new StrictSyncContext();
+        var originalContext = SynchronizationContext.Current;
+
+        try
+        {
+            SynchronizationContext.SetSynchronizationContext(customContext);
+
+            var batches = new List<IReadOnlyList<FileEntry>>();
+            await foreach (var batch in _service.EnumerateBatchesAsync(_testRoot, batchSize: 5).ConfigureAwait(false))
+            {
+                batches.Add(batch);
+            }
+
+            Assert.NotEmpty(batches);
+            Assert.Equal(20, batches.Sum(b => b.Count));
+            Assert.Equal(0, customContext.PostedCallbacks);
+        }
+        finally
+        {
+            SynchronizationContext.SetSynchronizationContext(originalContext);
+        }
+    }
 }

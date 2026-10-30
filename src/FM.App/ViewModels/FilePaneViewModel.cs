@@ -201,29 +201,11 @@ public partial class FilePaneViewModel : ObservableObject
             // Clear view items immediately
             Items.ReplaceAll(Array.Empty<FileItemViewModel>());
 
-            var buffer = new List<FileItemViewModel>(150);
-
-            await foreach (var entry in _directoryService.EnumerateAsync(resolvedPath, ct))
+            await foreach (var batch in _directoryService.EnumerateBatchesAsync(resolvedPath, 150, ct))
             {
-                var itemVm = new FileItemViewModel(entry);
-                buffer.Add(itemVm);
-
-                // Batch dispatch to UI collection to eliminate per-item layout invalidation
-                if (buffer.Count >= 150)
-                {
-                    var batch = buffer.ToList();
-                    buffer.Clear();
-                    Items.AddRange(batch);
-                    _ = LoadIconsForBatchAsync(batch, ct);
-                }
-            }
-
-            if (buffer.Count > 0)
-            {
-                var batch = buffer.ToList();
-                buffer.Clear();
-                Items.AddRange(batch);
-                _ = LoadIconsForBatchAsync(batch, ct);
+                var batchVms = batch.Select(e => new FileItemViewModel(e)).ToList();
+                Items.AddRange(batchVms);
+                _ = LoadIconsForBatchAsync(batchVms, ct);
             }
 
             // Apply folders-first sort order once enumeration completes
