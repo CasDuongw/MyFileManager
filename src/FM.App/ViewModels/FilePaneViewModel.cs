@@ -239,9 +239,8 @@ public partial class FilePaneViewModel : ObservableObject
             await foreach (var batch in _directoryService.EnumerateBatchesAsync(resolvedPath, 150, ct))
             {
                 if (!IsCurrent()) return;
-                var batchVms = batch.Select(e => new FileItemViewModel(e)).ToList();
+                var batchVms = batch.Select(e => new FileItemViewModel(e, _iconService, () => _loadCts?.Token ?? CancellationToken.None)).ToList();
                 Items.AddRange(batchVms);
-                _ = LoadIconsForBatchAsync(batchVms, ct);
             }
 
             if (!IsCurrent()) return;
@@ -340,15 +339,6 @@ public partial class FilePaneViewModel : ObservableObject
         if (selectedPath != null)
         {
             SelectedItem = Items.FirstOrDefault(i => string.Equals(i.FullPath, selectedPath, StringComparison.OrdinalIgnoreCase));
-        }
-    }
-
-    private async Task LoadIconsForBatchAsync(List<FileItemViewModel> batch, CancellationToken ct)
-    {
-        foreach (var item in batch)
-        {
-            if (ct.IsCancellationRequested) break;
-            await item.LoadIconAsync(_iconService, ct);
         }
     }
 

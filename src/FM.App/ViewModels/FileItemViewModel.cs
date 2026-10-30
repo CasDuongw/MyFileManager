@@ -8,10 +8,31 @@ namespace FM.App.ViewModels;
 
 /// <summary>
 /// ViewModel representing an individual file or directory item in the file list.
+/// Supports lazy, on-demand icon retrieval: icon is only loaded when the row is realized by WPF.
 /// </summary>
 public partial class FileItemViewModel : ObservableObject
 {
     public FileEntry Entry { get; }
+    private readonly IIconService? _iconService;
+    private readonly Func<CancellationToken>? _getCancellationToken;
+
+    private bool _iconRequested;
+    private ImageSource? _icon;
+
+    public ImageSource? Icon
+    {
+        get
+        {
+            // Only request the icon when WPF virtualization realizes this row and queries the property
+            if (_icon == null && !_iconRequested && _iconService != null)
+            {
+                _iconRequested = true;
+                _ = RequestIconAsync();
+            }
+            return _icon;
+        }
+        set => SetProperty(ref _icon, value);
+    }
 
     public string Name => Entry.Name;
     public string FullPath => Entry.FullPath;
@@ -23,34 +44,32 @@ public partial class FileItemViewModel : ObservableObject
     public string FormattedModified => Entry.Modified == DateTime.MinValue ? string.Empty : Entry.Modified.ToString("yyyy-MM-dd HH:mm");
     public string DisplayType => FormatHelper.FormatFileType(Entry.Name, Entry.IsDirectory);
 
-    [ObservableProperty]
-    private ImageSource? _icon;
-
-    public FileItemViewModel(FileEntry entry)
+    public FileItemViewModel(
+        FileEntry entry,
+        IIconService? iconService = null,
+        Func<CancellationToken>? getCancellationToken = null)
     {
         Entry = entry;
+        _iconService = iconService;
+        _getCancellationToken = getCancellationToken;
     }
 
-    /// <summary>
-    /// Asynchronously populates the item's icon from the icon service.
-    /// </summary>
-    public async Task LoadIconAsync(IIconService iconService, CancellationToken ct)
+    private async Task RequestIconAsync()
     {
+        if (_iconService == null) return;
+        var ct = _getCancellationToken?.Invoke() ?? CancellationToken.None;
+
         try
         {
-            var icon = await iconService.GetIconAsync(FullPath, IsDirectory, ct);
+            var icon = await _iconService.GetIconAsync(FullPath, IsDirectory, isDrive: false, ct);
             if (!ct.IsCancellationRequested && icon != null)
             {
                 Icon = icon;
             }
         }
-        catch (OperationCanceledException)
-        {
-            // Expected when user quickly navigates
-        }
         catch
         {
-            // Non-critical if an individual icon cannot be loaded
+            // Ignore cancellation or missing icon
         }
     }
 }

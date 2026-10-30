@@ -144,11 +144,27 @@ public partial class MainViewModel : ObservableObject
 
     private async Task LoadSidebarIconsAsync()
     {
-        foreach (var item in SidebarFavorites.Concat(SidebarDrives))
+        foreach (var item in SidebarFavorites)
         {
             try
             {
-                var icon = await _iconService.GetIconAsync(item.Path, isDirectory: true);
+                var icon = await _iconService.GetIconAsync(item.Path, isDirectory: true, isDrive: false);
+                if (icon != null)
+                {
+                    item.Icon = icon;
+                }
+            }
+            catch
+            {
+                // Non-critical if individual sidebar item icon cannot be retrieved
+            }
+        }
+
+        foreach (var item in SidebarDrives)
+        {
+            try
+            {
+                var icon = await _iconService.GetIconAsync(item.Path, isDirectory: true, isDrive: true);
                 if (icon != null)
                 {
                     item.Icon = icon;
