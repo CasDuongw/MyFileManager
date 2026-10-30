@@ -10,3 +10,4 @@ TestResults/
 .idea/
 *.rsuser
 .DS_Store
+repomix-output.xml
