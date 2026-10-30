@@ -5,45 +5,29 @@ using FM.Core.Models;
 
 namespace FM.App.Tests;
 
-public class FilePaneViewModelTests : IDisposable
+/// <summary>
+/// Unit tests for FilePaneViewModel.
+/// Strictly touches NO physical disk; all file entries and errors are simulated in-memory via FakeDirectoryService.
+/// </summary>
+public class FilePaneViewModelTests
 {
-    private readonly string _testRoot;
+    private const string MockRoot = @"C:\MockTest";
     private readonly FakeDirectoryService _fakeDirService;
     private readonly FakeIconService _fakeIconService;
     private readonly FilePaneViewModel _viewModel;
 
     public FilePaneViewModelTests()
     {
-        _testRoot = Path.Combine(Path.GetTempPath(), $"FM_AppTests_{Guid.NewGuid():N}");
-        Directory.CreateDirectory(_testRoot);
-
         _fakeDirService = new FakeDirectoryService();
         _fakeIconService = new FakeIconService();
         _viewModel = new FilePaneViewModel(_fakeDirService, _fakeIconService);
     }
 
-    public void Dispose()
-    {
-        try
-        {
-            if (Directory.Exists(_testRoot))
-            {
-                Directory.Delete(_testRoot, true);
-            }
-        }
-        catch
-        {
-            // Ignore cleanup failure
-        }
-    }
-
     [Fact]
     public async Task RapidSuccessiveNavigations_OnlyLastResultShown()
     {
-        string dirA = Path.Combine(_testRoot, "DirA");
-        string dirB = Path.Combine(_testRoot, "DirB");
-        Directory.CreateDirectory(dirA);
-        Directory.CreateDirectory(dirB);
+        string dirA = Path.Combine(MockRoot, "DirA");
+        string dirB = Path.Combine(MockRoot, "DirB");
 
         _fakeDirService.AddDirectory(dirA, new[]
         {
@@ -73,7 +57,7 @@ public class FilePaneViewModelTests : IDisposable
     [Fact]
     public async Task ErrorState_DirectoryNotFound_ShowsErrorMessage()
     {
-        string missingPath = Path.Combine(_testRoot, "NoSuchDirectory");
+        string missingPath = Path.Combine(MockRoot, "NoSuchDirectory");
 
         await _viewModel.NavigateInternalAsync(missingPath, NavigationPhaseType.New);
 
@@ -85,8 +69,7 @@ public class FilePaneViewModelTests : IDisposable
     [Fact]
     public async Task ErrorState_AccessDenied_ShowsErrorMessage()
     {
-        string deniedPath = Path.Combine(_testRoot, "DeniedDir");
-        Directory.CreateDirectory(deniedPath);
+        string deniedPath = Path.Combine(MockRoot, "DeniedDir");
 
         _fakeDirService.SetError(deniedPath, new UnauthorizedAccessException("Forbidden"));
 
@@ -100,8 +83,8 @@ public class FilePaneViewModelTests : IDisposable
     [Fact]
     public async Task HistoryConsistency_BackToDeletedFolder_MaintainsHistory()
     {
-        string dir1 = Path.Combine(_testRoot, "Dir1");
-        string dir2 = Path.Combine(_testRoot, "Dir2");
+        string dir1 = Path.Combine(MockRoot, "Dir1");
+        string dir2 = Path.Combine(MockRoot, "Dir2");
 
         _fakeDirService.AddDirectory(dir1, Array.Empty<FileEntry>());
         _fakeDirService.AddDirectory(dir2, Array.Empty<FileEntry>());
@@ -129,8 +112,8 @@ public class FilePaneViewModelTests : IDisposable
     [Fact]
     public async Task HistoryConsistency_ForwardToDeletedFolder_MaintainsHistory()
     {
-        string dir1 = Path.Combine(_testRoot, "DirFwd1");
-        string dir2 = Path.Combine(_testRoot, "DirFwd2");
+        string dir1 = Path.Combine(MockRoot, "DirFwd1");
+        string dir2 = Path.Combine(MockRoot, "DirFwd2");
 
         _fakeDirService.AddDirectory(dir1, Array.Empty<FileEntry>());
         _fakeDirService.AddDirectory(dir2, Array.Empty<FileEntry>());
@@ -160,8 +143,7 @@ public class FilePaneViewModelTests : IDisposable
     [Fact]
     public async Task Sort_PreservesSelection()
     {
-        string dir = Path.Combine(_testRoot, "SortDir");
-        Directory.CreateDirectory(dir);
+        string dir = Path.Combine(MockRoot, "SortDir");
 
         _fakeDirService.AddDirectory(dir, new[]
         {
@@ -187,8 +169,7 @@ public class FilePaneViewModelTests : IDisposable
     [Fact]
     public async Task Sort_PreservesAllSelectedItems_ByFullPath()
     {
-        string dir = Path.Combine(_testRoot, "MultiSortDir");
-        Directory.CreateDirectory(dir);
+        string dir = Path.Combine(MockRoot, "MultiSortDir");
 
         _fakeDirService.AddDirectory(dir, new[]
         {
@@ -218,8 +199,7 @@ public class FilePaneViewModelTests : IDisposable
     [Fact]
     public async Task Refresh_PreservesAllSelectedItems_ByFullPath()
     {
-        string dir = Path.Combine(_testRoot, "MultiRefreshDir");
-        Directory.CreateDirectory(dir);
+        string dir = Path.Combine(MockRoot, "MultiRefreshDir");
 
         _fakeDirService.AddDirectory(dir, new[]
         {
@@ -248,8 +228,7 @@ public class FilePaneViewModelTests : IDisposable
     [Fact]
     public async Task MultiSelect_SyncUpdatesSelectionStatusText()
     {
-        string dir = Path.Combine(_testRoot, "MultiSelectDir");
-        Directory.CreateDirectory(dir);
+        string dir = Path.Combine(MockRoot, "MultiSelectDir");
 
         _fakeDirService.AddDirectory(dir, new[]
         {
@@ -275,8 +254,7 @@ public class FilePaneViewModelTests : IDisposable
     [Fact]
     public async Task Navigate_RaisesPropertyChangedForSelectionStatusText()
     {
-        string dir = Path.Combine(_testRoot, "StatusTextDir");
-        Directory.CreateDirectory(dir);
+        string dir = Path.Combine(MockRoot, "StatusTextDir");
 
         _fakeDirService.AddDirectory(dir, new[]
         {
@@ -304,10 +282,8 @@ public class FilePaneViewModelTests : IDisposable
     [Fact]
     public async Task Cancellation_WhenNavigatingAwayMidLoad()
     {
-        string dirSlow = Path.Combine(_testRoot, "DirSlow");
-        string dirFast = Path.Combine(_testRoot, "DirFast");
-        Directory.CreateDirectory(dirSlow);
-        Directory.CreateDirectory(dirFast);
+        string dirSlow = Path.Combine(MockRoot, "DirSlow");
+        string dirFast = Path.Combine(MockRoot, "DirFast");
 
         _fakeDirService.AddDirectory(dirSlow, new[]
         {
@@ -339,10 +315,8 @@ public class FilePaneViewModelTests : IDisposable
     [Fact]
     public async Task StaleSort_WhenNavigatingToNewerFolder_DoesNotOverwriteNewerFolder()
     {
-        string dirA = Path.Combine(_testRoot, "DirA_Large");
-        string dirB = Path.Combine(_testRoot, "DirB_Small");
-        Directory.CreateDirectory(dirA);
-        Directory.CreateDirectory(dirB);
+        string dirA = Path.Combine(MockRoot, "DirA_Large");
+        string dirB = Path.Combine(MockRoot, "DirB_Small");
 
         var entriesA = Enumerable.Range(1, 501)
             .Select(i => new FileEntry($"fileA_{i:D4}.txt", Path.Combine(dirA, $"fileA_{i:D4}.txt"), false, i, DateTime.Now))
