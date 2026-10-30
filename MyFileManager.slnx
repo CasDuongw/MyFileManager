@@ -1,9 +1,0 @@
-<Solution>
-  <Folder Name="/src/">
-    <Project Path="src/FM.App/FM.App.csproj" />
-    <Project Path="src/FM.Core/FM.Core.csproj" />
-  </Folder>
-  <Folder Name="/tests/">
-    <Project Path="tests/FM.Core.Tests/FM.Core.Tests.csproj" />
-  </Folder>
-</Solution>
