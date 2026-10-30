@@ -44,11 +44,24 @@ public partial class FilePaneView : UserControl
         }
     }
 
-    private void OnGridViewColumnHeaderClicked(object sender, RoutedEventArgs e)
+    private async void OnGridViewColumnHeaderClicked(object sender, RoutedEventArgs e)
     {
-        if (e.OriginalSource is GridViewColumnHeader header && header.Tag is string columnTag)
+        if (e.OriginalSource is GridViewColumnHeader header && header.Tag is string columnTag && ViewModel != null)
         {
-            ViewModel?.SortCommand.Execute(columnTag);
+            var scrollViewer = FileListView.FindVisualChild<ScrollViewer>();
+            double scrollOffset = scrollViewer?.VerticalOffset ?? 0;
+
+            await ViewModel.Sort(columnTag);
+
+            if (scrollViewer != null)
+            {
+                scrollViewer.ScrollToVerticalOffset(scrollOffset);
+            }
+
+            if (ViewModel.SelectedItem != null)
+            {
+                FileListView.ScrollIntoView(ViewModel.SelectedItem);
+            }
         }
     }
 

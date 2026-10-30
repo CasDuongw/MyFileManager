@@ -53,10 +53,14 @@ public partial class FilePaneViewModel : ObservableObject
     private FileItemViewModel? _selectedItem;
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(SortStatusText))]
     private FileSortColumn _currentSortColumn = FileSortColumn.Name;
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(SortStatusText))]
     private bool _isSortAscending = true;
+
+    public string SortStatusText => $"Sorted by {CurrentSortColumn} ({(IsSortAscending ? "▲ Asc" : "▼ Desc")})";
 
     public bool CanGoBack => _history.CanGoBack;
     public bool CanGoForward => _history.CanGoForward;
@@ -124,7 +128,7 @@ public partial class FilePaneViewModel : ObservableObject
     }
 
     [RelayCommand]
-    public void Sort(string columnStr)
+    public async Task Sort(string columnStr)
     {
         if (!Enum.TryParse<FileSortColumn>(columnStr, ignoreCase: true, out var column)) return;
 
@@ -138,7 +142,7 @@ public partial class FilePaneViewModel : ObservableObject
             IsSortAscending = true;
         }
 
-        ApplySort();
+        await ApplySortAsync();
     }
 
     [RelayCommand]
@@ -227,6 +231,8 @@ public partial class FilePaneViewModel : ObservableObject
             AddressText = resolvedPath;
             UpdateHistoryCommandStates();
 
+            string? previousSelection = SelectedItem?.FullPath;
+
             // Clear view items immediately
             Items.ReplaceAll(Array.Empty<FileItemViewModel>());
 
@@ -241,7 +247,12 @@ public partial class FilePaneViewModel : ObservableObject
             if (!IsCurrent()) return;
 
             // Apply folders-first sort order once enumeration completes
-            ApplySort();
+            await ApplySortAsync();
+
+            if (previousSelection != null && SelectedItem == null)
+            {
+                SelectedItem = Items.FirstOrDefault(i => string.Equals(i.FullPath, previousSelection, StringComparison.OrdinalIgnoreCase));
+            }
         }
         catch (OperationCanceledException)
         {
@@ -288,16 +299,48 @@ public partial class FilePaneViewModel : ObservableObject
         }
     }
 
-    private void ApplySort()
+    public async Task ApplySortAsync()
     {
-        if (Items.Count == 0) return;
+        if (Items.Count <= 1) return;
 
-        // Group by full path to preserve previously resolved icon references
-        var map = Items.ToDictionary(i => i.FullPath, StringComparer.OrdinalIgnoreCase);
-        var sortedEntries = Items.Select(i => i.Entry).OrderEntries(CurrentSortColumn, IsSortAscending);
-        var sortedVms = sortedEntries.Select(e => map[e.FullPath]).ToList();
+        string? selectedPath = SelectedItem?.FullPath;
+
+        var currentItems = Items.ToList();
+        var map = currentItems.ToDictionary(i => i.FullPath, StringComparer.OrdinalIgnoreCase);
+        var entries = currentItems.Select(i => i.Entry).ToList();
+
+        var sortCol = CurrentSortColumn;
+        var isAsc = IsSortAscending;
+
+        // Perform sorting off UI thread when list is large
+        List<FileItemViewModel> sortedVms;
+        if (currentItems.Count > 500)
+        {
+            sortedVms = await Task.Run(() =>
+            {
+                var sortedEntries = entries.OrderEntries(sortCol, isAsc);
+                return sortedEntries.Select(e => map[e.FullPath]).ToList();
+            });
+        }
+        else
+        {
+            var sortedEntries = entries.OrderEntries(sortCol, isAsc);
+            sortedVms = sortedEntries.Select(e => map[e.FullPath]).ToList();
+        }
+
+        // Avoid rebuilding collection if the order did not change
+        if (sortedVms.SequenceEqual(Items))
+        {
+            return;
+        }
 
         Items.ReplaceAll(sortedVms);
+
+        // Restore selection by FullPath
+        if (selectedPath != null)
+        {
+            SelectedItem = Items.FirstOrDefault(i => string.Equals(i.FullPath, selectedPath, StringComparison.OrdinalIgnoreCase));
+        }
     }
 
     private async Task LoadIconsForBatchAsync(List<FileItemViewModel> batch, CancellationToken ct)

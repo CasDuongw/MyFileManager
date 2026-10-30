@@ -228,7 +228,7 @@
                     <TextBlock Text="{Binding Items.Count, StringFormat='{}{0} items'}"
                                FontSize="11" Foreground="#6B7280" />
                     <TextBlock Grid.Column="1"
-                               Text="{Binding CurrentSortColumn, StringFormat='Sorted by {0}'}"
+                               Text="{Binding SortStatusText}"
                                FontSize="11" Foreground="#9CA3AF" />
                 </Grid>
             </Border>
