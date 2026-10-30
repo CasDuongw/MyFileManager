@@ -1,0 +1,16 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": ".NET Core Launch (WPF App)",
+            "type": "coreclr",
+            "request": "launch",
+            "preLaunchTask": "build",
+            "program": "${workspaceFolder}/src/FM.App/bin/Debug/net8.0-windows/FM.App.dll",
+            "args": [],
+            "cwd": "${workspaceFolder}/src/FM.App",
+            "stopAtEntry": false,
+            "console": "internalConsole"
+        }
+    ]
+}
