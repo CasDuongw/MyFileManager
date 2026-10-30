@@ -8,3 +8,4 @@ public interface IShellLauncher
 {
     void Launch(string path);
 }
+

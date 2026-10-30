@@ -17,3 +17,4 @@ public class FakeShellLauncher : IShellLauncher
         LaunchedPaths.Add(path);
     }
 }
+

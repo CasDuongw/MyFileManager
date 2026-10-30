@@ -16,3 +16,4 @@ public class ShellLauncher : IShellLauncher
         Process.Start(psi);
     }
 }
+
