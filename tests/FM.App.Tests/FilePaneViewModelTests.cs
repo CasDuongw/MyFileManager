@@ -1,0 +1,222 @@
+using System.IO;
+using FM.App.Tests.Fakes;
+using FM.App.ViewModels;
+using FM.Core.Models;
+
+namespace FM.App.Tests;
+
+public class FilePaneViewModelTests : IDisposable
+{
+    private readonly string _testRoot;
+    private readonly FakeDirectoryService _fakeDirService;
+    private readonly FakeIconService _fakeIconService;
+    private readonly FilePaneViewModel _viewModel;
+
+    public FilePaneViewModelTests()
+    {
+        _testRoot = Path.Combine(Path.GetTempPath(), $"FM_AppTests_{Guid.NewGuid():N}");
+        Directory.CreateDirectory(_testRoot);
+
+        _fakeDirService = new FakeDirectoryService();
+        _fakeIconService = new FakeIconService();
+        _viewModel = new FilePaneViewModel(_fakeDirService, _fakeIconService);
+    }
+
+    public void Dispose()
+    {
+        try
+        {
+            if (Directory.Exists(_testRoot))
+            {
+                Directory.Delete(_testRoot, true);
+            }
+        }
+        catch
+        {
+            // Ignore cleanup failure
+        }
+    }
+
+    [Fact]
+    public async Task RapidSuccessiveNavigations_OnlyLastResultShown()
+    {
+        string dirA = Path.Combine(_testRoot, "DirA");
+        string dirB = Path.Combine(_testRoot, "DirB");
+        Directory.CreateDirectory(dirA);
+        Directory.CreateDirectory(dirB);
+
+        _fakeDirService.AddDirectory(dirA, new[]
+        {
+            new FileEntry("fileA1.txt", Path.Combine(dirA, "fileA1.txt"), false, 100, DateTime.Now),
+            new FileEntry("fileA2.txt", Path.Combine(dirA, "fileA2.txt"), false, 200, DateTime.Now)
+        });
+
+        _fakeDirService.AddDirectory(dirB, new[]
+        {
+            new FileEntry("fileB1.txt", Path.Combine(dirB, "fileB1.txt"), false, 300, DateTime.Now),
+            new FileEntry("fileB2.txt", Path.Combine(dirB, "fileB2.txt"), false, 400, DateTime.Now)
+        });
+
+        _fakeDirService.SetDelay(TimeSpan.FromMilliseconds(50));
+
+        // Rapid navigations
+        var taskA = _viewModel.NavigateInternalAsync(dirA, NavigationPhaseType.New);
+        var taskB = _viewModel.NavigateInternalAsync(dirB, NavigationPhaseType.New);
+
+        await Task.WhenAll(taskA, taskB);
+
+        Assert.Equal(dirB, _viewModel.CurrentPath);
+        Assert.Equal(2, _viewModel.Items.Count);
+        Assert.All(_viewModel.Items, item => Assert.StartsWith("fileB", item.Name));
+    }
+
+    [Fact]
+    public async Task ErrorState_DirectoryNotFound_ShowsErrorMessage()
+    {
+        string missingPath = Path.Combine(_testRoot, "NoSuchDirectory");
+
+        await _viewModel.NavigateInternalAsync(missingPath, NavigationPhaseType.New);
+
+        Assert.True(_viewModel.HasError);
+        Assert.Contains("Directory not found", _viewModel.ErrorMessage);
+        Assert.Empty(_viewModel.Items);
+    }
+
+    [Fact]
+    public async Task ErrorState_AccessDenied_ShowsErrorMessage()
+    {
+        string deniedPath = Path.Combine(_testRoot, "DeniedDir");
+        Directory.CreateDirectory(deniedPath);
+
+        _fakeDirService.SetError(deniedPath, new UnauthorizedAccessException("Forbidden"));
+
+        await _viewModel.NavigateInternalAsync(deniedPath, NavigationPhaseType.New);
+
+        Assert.True(_viewModel.HasError);
+        Assert.Contains("Access denied", _viewModel.ErrorMessage);
+        Assert.Empty(_viewModel.Items);
+    }
+
+    [Fact]
+    public async Task HistoryConsistency_BackToDeletedFolder_MaintainsHistory()
+    {
+        string dir1 = Path.Combine(_testRoot, "Dir1");
+        string dir2 = Path.Combine(_testRoot, "Dir2");
+        Directory.CreateDirectory(dir1);
+        Directory.CreateDirectory(dir2);
+
+        _fakeDirService.AddDirectory(dir1, Array.Empty<FileEntry>());
+        _fakeDirService.AddDirectory(dir2, Array.Empty<FileEntry>());
+
+        // Navigate Dir1 -> Dir2
+        await _viewModel.NavigateInternalAsync(dir1, NavigationPhaseType.New);
+        await _viewModel.NavigateInternalAsync(dir2, NavigationPhaseType.New);
+
+        Assert.Equal(dir2, _viewModel.CurrentPath);
+        Assert.True(_viewModel.CanGoBack);
+
+        // Delete Dir1 on disk
+        Directory.Delete(dir1, true);
+
+        // Attempt GoBack
+        _viewModel.GoBackCommand.Execute(null);
+
+        // Allow async handler to run
+        await Task.Delay(50);
+
+        // Dir1 was deleted, so error is displayed, but CurrentPath remains Dir2 and CanGoBack remains true
+        Assert.True(_viewModel.HasError);
+        Assert.Contains("Directory not found", _viewModel.ErrorMessage);
+        Assert.Equal(dir2, _viewModel.CurrentPath);
+        Assert.True(_viewModel.CanGoBack);
+    }
+
+    [Fact]
+    public async Task Sort_PreservesSelection()
+    {
+        string dir = Path.Combine(_testRoot, "SortDir");
+        Directory.CreateDirectory(dir);
+
+        _fakeDirService.AddDirectory(dir, new[]
+        {
+            new FileEntry("zebra.txt", Path.Combine(dir, "zebra.txt"), false, 1000, DateTime.Now),
+            new FileEntry("apple.txt", Path.Combine(dir, "apple.txt"), false, 10, DateTime.Now),
+            new FileEntry("banana.txt", Path.Combine(dir, "banana.txt"), false, 500, DateTime.Now)
+        });
+
+        await _viewModel.NavigateInternalAsync(dir, NavigationPhaseType.New);
+
+        // Select apple.txt
+        var appleItem = _viewModel.Items.First(i => i.Name == "apple.txt");
+        _viewModel.SelectedItem = appleItem;
+
+        // Sort by Size
+        await _viewModel.Sort("Size");
+
+        // Verify apple.txt is still selected
+        Assert.NotNull(_viewModel.SelectedItem);
+        Assert.Equal("apple.txt", _viewModel.SelectedItem.Name);
+    }
+
+    [Fact]
+    public async Task MultiSelect_SyncUpdatesSelectionStatusText()
+    {
+        string dir = Path.Combine(_testRoot, "MultiSelectDir");
+        Directory.CreateDirectory(dir);
+
+        _fakeDirService.AddDirectory(dir, new[]
+        {
+            new FileEntry("file1.txt", Path.Combine(dir, "file1.txt"), false, 1024, DateTime.Now),
+            new FileEntry("file2.txt", Path.Combine(dir, "file2.txt"), false, 2048, DateTime.Now),
+            new FileEntry("folder1", Path.Combine(dir, "folder1"), true, 0, DateTime.Now)
+        });
+
+        await _viewModel.NavigateInternalAsync(dir, NavigationPhaseType.New);
+
+        // Initial: 0 selected
+        Assert.Equal("3 items", _viewModel.SelectionStatusText);
+
+        // Select file1 and file2
+        var selected = _viewModel.Items.Where(i => !i.IsDirectory).ToList();
+        _viewModel.UpdateSelectedItems(selected);
+
+        Assert.Equal(2, _viewModel.SelectedItems.Count);
+        Assert.Contains("2 of 3 selected", _viewModel.SelectionStatusText);
+        Assert.Contains("3 KB", _viewModel.SelectionStatusText);
+    }
+
+    [Fact]
+    public async Task Cancellation_WhenNavigatingAwayMidLoad()
+    {
+        string dirSlow = Path.Combine(_testRoot, "DirSlow");
+        string dirFast = Path.Combine(_testRoot, "DirFast");
+        Directory.CreateDirectory(dirSlow);
+        Directory.CreateDirectory(dirFast);
+
+        _fakeDirService.AddDirectory(dirSlow, new[]
+        {
+            new FileEntry("slow.txt", Path.Combine(dirSlow, "slow.txt"), false, 100, DateTime.Now)
+        });
+        _fakeDirService.AddDirectory(dirFast, new[]
+        {
+            new FileEntry("fast.txt", Path.Combine(dirFast, "fast.txt"), false, 200, DateTime.Now)
+        });
+
+        // Set slow directory delay
+        _fakeDirService.SetDelay(TimeSpan.FromMilliseconds(200));
+        var slowTask = _viewModel.NavigateInternalAsync(dirSlow, NavigationPhaseType.New);
+
+        Assert.True(_viewModel.IsLoading);
+
+        // Switch to fast directory immediately
+        _fakeDirService.SetDelay(TimeSpan.Zero);
+        var fastTask = _viewModel.NavigateInternalAsync(dirFast, NavigationPhaseType.New);
+
+        await Task.WhenAll(slowTask, fastTask);
+
+        Assert.False(_viewModel.IsLoading);
+        Assert.Equal(dirFast, _viewModel.CurrentPath);
+        Assert.Single(_viewModel.Items);
+        Assert.Equal("fast.txt", _viewModel.Items[0].Name);
+    }
+}
