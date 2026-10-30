@@ -67,6 +67,14 @@ public sealed class TransferQueue : ITransferQueue
         _maxParallelJobs = maxParallelJobs;
     }
 
+    public TransferQueue(
+        IFileSystem fs,
+        TimeProvider? timeProvider = null,
+        int maxParallelJobs = 2)
+        : this(new TransferEngine(fs), fs, timeProvider, maxParallelJobs)
+    {
+    }
+
     public ITransferJob Enqueue(TransferRequest request)
     {
         ArgumentNullException.ThrowIfNull(request);

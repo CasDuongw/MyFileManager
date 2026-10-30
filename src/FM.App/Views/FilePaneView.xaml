@@ -52,6 +52,8 @@
                     <ColumnDefinition Width="Auto" /> <!-- New Folder Button -->
                     <ColumnDefinition Width="Auto" /> <!-- Rename Button -->
                     <ColumnDefinition Width="Auto" /> <!-- Undo Button -->
+                    <ColumnDefinition Width="Auto" /> <!-- Copy to Other Pane Button -->
+                    <ColumnDefinition Width="Auto" /> <!-- Move to Other Pane Button -->
                 </Grid.ColumnDefinitions>
 
                 <Button Grid.Column="0"
@@ -112,6 +114,18 @@
                         ToolTip="Undo (Ctrl+Z)"
                         Width="28" Height="26" Margin="1"
                         Content="↶" FontSize="12" />
+
+                <Button Grid.Column="9"
+                        Command="{Binding DataContext.CopyToOtherPaneCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                        ToolTip="Copy to other pane (Ctrl+Shift+C)"
+                        Width="32" Height="26" Margin="1"
+                        Content="📋➔" FontSize="10" />
+
+                <Button Grid.Column="10"
+                        Command="{Binding DataContext.MoveToOtherPaneCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                        ToolTip="Move to other pane (Ctrl+Shift+M)"
+                        Width="32" Height="26" Margin="1"
+                        Content="✂➔" FontSize="10" />
             </Grid>
 
             <!-- Progress Indicator -->

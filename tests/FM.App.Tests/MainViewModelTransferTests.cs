@@ -1,0 +1,99 @@
+using FM.App.Services;
+using FM.App.Tests.Fakes;
+using FM.App.ViewModels;
+using FM.Core.FileSystem;
+using FM.Core.Operations.Transfer;
+
+namespace FM.App.Tests;
+
+public class FakeSettingsService : ISettingsService
+{
+    public AppSettings LoadSettings() => new AppSettings();
+    public void SaveSettings(AppSettings settings) { }
+    public Task ValidatePathsAsync(AppSettings settings, TimeSpan? timeout = null) => Task.CompletedTask;
+}
+
+public class MainViewModelTransferTests
+{
+    private readonly InMemoryFileSystem _fs;
+    private readonly FileSystemBackedDirectoryService _dirService;
+    private readonly FakeIconService _iconService;
+    private readonly FakeSettingsService _settingsService;
+    private readonly MainViewModel _mainViewModel;
+
+    public MainViewModelTransferTests()
+    {
+        _fs = new InMemoryFileSystem();
+        _dirService = new FileSystemBackedDirectoryService(_fs);
+        _iconService = new FakeIconService();
+        _settingsService = new FakeSettingsService();
+
+        _fs.CreateDirectory(@"C:\left");
+        _fs.CreateDirectory(@"C:\right");
+        _fs.CreateVirtualFile(@"C:\left\test.txt", 100);
+
+        _mainViewModel = new MainViewModel(_dirService, _iconService, _settingsService, _fs);
+    }
+
+    [Fact]
+    public async Task CopyToOtherPane_TransfersSelectedFiles_RefreshesPanes_PushesUndo()
+    {
+        await _mainViewModel.LeftPane.NavigateAsync(@"C:\left");
+        await _mainViewModel.RightPane.NavigateAsync(@"C:\right");
+
+        _mainViewModel.SetActivePane(_mainViewModel.LeftPane);
+        var item = _mainViewModel.LeftPane.Items.First(i => i.Name == "test.txt");
+        _mainViewModel.LeftPane.UpdateSelectedItems(new[] { item });
+
+        Assert.True(_mainViewModel.CanTransferToOtherPane);
+
+        await _mainViewModel.CopyToOtherPaneCommand.ExecuteAsync(null);
+
+        Assert.True(_fs.FileExists(@"C:\left\test.txt"));
+        Assert.True(_fs.FileExists(@"C:\right\test.txt"));
+        Assert.True(_mainViewModel.LeftPane.UndoStack.CanUndo);
+
+        // Undo
+        var undoResult = await _mainViewModel.LeftPane.UndoStack.UndoAsync();
+        Assert.NotNull(undoResult);
+        Assert.True(undoResult.Success);
+        Assert.False(_fs.FileExists(@"C:\right\test.txt"));
+        Assert.True(_fs.FileExists(@"C:\left\test.txt"));
+    }
+
+    [Fact]
+    public async Task MoveToOtherPane_TransfersSelectedFiles_RemovesFromSource_PushesUndo()
+    {
+        await _mainViewModel.LeftPane.NavigateAsync(@"C:\left");
+        await _mainViewModel.RightPane.NavigateAsync(@"C:\right");
+
+        _mainViewModel.SetActivePane(_mainViewModel.LeftPane);
+        var item = _mainViewModel.LeftPane.Items.First(i => i.Name == "test.txt");
+        _mainViewModel.LeftPane.UpdateSelectedItems(new[] { item });
+
+        await _mainViewModel.MoveToOtherPaneCommand.ExecuteAsync(null);
+
+        Assert.False(_fs.FileExists(@"C:\left\test.txt"));
+        Assert.True(_fs.FileExists(@"C:\right\test.txt"));
+        Assert.True(_mainViewModel.LeftPane.UndoStack.CanUndo);
+
+        // Undo
+        var undoResult = await _mainViewModel.LeftPane.UndoStack.UndoAsync();
+        Assert.NotNull(undoResult);
+        Assert.True(undoResult.Success);
+        Assert.True(_fs.FileExists(@"C:\left\test.txt"));
+        Assert.False(_fs.FileExists(@"C:\right\test.txt"));
+    }
+
+    [Fact]
+    public void CanTransferToOtherPane_FalseWhenNoItemsSelected()
+    {
+        _mainViewModel.LeftPane.CurrentPath = @"C:\left";
+        _mainViewModel.RightPane.CurrentPath = @"C:\right";
+        _mainViewModel.SetActivePane(_mainViewModel.LeftPane);
+
+        _mainViewModel.LeftPane.UpdateSelectedItems(Array.Empty<FileItemViewModel>());
+
+        Assert.False(_mainViewModel.CanTransferToOtherPane);
+    }
+}

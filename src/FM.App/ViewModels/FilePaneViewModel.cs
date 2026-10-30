@@ -83,25 +83,39 @@ public partial class FilePaneViewModel : ObservableObject
     private string? _toastMessage;
     private System.Threading.Timer? _toastTimer;
 
-    private void ShowToast(string message)
+    public void SetStatusText(string? message, TimeSpan? autoDismissAfter = null)
     {
         _toastMessage = message;
-        OnPropertyChanged(nameof(SelectionStatusText));
-        _toastTimer?.Dispose();
-        _toastTimer = new System.Threading.Timer(_ =>
+        var dispatcher = System.Windows.Application.Current?.Dispatcher;
+        if (dispatcher != null && !dispatcher.HasShutdownStarted && !dispatcher.CheckAccess())
         {
-            _toastMessage = null;
-            var dispatcher = System.Windows.Application.Current?.Dispatcher;
-            if (dispatcher != null && !dispatcher.HasShutdownStarted)
+            _ = dispatcher.InvokeAsync(() => OnPropertyChanged(nameof(SelectionStatusText)));
+        }
+        else
+        {
+            OnPropertyChanged(nameof(SelectionStatusText));
+        }
+
+        _toastTimer?.Dispose();
+        if (autoDismissAfter.HasValue)
+        {
+            _toastTimer = new System.Threading.Timer(_ =>
             {
-                _ = dispatcher.InvokeAsync(() => OnPropertyChanged(nameof(SelectionStatusText)));
-            }
-            else
-            {
-                OnPropertyChanged(nameof(SelectionStatusText));
-            }
-        }, null, TimeSpan.FromSeconds(4), Timeout.InfiniteTimeSpan);
+                _toastMessage = null;
+                var disp = System.Windows.Application.Current?.Dispatcher;
+                if (disp != null && !disp.HasShutdownStarted)
+                {
+                    _ = disp.InvokeAsync(() => OnPropertyChanged(nameof(SelectionStatusText)));
+                }
+                else
+                {
+                    OnPropertyChanged(nameof(SelectionStatusText));
+                }
+            }, null, autoDismissAfter.Value, Timeout.InfiniteTimeSpan);
+        }
     }
+
+    private void ShowToast(string message) => SetStatusText(message, TimeSpan.FromSeconds(4));
 
     public string SelectionStatusText
     {
@@ -126,10 +140,13 @@ public partial class FilePaneViewModel : ObservableObject
         }
     }
 
+    public event Action? SelectionChanged;
+
     public void UpdateSelectedItems(IEnumerable<FileItemViewModel> selected)
     {
         SelectedItems = selected.ToList();
         SelectedItem = SelectedItems.Count > 0 ? SelectedItems[0] : null;
+        SelectionChanged?.Invoke();
     }
 
     [ObservableProperty]

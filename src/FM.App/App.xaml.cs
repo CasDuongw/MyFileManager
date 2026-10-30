@@ -86,6 +86,8 @@ public partial class App : Application
         // 1. Core Services
         services.AddSingleton<IDirectoryService, DirectoryService>();
         services.AddSingleton<FM.Core.FileSystem.IFileSystem, FM.Core.FileSystem.PhysicalFileSystem>();
+        services.AddSingleton<FM.Core.Operations.Transfer.ITransferQueue>(sp =>
+            new FM.Core.Operations.Transfer.TransferQueue(sp.GetRequiredService<FM.Core.FileSystem.IFileSystem>()));
 
         // 2. Application Services
         services.AddSingleton<IIconService, IconService>();

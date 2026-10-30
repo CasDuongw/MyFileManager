@@ -2,8 +2,10 @@ using System.Collections.ObjectModel;
 using System.IO;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using FM.App.Helpers;
 using FM.App.Services;
 using FM.Core.FileSystem;
+using FM.Core.Operations.Transfer;
 using FM.Core.Services;
 
 namespace FM.App.ViewModels;
@@ -15,6 +17,8 @@ public partial class MainViewModel : ObservableObject
 {
     private readonly IIconService _iconService;
     private readonly ISettingsService _settingsService;
+    private readonly IFileSystem _fileSystem;
+    private readonly ITransferQueue _transferQueue;
 
     public FilePaneViewModel LeftPane { get; }
     public FilePaneViewModel RightPane { get; }
@@ -30,16 +34,35 @@ public partial class MainViewModel : ObservableObject
         IIconService iconService,
         ISettingsService settingsService,
         IFileSystem? fileSystem = null,
-        IInputDialogService? inputDialogService = null)
+        IInputDialogService? inputDialogService = null,
+        ITransferQueue? transferQueue = null)
     {
         _iconService = iconService;
         _settingsService = settingsService;
+        _fileSystem = fileSystem ?? new PhysicalFileSystem();
+        _transferQueue = transferQueue ?? new TransferQueue(_fileSystem);
 
-        LeftPane = new FilePaneViewModel(directoryService, iconService, fileSystem, inputDialogService);
-        RightPane = new FilePaneViewModel(directoryService, iconService, fileSystem, inputDialogService);
+        LeftPane = new FilePaneViewModel(directoryService, iconService, _fileSystem, inputDialogService);
+        RightPane = new FilePaneViewModel(directoryService, iconService, _fileSystem, inputDialogService);
 
         LeftPane.Activated += OnPaneActivated;
         RightPane.Activated += OnPaneActivated;
+
+        LeftPane.SelectionChanged += OnTransferCanExecuteChanged;
+        RightPane.SelectionChanged += OnTransferCanExecuteChanged;
+
+        LeftPane.PropertyChanged += (s, e) =>
+        {
+            if (e.PropertyName == nameof(FilePaneViewModel.CurrentPath))
+                OnTransferCanExecuteChanged();
+        };
+        RightPane.PropertyChanged += (s, e) =>
+        {
+            if (e.PropertyName == nameof(FilePaneViewModel.CurrentPath))
+                OnTransferCanExecuteChanged();
+        };
+
+        _transferQueue.ProgressChanged += OnTransferQueueProgressChanged;
 
         // Default to LeftPane active
         _activePane = LeftPane;
@@ -47,6 +70,103 @@ public partial class MainViewModel : ObservableObject
         RightPane.IsActive = false;
 
         _ = PopulateSidebarAsync();
+    }
+
+    public FilePaneViewModel TargetPane => ActivePane == LeftPane ? RightPane : LeftPane;
+
+    public bool CanTransferToOtherPane =>
+        ActivePane != null &&
+        ActivePane.SelectedItems.Count > 0 &&
+        !string.IsNullOrWhiteSpace(TargetPane.CurrentPath);
+
+    private void OnTransferCanExecuteChanged()
+    {
+        CopyToOtherPaneCommand.NotifyCanExecuteChanged();
+        MoveToOtherPaneCommand.NotifyCanExecuteChanged();
+    }
+
+    private void OnTransferQueueProgressChanged(object? sender, TransferProgressEventArgs e)
+    {
+        var progress = e.Progress;
+        int pct = (progress.OverallTotal.HasValue && progress.OverallTotal.Value > 0)
+            ? (int)(progress.OverallBytes * 100 / progress.OverallTotal.Value)
+            : 0;
+
+        string speed = $"{FormatHelper.FormatFileSize((long)progress.BytesPerSecond, isDirectory: false)}/s";
+        string verb = e.Job.Request.Kind == TransferKind.Copy ? "Copying" : "Moving";
+        string fileText = progress.FilesTotal.HasValue
+            ? $"{progress.FilesDone} of {progress.FilesTotal.Value}"
+            : $"{progress.FilesDone}";
+
+        string status = $"{verb} {fileText}, {pct}%, {speed}";
+        ActivePane.SetStatusText(status);
+    }
+
+    [RelayCommand(CanExecute = nameof(CanTransferToOtherPane))]
+    public async Task CopyToOtherPaneAsync()
+    {
+        await TransferToOtherPaneAsync(TransferKind.Copy);
+    }
+
+    [RelayCommand(CanExecute = nameof(CanTransferToOtherPane))]
+    public async Task MoveToOtherPaneAsync()
+    {
+        await TransferToOtherPaneAsync(TransferKind.Move);
+    }
+
+    private async Task TransferToOtherPaneAsync(TransferKind kind)
+    {
+        var sourcePane = ActivePane;
+        var targetPane = TargetPane;
+        var sourcePaths = sourcePane.SelectedItems.Select(x => x.FullPath).ToList();
+        string destDir = targetPane.CurrentPath;
+
+        if (sourcePaths.Count == 0 || string.IsNullOrWhiteSpace(destDir))
+        {
+            return;
+        }
+
+        var request = new TransferRequest(
+            kind,
+            sourcePaths,
+            destDir,
+            new TransferOptions(DefaultConflict: ConflictAction.KeepBoth));
+
+        var job = _transferQueue.Enqueue(request);
+        var result = await job.Completion;
+
+        // 1. Refresh both panes
+        await LeftPane.RefreshAsync();
+        await RightPane.RefreshAsync();
+
+        // 2. Summary
+        int failed = result.Items.Count(i => i.Outcome == ItemOutcome.Failed);
+        int skipped = result.Items.Count(i => i.Outcome == ItemOutcome.Skipped);
+        int transferred = result.Items.Count(i => i.Outcome == ItemOutcome.Copied || i.Outcome == ItemOutcome.Moved || i.Outcome == ItemOutcome.KeptBoth || i.Outcome == ItemOutcome.Replaced);
+
+        string summary;
+        if (result.FinalState == TransferState.Cancelled)
+        {
+            summary = "Transfer cancelled.";
+        }
+        else if (failed > 0 || skipped > 0)
+        {
+            summary = $"Completed with warnings: {transferred} transferred, {failed} failed, {skipped} skipped.";
+        }
+        else
+        {
+            string verbPast = kind == TransferKind.Copy ? "Copied" : "Moved";
+            summary = $"{verbPast} {transferred} item(s) successfully.";
+        }
+
+        sourcePane.SetStatusText(summary, TimeSpan.FromSeconds(5));
+
+        // 3. Push TransferUndoOperation if undoable
+        var undoOp = new TransferUndoOperation(_fileSystem, kind, result);
+        if (undoOp.CanUndo)
+        {
+            sourcePane.UndoStack.Push(undoOp);
+        }
     }
 
     private void OnPaneActivated(FilePaneViewModel pane)
@@ -61,6 +181,7 @@ public partial class MainViewModel : ObservableObject
         ActivePane = pane;
         LeftPane.IsActive = (pane == LeftPane);
         RightPane.IsActive = (pane == RightPane);
+        OnTransferCanExecuteChanged();
     }
 
     [RelayCommand]

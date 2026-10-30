@@ -145,6 +145,28 @@ public partial class MainWindow : Window
                 return;
             }
         }
+
+        // 9. Ctrl+Shift+C: Copy to other pane
+        if (isCtrl && isShift && e.Key == Key.C)
+        {
+            if (ViewModel?.CopyToOtherPaneCommand.CanExecute(null) == true)
+            {
+                ViewModel.CopyToOtherPaneCommand.Execute(null);
+                e.Handled = true;
+                return;
+            }
+        }
+
+        // 10. Ctrl+Shift+M: Move to other pane
+        if (isCtrl && isShift && e.Key == Key.M)
+        {
+            if (ViewModel?.MoveToOtherPaneCommand.CanExecute(null) == true)
+            {
+                ViewModel.MoveToOtherPaneCommand.Execute(null);
+                e.Handled = true;
+                return;
+            }
+        }
     }
 
     private void FocusActivePane()
