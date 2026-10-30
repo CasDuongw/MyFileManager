@@ -171,7 +171,7 @@ public partial class FilePaneViewModel : ObservableObject
             IsSortAscending = true;
         }
 
-        await ApplySortAsync();
+        await ApplySortAsync(Interlocked.Read(ref _navigationVersion), _loadCts?.Token ?? CancellationToken.None);
     }
 
     [RelayCommand]
@@ -275,7 +275,9 @@ public partial class FilePaneViewModel : ObservableObject
             if (!IsCurrent()) return;
 
             // Apply folders-first sort order once enumeration completes
-            await ApplySortAsync();
+            await ApplySortAsync(currentVersion, ct);
+
+            if (!IsCurrent()) return;
 
             if (previousSelection != null && SelectedItem == null)
             {
@@ -327,9 +329,18 @@ public partial class FilePaneViewModel : ObservableObject
         }
     }
 
-    public async Task ApplySortAsync()
+    internal Func<Task>? SortGate { get; set; }
+
+    public async Task ApplySortAsync(long? expectedVersion = null, CancellationToken cancellationToken = default)
     {
         if (Items.Count <= 1) return;
+
+        long version = expectedVersion ?? Interlocked.Read(ref _navigationVersion);
+        bool IsCurrent() => version == Interlocked.Read(ref _navigationVersion)
+                         && !cancellationToken.IsCancellationRequested
+                         && (_loadCts == null || !_loadCts.IsCancellationRequested);
+
+        if (!IsCurrent()) return;
 
         string? selectedPath = SelectedItem?.FullPath;
 
@@ -348,13 +359,20 @@ public partial class FilePaneViewModel : ObservableObject
             {
                 var sortedEntries = entries.OrderEntries(sortCol, isAsc);
                 return sortedEntries.Select(e => map[e.FullPath]).ToList();
-            });
+            }, cancellationToken);
         }
         else
         {
             var sortedEntries = entries.OrderEntries(sortCol, isAsc);
             sortedVms = sortedEntries.Select(e => map[e.FullPath]).ToList();
         }
+
+        if (SortGate != null)
+        {
+            await SortGate();
+        }
+
+        if (!IsCurrent()) return;
 
         // Avoid rebuilding collection if the order did not change
         if (sortedVms.SequenceEqual(Items))

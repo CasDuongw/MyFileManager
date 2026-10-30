@@ -219,4 +219,56 @@ public class FilePaneViewModelTests : IDisposable
         Assert.Single(_viewModel.Items);
         Assert.Equal("fast.txt", _viewModel.Items[0].Name);
     }
+
+    [Fact]
+    public async Task StaleSort_WhenNavigatingToNewerFolder_DoesNotOverwriteNewerFolder()
+    {
+        string dirA = Path.Combine(_testRoot, "DirA_Large");
+        string dirB = Path.Combine(_testRoot, "DirB_Small");
+        Directory.CreateDirectory(dirA);
+        Directory.CreateDirectory(dirB);
+
+        var entriesA = Enumerable.Range(1, 501)
+            .Select(i => new FileEntry($"fileA_{i:D4}.txt", Path.Combine(dirA, $"fileA_{i:D4}.txt"), false, i, DateTime.Now))
+            .ToArray();
+
+        var entriesB = new[]
+        {
+            new FileEntry("fileB_1.txt", Path.Combine(dirB, "fileB_1.txt"), false, 10, DateTime.Now),
+            new FileEntry("fileB_2.txt", Path.Combine(dirB, "fileB_2.txt"), false, 20, DateTime.Now)
+        };
+
+        _fakeDirService.AddDirectory(dirA, entriesA);
+        _fakeDirService.AddDirectory(dirB, entriesB);
+
+        var sortStartedTcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseSortTcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        _viewModel.SortGate = async () =>
+        {
+            sortStartedTcs.TrySetResult(true);
+            await releaseSortTcs.Task;
+        };
+
+        // Start navigation to A (501 items, triggers off-thread sort)
+        var navATask = _viewModel.NavigateInternalAsync(dirA, NavigationPhaseType.New);
+
+        // Wait until navigation to A reaches the sort gate
+        await sortStartedTcs.Task;
+
+        // Reset SortGate so B completes without blocking
+        _viewModel.SortGate = null;
+
+        // Navigate to B and await its completion
+        await _viewModel.NavigateInternalAsync(dirB, NavigationPhaseType.New);
+
+        // Release the gated sort from navigation A
+        releaseSortTcs.TrySetResult(true);
+        await navATask;
+
+        // Verify that B's items and CurrentPath remain intact and were not overwritten by A's stale sort
+        Assert.Equal(dirB, _viewModel.CurrentPath);
+        Assert.Equal(2, _viewModel.Items.Count);
+        Assert.All(_viewModel.Items, item => Assert.StartsWith("fileB", item.Name));
+    }
 }
