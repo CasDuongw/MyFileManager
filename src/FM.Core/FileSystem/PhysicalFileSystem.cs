@@ -146,6 +146,24 @@ public sealed class PhysicalFileSystem : IFileSystem
             FileOptions.Asynchronous | FileOptions.SequentialScan);
     }
 
+    public Stream OpenAppend(string path)
+    {
+        string norm = NormalizePath(path);
+        string? parent = Path.GetDirectoryName(norm);
+        if (!string.IsNullOrEmpty(parent) && !Directory.Exists(parent))
+        {
+            Directory.CreateDirectory(parent);
+        }
+
+        return new FileStream(
+            norm,
+            FileMode.Append,
+            FileAccess.Write,
+            FileShare.Read,
+            bufferSize: 64 * 1024,
+            FileOptions.Asynchronous | FileOptions.SequentialScan);
+    }
+
     public void SetModified(string path, DateTime time)
     {
         string norm = NormalizePath(path);

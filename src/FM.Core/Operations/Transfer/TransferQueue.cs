@@ -76,6 +76,16 @@ public sealed class TransferQueue : ITransferQueue
     {
     }
 
+    public TransferQueue(
+        IFileSystem fs,
+        IStagingBackupStore? stager,
+        IUndoJournalStore? journal,
+        TimeProvider? timeProvider = null,
+        int maxParallelJobs = 2)
+        : this(new TransferEngine(fs, stager, journal, timeProvider), fs, timeProvider, maxParallelJobs)
+    {
+    }
+
     public ITransferJob Enqueue(TransferRequest request)
     {
         ArgumentNullException.ThrowIfNull(request);

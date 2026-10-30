@@ -13,12 +13,18 @@ public sealed class TransferEngine : ITransferEngine
 {
     private readonly IFileSystem _fs;
     private readonly IStagingBackupStore? _stager;
+    private readonly IUndoJournalStore? _journal;
     private readonly TimeProvider _timeProvider;
 
-    public TransferEngine(IFileSystem fs, IStagingBackupStore? stager = null, TimeProvider? timeProvider = null)
+    public TransferEngine(
+        IFileSystem fs,
+        IStagingBackupStore? stager = null,
+        IUndoJournalStore? journal = null,
+        TimeProvider? timeProvider = null)
     {
         _fs = fs ?? throw new ArgumentNullException(nameof(fs));
         _stager = stager;
+        _journal = journal;
         _timeProvider = timeProvider ?? TimeProvider.System;
     }
 
@@ -53,7 +59,27 @@ public sealed class TransferEngine : ITransferEngine
             return new TransferResult(TransferState.Failed, new[] { failedItem });
         }
 
-        // 2. Execute plan
+        // 2. Write-ahead journal begin
+        if (_journal != null)
+        {
+            try
+            {
+                var pendingEntry = new PersistentUndoEntry(
+                    plan.Request.OperationId,
+                    JournalCodec.CurrentSchemaVersion,
+                    JournalState.Pending,
+                    DateTime.UtcNow,
+                    plan.Request.Kind,
+                    Array.Empty<JournalItemEntry>());
+                await _journal.AppendPendingEntryAsync(pendingEntry, ct).ConfigureAwait(false);
+            }
+            catch
+            {
+                // Never fail transfer due to journal failure
+            }
+        }
+
+        // 3. Execute plan
         if (request.Kind == TransferKind.Move && !plan.IsCrossVolume)
         {
             return await ExecuteSameVolumeMoveAsync(plan, progress, gate, ct).ConfigureAwait(false);
@@ -155,6 +181,26 @@ public sealed class TransferEngine : ITransferEngine
                 }
 
                 results.Add(new TransferItemResult(source, finalDst, info.IsDirectory, outcome, info.Size, info.Modified, null, backupPath));
+
+                if (_journal != null)
+                {
+                    try
+                    {
+                        await _journal.AppendItemAsync(
+                            plan.Request.OperationId,
+                            new JournalItemEntry(
+                                plan.Request.Kind,
+                                source,
+                                finalDst,
+                                info.Size,
+                                info.Modified,
+                                outcome,
+                                info.IsDirectory,
+                                backupPath),
+                            ct).ConfigureAwait(false);
+                    }
+                    catch { }
+                }
             }
             catch (Exception ex)
             {
@@ -163,6 +209,28 @@ public sealed class TransferEngine : ITransferEngine
 
             itemsDone++;
             ReportItemProgress(progress, source, itemsDone, totalItems);
+        }
+
+        if (_journal != null)
+        {
+            try
+            {
+                bool hasUndoableItem = results.Any(r =>
+                    r.Outcome == ItemOutcome.Copied ||
+                    r.Outcome == ItemOutcome.Moved ||
+                    r.Outcome == ItemOutcome.KeptBoth ||
+                    r.Outcome == ItemOutcome.Replaced);
+
+                if (hasUndoableItem)
+                {
+                    await _journal.CommitEntryAsync(plan.Request.OperationId, ct).ConfigureAwait(false);
+                }
+                else
+                {
+                    await _journal.AbandonEntryAsync(plan.Request.OperationId, ct).ConfigureAwait(false);
+                }
+            }
+            catch { }
         }
 
         bool hasErrors = results.Any(r => r.Outcome == ItemOutcome.Failed);
@@ -366,6 +434,26 @@ public sealed class TransferEngine : ITransferEngine
                     modifiedAfter,
                     transferError,
                     backupPath));
+
+                if (_journal != null)
+                {
+                    try
+                    {
+                        await _journal.AppendItemAsync(
+                            plan.Request.OperationId,
+                            new JournalItemEntry(
+                                plan.Request.Kind,
+                                item.SourcePath,
+                                finalDestinationPath,
+                                item.Size,
+                                modifiedAfter,
+                                outcome,
+                                false,
+                                backupPath),
+                            ct).ConfigureAwait(false);
+                    }
+                    catch { }
+                }
             }
             else
             {
@@ -401,6 +489,28 @@ public sealed class TransferEngine : ITransferEngine
                     // Best effort cleanup of empty directories
                 }
             }
+        }
+
+        if (_journal != null)
+        {
+            try
+            {
+                bool hasUndoableItem = results.Any(r =>
+                    r.Outcome == ItemOutcome.Copied ||
+                    r.Outcome == ItemOutcome.Moved ||
+                    r.Outcome == ItemOutcome.KeptBoth ||
+                    r.Outcome == ItemOutcome.Replaced);
+
+                if (hasUndoableItem)
+                {
+                    await _journal.CommitEntryAsync(plan.Request.OperationId, ct).ConfigureAwait(false);
+                }
+                else
+                {
+                    await _journal.AbandonEntryAsync(plan.Request.OperationId, ct).ConfigureAwait(false);
+                }
+            }
+            catch { }
         }
 
         bool anyErrors = results.Any(r => r.Outcome == ItemOutcome.Failed);

@@ -20,6 +20,8 @@ public partial class MainViewModel : ObservableObject
     private readonly IFileSystem _fileSystem;
     private readonly ITransferQueue _transferQueue;
     private readonly ITransferDialogService _dialogService;
+    private readonly IUndoJournalStore? _journalStore;
+    private readonly IStagingBackupStore? _stagingStore;
 
     public FilePaneViewModel LeftPane { get; }
     public FilePaneViewModel RightPane { get; }
@@ -41,12 +43,16 @@ public partial class MainViewModel : ObservableObject
         IInputDialogService? inputDialogService = null,
         ITransferQueue? transferQueue = null,
         IShellLauncher? shellLauncher = null,
-        ITransferDialogService? transferDialogService = null)
+        ITransferDialogService? transferDialogService = null,
+        IUndoJournalStore? journalStore = null,
+        IStagingBackupStore? stagingStore = null)
     {
         _iconService = iconService;
         _settingsService = settingsService;
         _fileSystem = fileSystem ?? new PhysicalFileSystem();
-        _transferQueue = transferQueue ?? new TransferQueue(_fileSystem);
+        _stagingStore = stagingStore;
+        _journalStore = journalStore;
+        _transferQueue = transferQueue ?? new TransferQueue(_fileSystem, _stagingStore, _journalStore);
         _dialogService = transferDialogService ?? new TransferDialogService();
 
         LeftPane = new FilePaneViewModel(directoryService, iconService, _fileSystem, inputDialogService, shellLauncher: shellLauncher);
@@ -175,7 +181,7 @@ public partial class MainViewModel : ObservableObject
         sourcePane.SetStatusText(summary, TimeSpan.FromSeconds(5));
 
         // 3. Push TransferUndoOperation if undoable
-        var undoOp = new TransferUndoOperation(_fileSystem, kind, result);
+        var undoOp = new TransferUndoOperation(_fileSystem, kind, result, _stagingStore, job.Id, _journalStore);
         if (undoOp.CanUndo)
         {
             sourcePane.UndoStack.Push(undoOp);
@@ -242,6 +248,62 @@ public partial class MainViewModel : ObservableObject
         // Navigate both panes to their persisted or fallback paths
         LeftPane.Navigate(settings.LeftPanePath);
         RightPane.Navigate(settings.RightPanePath);
+
+        // Recover interrupted operations and restore Undo stack from persistent journal
+        if (_journalStore != null)
+        {
+            try
+            {
+                if (_journalStore is FileUndoJournalStore fileJournal)
+                {
+                    int recovered = await fileJournal.RecoverPendingEntriesAsync(_fileSystem, _stagingStore);
+                    await fileJournal.CompactAsync(TimeSpan.FromDays(7), maxEntries: 50);
+
+                    if (recovered > 0)
+                    {
+                        ActivePane.SetStatusText($"Recovered {recovered} interrupted operation(s)", TimeSpan.FromSeconds(5));
+                    }
+                }
+
+                var entries = await _journalStore.LoadEntriesAsync();
+                int restoredCount = 0;
+
+                foreach (var entry in entries.OrderBy(e => e.Timestamp))
+                {
+                    var results = entry.Items.Select(i => new TransferItemResult(
+                        i.SourcePath,
+                        i.DestinationPath,
+                        i.IsDirectory,
+                        i.Outcome,
+                        i.Size,
+                        i.Modified,
+                        null,
+                        i.BackupPath)).ToList();
+
+                    var transferResult = new TransferResult(TransferState.Completed, results);
+                    var undoOp = new TransferUndoOperation(_fileSystem, entry.Kind, transferResult, _stagingStore, entry.OperationId, _journalStore);
+
+                    if (undoOp.CanUndo)
+                    {
+                        var targetPane = (entry.OwnerPane == "Left") ? LeftPane
+                            : (entry.OwnerPane == "Right") ? RightPane
+                            : ActivePane;
+
+                        targetPane.UndoStack.Push(undoOp);
+                        restoredCount++;
+                    }
+                }
+
+                if (restoredCount > 0)
+                {
+                    ActivePane.SetStatusText($"Restored {restoredCount} undoable operation(s) from previous session", TimeSpan.FromSeconds(5));
+                }
+            }
+            catch
+            {
+                // Best effort recovery on startup
+            }
+        }
     }
 
     public void PersistSettings(double left, double top, double width, double height, string windowState)

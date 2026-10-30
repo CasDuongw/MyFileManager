@@ -14,7 +14,9 @@ public record JournalItemEntry(
     string? DestinationPath,
     long Size,
     DateTime? Modified,
-    ItemOutcome Outcome);
+    ItemOutcome Outcome,
+    bool IsDirectory = false,
+    string? BackupPath = null);
 
 public record PersistentUndoEntry(
     Guid OperationId,
@@ -22,17 +24,19 @@ public record PersistentUndoEntry(
     JournalState State,
     DateTime Timestamp,
     TransferKind Kind,
-    IReadOnlyList<JournalItemEntry> Items);
+    IReadOnlyList<JournalItemEntry> Items,
+    string? OwnerPane = null);
 
 /// <summary>
-/// Redesigned interface-only contract for persistent write-ahead undo journaling (planned for v0.4).
+/// Persistent write-ahead undo journal contract enabling crash-resilient multi-session Undo.
 /// </summary>
 public interface IUndoJournalStore
 {
     Task AppendPendingEntryAsync(PersistentUndoEntry entry, CancellationToken ct = default);
+    Task AppendItemAsync(Guid operationId, JournalItemEntry item, CancellationToken ct = default);
     Task CommitEntryAsync(Guid operationId, CancellationToken ct = default);
     Task MarkUndoneAsync(Guid operationId, CancellationToken ct = default);
+    Task AbandonEntryAsync(Guid operationId, CancellationToken ct = default);
     Task<IReadOnlyList<PersistentUndoEntry>> LoadEntriesAsync(CancellationToken ct = default);
     Task DeleteEntryAsync(Guid operationId, CancellationToken ct = default);
 }
-

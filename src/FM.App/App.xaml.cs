@@ -86,8 +86,23 @@ public partial class App : Application
         // 1. Core Services
         services.AddSingleton<IDirectoryService, DirectoryService>();
         services.AddSingleton<FM.Core.FileSystem.IFileSystem, FM.Core.FileSystem.PhysicalFileSystem>();
+
+        string localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+        string appDataRoot = System.IO.Path.Combine(localAppData, "MyFileManager");
+        string stagingDir = System.IO.Path.Combine(appDataRoot, "staging");
+        string journalFile = System.IO.Path.Combine(appDataRoot, "journal", "undo-journal.jsonl");
+
+        services.AddSingleton<FM.Core.Operations.Transfer.IStagingBackupStore>(sp =>
+            new FM.Core.Operations.Transfer.StagingBackupStore(sp.GetRequiredService<FM.Core.FileSystem.IFileSystem>(), stagingDir));
+
+        services.AddSingleton<FM.Core.Operations.Transfer.IUndoJournalStore>(sp =>
+            new FM.Core.Operations.Transfer.FileUndoJournalStore(sp.GetRequiredService<FM.Core.FileSystem.IFileSystem>(), journalFile));
+
         services.AddSingleton<FM.Core.Operations.Transfer.ITransferQueue>(sp =>
-            new FM.Core.Operations.Transfer.TransferQueue(sp.GetRequiredService<FM.Core.FileSystem.IFileSystem>()));
+            new FM.Core.Operations.Transfer.TransferQueue(
+                sp.GetRequiredService<FM.Core.FileSystem.IFileSystem>(),
+                sp.GetRequiredService<FM.Core.Operations.Transfer.IStagingBackupStore>(),
+                sp.GetRequiredService<FM.Core.Operations.Transfer.IUndoJournalStore>()));
 
         // 2. Application Services
         services.AddSingleton<IIconService, IconService>();

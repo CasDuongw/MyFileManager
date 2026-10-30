@@ -34,6 +34,7 @@ public interface IFileSystem
     FileItemInfo? GetInfo(string path);
     Stream OpenRead(string path);
     Stream CreateFileForWrite(string path);
+    Stream OpenAppend(string path);
     void SetModified(string path, DateTime time);
     void Delete(string path);
     void Move(string sourcePath, string destinationPath, bool overwrite = false);

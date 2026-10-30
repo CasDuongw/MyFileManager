@@ -11,6 +11,7 @@ public sealed class TransferUndoOperation : IFileOperation
 {
     private readonly IFileSystem _fs;
     private readonly IStagingBackupStore? _stager;
+    private readonly IUndoJournalStore? _journal;
     public Guid OperationId { get; }
     public TransferKind Kind { get; }
     public TransferResult Result { get; }
@@ -27,10 +28,12 @@ public sealed class TransferUndoOperation : IFileOperation
         TransferKind kind,
         TransferResult result,
         IStagingBackupStore? stager = null,
-        Guid operationId = default)
+        Guid operationId = default,
+        IUndoJournalStore? journal = null)
     {
         _fs = fs ?? throw new ArgumentNullException(nameof(fs));
         _stager = stager;
+        _journal = journal;
         OperationId = operationId;
         Kind = kind;
         Result = result ?? throw new ArgumentNullException(nameof(result));
@@ -85,12 +88,30 @@ public sealed class TransferUndoOperation : IFileOperation
             }
         }
 
+        OperationResult undoResult;
         if (Kind == TransferKind.Copy)
         {
-            return await UndoCopyAsync(ct).ConfigureAwait(false);
+            undoResult = await UndoCopyAsync(ct).ConfigureAwait(false);
+        }
+        else
+        {
+            undoResult = await UndoMoveAsync(ct).ConfigureAwait(false);
         }
 
-        return await UndoMoveAsync(ct).ConfigureAwait(false);
+        if (undoResult.Success)
+        {
+            if (_journal != null)
+            {
+                try { await _journal.MarkUndoneAsync(OperationId, ct).ConfigureAwait(false); } catch { }
+            }
+
+            if (_stager != null)
+            {
+                try { await _stager.DiscardAsync(OperationId, ct).ConfigureAwait(false); } catch { }
+            }
+        }
+
+        return undoResult;
     }
 
     private async Task<OperationResult> UndoCopyAsync(CancellationToken ct)

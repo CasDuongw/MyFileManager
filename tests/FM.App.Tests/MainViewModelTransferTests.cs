@@ -96,4 +96,43 @@ public class MainViewModelTransferTests
 
         Assert.False(_mainViewModel.CanTransferToOtherPane);
     }
+
+    [Fact]
+    public async Task InitializeSettingsAsync_RestoresUndoStackFromJournal()
+    {
+        var journal = new FileUndoJournalStore(_fs, @"C:\journal\undo.jsonl");
+        var opId = Guid.NewGuid();
+        _fs.CreateVirtualFile(@"C:\right\test.txt", 100);
+
+        await journal.AppendPendingEntryAsync(new PersistentUndoEntry(
+            opId,
+            1,
+            JournalState.Pending,
+            DateTime.UtcNow,
+            TransferKind.Copy,
+            Array.Empty<JournalItemEntry>(),
+            OwnerPane: "Left"));
+
+        await journal.AppendItemAsync(opId, new JournalItemEntry(
+            TransferKind.Copy,
+            @"C:\left\test.txt",
+            @"C:\right\test.txt",
+            100,
+            DateTime.UtcNow,
+            ItemOutcome.Copied));
+
+        await journal.CommitEntryAsync(opId);
+
+        var vm = new MainViewModel(
+            _dirService,
+            _iconService,
+            _settingsService,
+            _fs,
+            journalStore: journal);
+
+        await vm.InitializeSettingsAsync(new AppSettings());
+
+        Assert.True(vm.LeftPane.UndoStack.CanUndo);
+        Assert.Equal("Copy of 1 files", vm.LeftPane.UndoStack.NextUndoDescription);
+    }
 }

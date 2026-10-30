@@ -484,6 +484,26 @@ public sealed class InMemoryFileSystem : IFileSystem
         }
     }
 
+    public Stream OpenAppend(string path)
+    {
+        lock (_lock)
+        {
+            string n = Normalize(path);
+            string? parent = Path.GetDirectoryName(n);
+            if (!string.IsNullOrEmpty(parent))
+            {
+                CreateDirectory(parent);
+            }
+
+            var stream = new VirtualWriteStream(this, n);
+            if (_files.TryGetValue(n, out var data) && data.SmallContent != null)
+            {
+                stream.Write(data.SmallContent, 0, data.SmallContent.Length);
+            }
+            return stream;
+        }
+    }
+
     internal void CommitWrittenFile(string path, long length, byte[]? smallContent)
     {
         lock (_lock)
