@@ -1,4 +1,14 @@
+using System.IO;
+
 namespace FM.Core.FileSystem;
+
+public record FileItemInfo(
+    bool Exists,
+    bool IsDirectory,
+    long Size,
+    DateTime Modified,
+    FileAttributes Attributes,
+    bool IsReparsePoint);
 
 /// <summary>
 /// Abstraction for filesystem operations, enabling pure in-memory testing of file operations
@@ -19,5 +29,14 @@ public interface IFileSystem
 
     bool IsDirectoryEmpty(string path);
     IEnumerable<string> EnumerateEntries(string path);
-}
 
+    // Transfer Engine extensions
+    FileItemInfo? GetInfo(string path);
+    Stream OpenRead(string path);
+    Stream CreateFileForWrite(string path);
+    void SetModified(string path, DateTime time);
+    void Delete(string path);
+    void Move(string sourcePath, string destinationPath, bool overwrite = false);
+    string GetVolumeId(string path);
+    long GetFreeSpace(string path);
+}
