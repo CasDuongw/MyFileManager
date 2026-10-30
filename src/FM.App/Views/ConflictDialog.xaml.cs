@@ -99,3 +99,4 @@ public partial class ConflictDialog : Window
         Close();
     }
 }
+

@@ -29,3 +29,4 @@ public class WpfTransferInteraction : ITransferInteraction
         return await _dialogService.ShowFailureDialogAsync(info, ct).ConfigureAwait(false);
     }
 }
+

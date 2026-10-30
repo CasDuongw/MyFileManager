@@ -11,3 +11,4 @@ public interface ITransferDialogService
     Task<ConflictDecision> ShowConflictDialogAsync(ConflictInfo info, CancellationToken ct = default);
     Task<FailureDecision> ShowFailureDialogAsync(FailureInfo info, CancellationToken ct = default);
 }
+

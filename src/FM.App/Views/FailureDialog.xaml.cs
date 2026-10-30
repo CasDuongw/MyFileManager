@@ -41,3 +41,4 @@ public partial class FailureDialog : Window
         Close();
     }
 }
+

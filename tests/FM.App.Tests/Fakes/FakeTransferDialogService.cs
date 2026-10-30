@@ -31,3 +31,4 @@ public class FakeTransferDialogService : ITransferDialogService
         return Task.FromResult(new FailureDecision(FailureAction.Skip));
     }
 }
+
