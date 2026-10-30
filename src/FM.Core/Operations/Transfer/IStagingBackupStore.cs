@@ -25,3 +25,4 @@ public interface IStagingBackupStore
     Task PurgeAsync(StagingPolicy policy, IReadOnlySet<Guid>? liveOperationIds = null, CancellationToken ct = default);
     bool BackupExists(string backupPath);
 }
+

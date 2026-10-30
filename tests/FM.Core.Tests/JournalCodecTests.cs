@@ -127,3 +127,4 @@ public class JournalCodecTests
         Assert.DoesNotContain(compacted, e => e.OperationId == opUndone.OperationId);
     }
 }
+

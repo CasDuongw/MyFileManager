@@ -130,3 +130,4 @@ public static class DropEffectResolver
         return trimmed.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
     }
 }
+

@@ -170,3 +170,4 @@ public partial class ConflictDialogViewModel : ObservableObject
         RequestClose?.Invoke();
     }
 }
+

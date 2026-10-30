@@ -102,3 +102,4 @@ public class JournalRealDiskTests
         Assert.Contains("Undo history won't survive a restart", warningMessage);
     }
 }
+

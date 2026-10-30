@@ -252,3 +252,4 @@ public sealed partial class TransferDrawerViewModel : ObservableObject
         }
     }
 }
+

@@ -226,3 +226,4 @@ public class UndoJournalTests
         Assert.Equal(@"C:\Src\data.bin", item.SourcePath);
     }
 }
+

@@ -115,3 +115,4 @@ public class ConflictDialogViewModelTests
         vm.CancelThumbnailLoading();
     }
 }
+

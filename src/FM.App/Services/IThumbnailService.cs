@@ -10,3 +10,4 @@ public interface IThumbnailService
 {
     Task<ImageSource?> GetThumbnailAsync(string path, int size = 96, CancellationToken ct = default);
 }
+

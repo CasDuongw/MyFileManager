@@ -183,3 +183,4 @@ public sealed class ThumbnailService : IThumbnailService, IDisposable
         _workQueue.CompleteAdding();
     }
 }
+

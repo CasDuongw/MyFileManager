@@ -18,3 +18,4 @@ public class FakeThumbnailService : IThumbnailService
         return Task.FromResult<ImageSource?>(null);
     }
 }
+
