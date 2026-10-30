@@ -23,4 +23,8 @@
     <ProjectReference Include="..\..\src\FM.Core\FM.Core.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Compile Include="..\Common\TestWorkspace.cs" Link="Common\TestWorkspace.cs" />
+  </ItemGroup>
+
 </Project>
