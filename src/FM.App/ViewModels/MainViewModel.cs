@@ -3,6 +3,7 @@ using System.IO;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using FM.App.Services;
+using FM.Core.FileSystem;
 using FM.Core.Services;
 
 namespace FM.App.ViewModels;
@@ -27,13 +28,15 @@ public partial class MainViewModel : ObservableObject
     public MainViewModel(
         IDirectoryService directoryService,
         IIconService iconService,
-        ISettingsService settingsService)
+        ISettingsService settingsService,
+        IFileSystem? fileSystem = null,
+        IInputDialogService? inputDialogService = null)
     {
         _iconService = iconService;
         _settingsService = settingsService;
 
-        LeftPane = new FilePaneViewModel(directoryService, iconService);
-        RightPane = new FilePaneViewModel(directoryService, iconService);
+        LeftPane = new FilePaneViewModel(directoryService, iconService, fileSystem, inputDialogService);
+        RightPane = new FilePaneViewModel(directoryService, iconService, fileSystem, inputDialogService);
 
         LeftPane.Activated += OnPaneActivated;
         RightPane.Activated += OnPaneActivated;

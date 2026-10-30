@@ -49,6 +49,9 @@
                     <ColumnDefinition Width="*" />    <!-- Editable Address Box -->
                     <ColumnDefinition Width="Auto" /> <!-- Go Button -->
                     <ColumnDefinition Width="Auto" /> <!-- Refresh Button -->
+                    <ColumnDefinition Width="Auto" /> <!-- New Folder Button -->
+                    <ColumnDefinition Width="Auto" /> <!-- Rename Button -->
+                    <ColumnDefinition Width="Auto" /> <!-- Undo Button -->
                 </Grid.ColumnDefinitions>
 
                 <Button Grid.Column="0"
@@ -91,6 +94,24 @@
                         ToolTip="Refresh (F5)"
                         Width="28" Height="26" Margin="1"
                         Content="↻" FontSize="13" />
+
+                <Button Grid.Column="6"
+                        Command="{Binding NewFolderCommand}"
+                        ToolTip="New Folder (Ctrl+Shift+N)"
+                        Width="28" Height="26" Margin="1"
+                        Content="📁+" FontSize="10" />
+
+                <Button Grid.Column="7"
+                        Command="{Binding RenameCommand}"
+                        ToolTip="Rename (F2)"
+                        Width="28" Height="26" Margin="1"
+                        Content="✎" FontSize="11" />
+
+                <Button Grid.Column="8"
+                        Command="{Binding UndoCommand}"
+                        ToolTip="Undo (Ctrl+Z)"
+                        Width="28" Height="26" Margin="1"
+                        Content="↶" FontSize="12" />
             </Grid>
 
             <!-- Progress Indicator -->

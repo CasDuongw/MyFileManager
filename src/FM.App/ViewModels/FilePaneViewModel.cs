@@ -5,9 +5,11 @@ using CommunityToolkit.Mvvm.Input;
 using FM.App.Collections;
 using FM.App.Helpers;
 using FM.App.Services;
+using FM.Core.FileSystem;
 using FM.Core.Helpers;
 using FM.Core.Models;
 using FM.Core.Navigation;
+using FM.Core.Operations;
 using FM.Core.Services;
 
 namespace FM.App.ViewModels;
@@ -27,19 +29,35 @@ public partial class FilePaneViewModel : ObservableObject
 {
     private readonly IDirectoryService _directoryService;
     private readonly IIconService _iconService;
+    private readonly IFileSystem _fileSystem;
+    private readonly IInputDialogService _inputDialogService;
     private readonly NavigationHistory _history = new();
     private CancellationTokenSource? _loadCts;
+
+    public IUndoStack UndoStack { get; }
 
     public BulkObservableCollection<FileItemViewModel> Items { get; } = new();
 
     [ObservableProperty]
     private string _currentPath = string.Empty;
 
+    partial void OnCurrentPathChanged(string value)
+    {
+        NewFolderCommand.NotifyCanExecuteChanged();
+    }
+
     [ObservableProperty]
     private string _addressText = string.Empty;
 
     [ObservableProperty]
     private bool _isLoading;
+
+    partial void OnIsLoadingChanged(bool value)
+    {
+        NewFolderCommand.NotifyCanExecuteChanged();
+        RenameCommand.NotifyCanExecuteChanged();
+        UndoCommand.NotifyCanExecuteChanged();
+    }
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(HasError))]
@@ -53,14 +71,47 @@ public partial class FilePaneViewModel : ObservableObject
     [ObservableProperty]
     private FileItemViewModel? _selectedItem;
 
+    partial void OnSelectedItemChanged(FileItemViewModel? value)
+    {
+        RenameCommand.NotifyCanExecuteChanged();
+    }
+
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(SelectionStatusText))]
     private IReadOnlyList<FileItemViewModel> _selectedItems = Array.Empty<FileItemViewModel>();
+
+    private string? _toastMessage;
+    private System.Threading.Timer? _toastTimer;
+
+    private void ShowToast(string message)
+    {
+        _toastMessage = message;
+        OnPropertyChanged(nameof(SelectionStatusText));
+        _toastTimer?.Dispose();
+        _toastTimer = new System.Threading.Timer(_ =>
+        {
+            _toastMessage = null;
+            var dispatcher = System.Windows.Application.Current?.Dispatcher;
+            if (dispatcher != null && !dispatcher.HasShutdownStarted)
+            {
+                _ = dispatcher.InvokeAsync(() => OnPropertyChanged(nameof(SelectionStatusText)));
+            }
+            else
+            {
+                OnPropertyChanged(nameof(SelectionStatusText));
+            }
+        }, null, TimeSpan.FromSeconds(4), Timeout.InfiniteTimeSpan);
+    }
 
     public string SelectionStatusText
     {
         get
         {
+            if (!string.IsNullOrEmpty(_toastMessage))
+            {
+                return _toastMessage;
+            }
+
             int selectedCount = SelectedItems.Count;
             int totalCount = Items.Count;
             if (selectedCount == 0)
@@ -97,10 +148,20 @@ public partial class FilePaneViewModel : ObservableObject
 
     public event Action<FilePaneViewModel>? Activated;
 
-    public FilePaneViewModel(IDirectoryService directoryService, IIconService iconService)
+    public FilePaneViewModel(
+        IDirectoryService directoryService,
+        IIconService iconService,
+        IFileSystem? fileSystem = null,
+        IInputDialogService? inputDialogService = null,
+        IUndoStack? undoStack = null)
     {
         _directoryService = directoryService;
         _iconService = iconService;
+        _fileSystem = fileSystem ?? new PhysicalFileSystem();
+        _inputDialogService = inputDialogService ?? new InputDialogService();
+        UndoStack = undoStack ?? new UndoStack();
+
+        UndoStack.CanUndoChanged += () => UndoCommand.NotifyCanExecuteChanged();
     }
 
     public void NotifyActivated()
@@ -212,6 +273,116 @@ public partial class FilePaneViewModel : ObservableObject
     private void DismissError()
     {
         ErrorMessage = null;
+    }
+
+    public bool CanCreateNewFolder => !string.IsNullOrEmpty(CurrentPath) && !IsLoading;
+
+    [RelayCommand(CanExecute = nameof(CanCreateNewFolder))]
+    public async Task NewFolderAsync()
+    {
+        if (string.IsNullOrEmpty(CurrentPath)) return;
+
+        string defaultName = CreateFolderOperation.GetDefaultUniqueFolderName(_fileSystem, CurrentPath);
+        string? inputName = _inputDialogService.Prompt("New Folder", "Enter folder name:", defaultName);
+
+        if (string.IsNullOrWhiteSpace(inputName)) return;
+
+        var op = new CreateFolderOperation(_fileSystem, CurrentPath, inputName.Trim());
+        var result = await op.DoAsync();
+
+        if (!result.Success)
+        {
+            ErrorMessage = result.ErrorMessage;
+            return;
+        }
+
+        UndoStack.Push(op);
+        ShowToast($"Created folder '{inputName.Trim()}'");
+
+        await RefreshAsync();
+
+        if (result.TargetPath != null)
+        {
+            var match = Items.FirstOrDefault(i => string.Equals(i.FullPath, result.TargetPath, StringComparison.OrdinalIgnoreCase));
+            if (match != null)
+            {
+                UpdateSelectedItems(new[] { match });
+            }
+        }
+    }
+
+    public bool CanRename => SelectedItem != null && !IsLoading;
+
+    [RelayCommand(CanExecute = nameof(CanRename))]
+    public async Task RenameAsync()
+    {
+        if (SelectedItem == null) return;
+
+        var target = SelectedItem;
+        string currentName = target.Name;
+        int? selLen = !target.IsDirectory ? Path.GetFileNameWithoutExtension(currentName).Length : null;
+
+        string? newName = _inputDialogService.Prompt("Rename", "Enter new name:", currentName, selLen);
+
+        if (string.IsNullOrWhiteSpace(newName) || string.Equals(newName, currentName, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        var op = new RenameOperation(_fileSystem, target.FullPath, newName.Trim(), target.IsDirectory);
+        var result = await op.DoAsync();
+
+        if (!result.Success)
+        {
+            ErrorMessage = result.ErrorMessage;
+            return;
+        }
+
+        UndoStack.Push(op);
+        ShowToast($"Renamed to '{newName.Trim()}'");
+
+        await RefreshAsync();
+
+        if (result.TargetPath != null)
+        {
+            var match = Items.FirstOrDefault(i => string.Equals(i.FullPath, result.TargetPath, StringComparison.OrdinalIgnoreCase));
+            if (match != null)
+            {
+                UpdateSelectedItems(new[] { match });
+            }
+        }
+    }
+
+    public bool CanUndo => UndoStack.CanUndo && !IsLoading;
+
+    [RelayCommand(CanExecute = nameof(CanUndo))]
+    public async Task UndoAsync()
+    {
+        if (!UndoStack.CanUndo) return;
+
+        string? desc = UndoStack.NextUndoDescription;
+        var result = await UndoStack.UndoAsync();
+
+        if (result == null) return;
+
+        if (!result.Success)
+        {
+            ErrorMessage = result.ErrorMessage;
+            return;
+        }
+
+        ShowToast($"Undone: {desc}");
+
+        await RefreshAsync();
+
+        if (result.TargetPath != null)
+        {
+            var match = Items.FirstOrDefault(i => string.Equals(i.FullPath, result.TargetPath, StringComparison.OrdinalIgnoreCase));
+            if (match != null)
+            {
+                UpdateSelectedItems(new[] { match });
+            }
+        }
     }
 
     private long _navigationVersion;

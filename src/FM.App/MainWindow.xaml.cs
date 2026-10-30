@@ -106,6 +106,43 @@ public partial class MainWindow : Window
             {
                 ViewModel.ActivePane.GoForwardCommand.Execute(null);
                 e.Handled = true;
+                return;
+            }
+        }
+
+        // 6. Ctrl+Shift+N: New Folder in active pane
+        bool isCtrl = (Keyboard.Modifiers & ModifierKeys.Control) == ModifierKeys.Control;
+        bool isShift = (Keyboard.Modifiers & ModifierKeys.Shift) == ModifierKeys.Shift;
+
+        if (isCtrl && isShift && e.Key == Key.N)
+        {
+            if (ViewModel?.ActivePane.NewFolderCommand.CanExecute(null) == true)
+            {
+                ViewModel.ActivePane.NewFolderCommand.Execute(null);
+                e.Handled = true;
+                return;
+            }
+        }
+
+        // 7. F2: Rename selected item in active pane
+        if (e.Key == Key.F2 && Keyboard.Modifiers == ModifierKeys.None)
+        {
+            if (ViewModel?.ActivePane.RenameCommand.CanExecute(null) == true)
+            {
+                ViewModel.ActivePane.RenameCommand.Execute(null);
+                e.Handled = true;
+                return;
+            }
+        }
+
+        // 8. Ctrl+Z: Undo last operation in active pane
+        if (isCtrl && !isShift && e.Key == Key.Z)
+        {
+            if (ViewModel?.ActivePane.UndoCommand.CanExecute(null) == true)
+            {
+                ViewModel.ActivePane.UndoCommand.Execute(null);
+                e.Handled = true;
+                return;
             }
         }
     }

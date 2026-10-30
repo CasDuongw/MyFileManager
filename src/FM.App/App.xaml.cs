@@ -85,10 +85,12 @@ public partial class App : Application
     {
         // 1. Core Services
         services.AddSingleton<IDirectoryService, DirectoryService>();
+        services.AddSingleton<FM.Core.FileSystem.IFileSystem, FM.Core.FileSystem.PhysicalFileSystem>();
 
         // 2. Application Services
         services.AddSingleton<IIconService, IconService>();
         services.AddSingleton<ISettingsService, SettingsService>();
+        services.AddSingleton<IInputDialogService, InputDialogService>();
 
         // 3. ViewModels
         services.AddSingleton<MainViewModel>();
