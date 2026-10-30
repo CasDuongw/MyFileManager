@@ -90,13 +90,18 @@ public class DirectoryServiceTests : IDisposable
         try
         {
             var entries = new List<FileEntry>();
-            await foreach (var entry in _service.EnumerateAsync(_testRoot))
+            var exception = await Record.ExceptionAsync(async () =>
             {
-                entries.Add(entry);
-            }
+                await foreach (var entry in _service.EnumerateAsync(_testRoot))
+                {
+                    entries.Add(entry);
+                }
+            });
 
-            // Normal file must always be enumerated successfully
+            // Proves that inaccessible subfolder is tolerated without crashing enumeration
+            Assert.Null(exception);
             Assert.Contains(entries, e => e.Name == "normal.txt");
+            Assert.NotEmpty(entries);
         }
         finally
         {
@@ -117,6 +122,46 @@ public class DirectoryServiceTests : IDisposable
                     // Best effort cleanup
                 }
             }
+        }
+    }
+
+    [Fact]
+    public async Task DeniedRootDirectory_ThrowsUnauthorizedAccessException()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+
+        string deniedDir = Path.Combine(_testRoot, "DeniedRootFolder");
+        Directory.CreateDirectory(deniedDir);
+        File.WriteAllText(Path.Combine(deniedDir, "secret.txt"), "secret data");
+
+        var psi = new ProcessStartInfo("icacls", $"\"{deniedDir}\" /deny Everyone:(OI)(CI)(F) /Q")
+        {
+            CreateNoWindow = true,
+            UseShellExecute = false
+        };
+        using (var p = Process.Start(psi))
+        {
+            p?.WaitForExit();
+        }
+
+        try
+        {
+            await Assert.ThrowsAsync<UnauthorizedAccessException>(async () =>
+            {
+                await foreach (var _ in _service.EnumerateAsync(deniedDir))
+                {
+                }
+            });
+        }
+        finally
+        {
+            var resetPsi = new ProcessStartInfo("icacls", $"\"{deniedDir}\" /reset /Q")
+            {
+                CreateNoWindow = true,
+                UseShellExecute = false
+            };
+            using var resetP = Process.Start(resetPsi);
+            resetP?.WaitForExit();
         }
     }
 

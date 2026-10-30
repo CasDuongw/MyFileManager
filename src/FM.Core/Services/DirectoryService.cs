@@ -61,6 +61,26 @@ public class DirectoryService : IDirectoryService
             try
             {
                 var dirInfo = new DirectoryInfo(normalizedPath);
+
+                // Explicitly probe root directory with IgnoreInaccessible = false so access denied on root
+                // throws UnauthorizedAccessException instead of silently returning empty
+                try
+                {
+                    var probeOptions = new EnumerationOptions
+                    {
+                        IgnoreInaccessible = false,
+                        RecurseSubdirectories = false,
+                        ReturnSpecialDirectories = false
+                    };
+                    using var probe = dirInfo.EnumerateFileSystemInfos("*", probeOptions).GetEnumerator();
+                    _ = probe.MoveNext();
+                }
+                catch (Exception ex) when (ex is UnauthorizedAccessException or IOException)
+                {
+                    channel.Writer.Complete(ex);
+                    return;
+                }
+
                 var options = new EnumerationOptions
                 {
                     IgnoreInaccessible = true,
