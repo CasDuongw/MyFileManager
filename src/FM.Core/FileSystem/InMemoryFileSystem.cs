@@ -126,6 +126,14 @@ public sealed class InMemoryFileSystem : IFileSystem
         }
     }
 
+    public void ClearFailures()
+    {
+        lock (_lock)
+        {
+            _failureRules.Clear();
+        }
+    }
+
     internal void CheckFailure(string normalizedPath, long currentOffset, int bytesRequested)
     {
         lock (_lock)

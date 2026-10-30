@@ -19,6 +19,7 @@ public partial class MainViewModel : ObservableObject
     private readonly ISettingsService _settingsService;
     private readonly IFileSystem _fileSystem;
     private readonly ITransferQueue _transferQueue;
+    private readonly ITransferDialogService _dialogService;
 
     public FilePaneViewModel LeftPane { get; }
     public FilePaneViewModel RightPane { get; }
@@ -39,12 +40,14 @@ public partial class MainViewModel : ObservableObject
         IFileSystem? fileSystem = null,
         IInputDialogService? inputDialogService = null,
         ITransferQueue? transferQueue = null,
-        IShellLauncher? shellLauncher = null)
+        IShellLauncher? shellLauncher = null,
+        ITransferDialogService? transferDialogService = null)
     {
         _iconService = iconService;
         _settingsService = settingsService;
         _fileSystem = fileSystem ?? new PhysicalFileSystem();
         _transferQueue = transferQueue ?? new TransferQueue(_fileSystem);
+        _dialogService = transferDialogService ?? new TransferDialogService();
 
         LeftPane = new FilePaneViewModel(directoryService, iconService, _fileSystem, inputDialogService, shellLauncher: shellLauncher);
         RightPane = new FilePaneViewModel(directoryService, iconService, _fileSystem, inputDialogService, shellLauncher: shellLauncher);
@@ -130,11 +133,17 @@ public partial class MainViewModel : ObservableObject
             return;
         }
 
+        var interaction = new WpfTransferInteraction(_dialogService, () =>
+        {
+            sourcePane.SetStatusText("Waiting for your decision...");
+        });
+
         var request = new TransferRequest(
             kind,
             sourcePaths,
             destDir,
-            new TransferOptions(DefaultConflict: ConflictAction.KeepBoth));
+            new TransferOptions(DefaultConflict: ConflictAction.KeepBoth),
+            interaction);
 
         var job = _transferQueue.Enqueue(request);
         var result = await job.Completion;

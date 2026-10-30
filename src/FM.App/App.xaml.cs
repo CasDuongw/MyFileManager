@@ -94,6 +94,7 @@ public partial class App : Application
         services.AddSingleton<ISettingsService, SettingsService>();
         services.AddSingleton<IInputDialogService, InputDialogService>();
         services.AddSingleton<IShellLauncher, ShellLauncher>();
+        services.AddSingleton<ITransferDialogService, TransferDialogService>();
 
         // 3. ViewModels
         services.AddSingleton<MainViewModel>();

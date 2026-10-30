@@ -213,9 +213,8 @@ To protect developer SSD endurance and prevent storage bloat, all automated test
 
 ## 8. Known Limitations & Next Steps (v0.4 Roadmap)
 
-The current version is **v0.3** (Transfer Engine & Core Wiring):
-- **Progress Panel UI:** v0.3 provides a live status bar in each pane (`"Copying 3 of 12, 45%, 120 MB/s"`). A dedicated multi-job drawer/panel UI with Pause/Resume/Cancel buttons for each job is planned for v0.4.
-- **Interactive Conflict Dialog:** v0.3 defaults to `ConflictAction.KeepBoth`. An interactive prompt modal allowing Overwrite/Skip/KeepBoth/ApplyToAll during runtime is scheduled for v0.4.
+The current version includes the transfer engine and interactive conflict/failure resolution:
+- **Progress Panel UI:** Live status bar in each pane (`"Copying 3 of 12, 45%, 120 MB/s"`). A dedicated multi-job drawer/panel UI with Pause/Resume/Cancel buttons for each job is planned for v0.4.
 - **Persistent Write-Ahead Journal:** The `IUndoJournalStore` interface is designed and ready; file-backed persistent disk journaling (surviving app crashes) is scheduled for v0.4.
 - **Drag-and-Drop:** Mouse drag-and-drop between panes is planned for future versions.
 
@@ -238,3 +237,10 @@ The current version is **v0.3** (Transfer Engine & Core Wiring):
 4. **Transfer & Undo:**
    - Select items, press **`Ctrl + Shift + C`** (Copy) or **`Ctrl + Shift + M`** (Move) to other pane.
    - Press **`Ctrl + Z`** to undo.
+5. **Interactive Conflict & Failure Resolution:**
+   - Copy a file to the opposite pane where an item with the same name already exists.
+   - `ConflictDialog` opens (centered on main window) showing Source vs Destination comparison (size, modified timestamp, and visual badges for Newer / Larger).
+   - Verify action buttons: `Keep both` (default, adds `(2)` suffix), `Overwrite` (displays amber warning that overwritten files cannot be undone), `Overwrite if newer`, `Skip`, `Cancel` (`Esc`).
+   - Test "Apply to all conflicts" checkbox: resolving one applies the decision to subsequent conflicts without re-prompting.
+   - While the dialog is open, verify the source pane status bar displays `"Waiting for your decision..."`.
+   - If an I/O error occurs (e.g., locked file or permission error), `FailureDialog` opens with Retry, Skip, Abort, and "Apply to all failures".
