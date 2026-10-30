@@ -1,6 +1,7 @@
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using FM.App.Helpers;
 using FM.App.ViewModels;
 
 namespace FM.App.Views;
@@ -53,10 +54,16 @@ public partial class FilePaneView : UserControl
 
     private void OnFileListViewMouseDoubleClick(object sender, MouseButtonEventArgs e)
     {
-        // Ensure user clicked on an actual item rather than empty space or scrollbar
-        if (FileListView.SelectedItem is FileItemViewModel item)
+        if (e.ChangedButton != MouseButton.Left) return;
+
+        // Ensure user double-clicked an actual ListViewItem, ignoring headers, scrollbars, and blank space
+        var depObj = e.OriginalSource as DependencyObject;
+        var listViewItem = depObj.FindVisualAncestor<ListViewItem>();
+
+        if (listViewItem != null && listViewItem.DataContext is FileItemViewModel item)
         {
             ViewModel?.OpenItemCommand.Execute(item);
+            e.Handled = true;
         }
     }
 

@@ -2,6 +2,7 @@ using System.ComponentModel;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using FM.App.Helpers;
 using FM.App.ViewModels;
 
 namespace FM.App;
@@ -54,15 +55,21 @@ public partial class MainWindow : Window
 
     private void OnWindowPreviewKeyDown(object sender, KeyEventArgs e)
     {
-        // 1. Tab: Switch active pane
-        if (e.Key == Key.Tab && (Keyboard.Modifiers == ModifierKeys.None || Keyboard.Modifiers == ModifierKeys.Shift))
+        // 1. Tab: Switch active pane ONLY when focus is inside a file list
+        // Inside the address bar Tab preserves normal tab navigation. Shift+Tab is never hijacked.
+        if (e.Key == Key.Tab && Keyboard.Modifiers == ModifierKeys.None)
         {
-            // If user is currently editing the address TextBox, let them tab out or switch pane?
-            // In standard dual-pane file managers, Tab switches active pane
-            ViewModel?.SwitchActivePane();
-            FocusActivePane();
-            e.Handled = true;
-            return;
+            var focused = Keyboard.FocusedElement as DependencyObject;
+            bool isInsideFileList = focused != null &&
+                (focused.FindVisualAncestor<ListView>() != null || focused.FindVisualAncestor<ListViewItem>() != null);
+
+            if (isInsideFileList)
+            {
+                ViewModel?.SwitchActivePane();
+                FocusActivePane();
+                e.Handled = true;
+                return;
+            }
         }
 
         // 2. Ctrl+L: Focus address bar in active pane
