@@ -221,3 +221,4 @@ public sealed class InMemoryFileSystem : IFileSystem
         return !relative.Contains('\\');
     }
 }
+

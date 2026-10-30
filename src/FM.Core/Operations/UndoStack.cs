@@ -96,3 +96,4 @@ public sealed class UndoStack : IUndoStack
         CanUndoChanged?.Invoke();
     }
 }
+

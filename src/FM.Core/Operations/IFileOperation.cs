@@ -15,3 +15,4 @@ public interface IFileOperation
     Task<OperationResult> DoAsync(CancellationToken ct = default);
     Task<OperationResult> UndoAsync(CancellationToken ct = default);
 }
+

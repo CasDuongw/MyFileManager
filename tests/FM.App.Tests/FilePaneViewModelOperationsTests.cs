@@ -147,3 +147,4 @@ public class FilePaneViewModelOperationsTests
         Assert.True(_fileSystem.DirectoryExists(folderPath));
     }
 }
+

@@ -54,3 +54,4 @@ public partial class InputDialog : Window
         }
     }
 }
+

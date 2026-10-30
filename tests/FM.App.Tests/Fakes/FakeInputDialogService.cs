@@ -19,3 +19,4 @@ public sealed class FakeInputDialogService : IInputDialogService
         return NextResult ?? initialValue;
     }
 }
+

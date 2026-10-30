@@ -251,3 +251,4 @@ public class FileOperationsTests
         Assert.Contains("already exists", result.ErrorMessage);
     }
 }
+

@@ -20,3 +20,4 @@ public interface IFileSystem
     bool IsDirectoryEmpty(string path);
     IEnumerable<string> EnumerateEntries(string path);
 }
+

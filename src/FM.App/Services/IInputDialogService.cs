@@ -24,3 +24,4 @@ public class InputDialogService : IInputDialogService
         return (result == true) ? dialog.InputValue : null;
     }
 }
+

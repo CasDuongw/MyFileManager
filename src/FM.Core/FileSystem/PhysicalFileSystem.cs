@@ -35,3 +35,4 @@ public sealed class PhysicalFileSystem : IFileSystem
         return Directory.EnumerateFileSystemEntries(path);
     }
 }
+

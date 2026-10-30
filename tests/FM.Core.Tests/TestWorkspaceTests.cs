@@ -56,3 +56,4 @@ public class TestWorkspaceTests
         Assert.Contains("budget exceeded", ex.Message, StringComparison.OrdinalIgnoreCase);
     }
 }
+
