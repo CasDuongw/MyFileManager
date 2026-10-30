@@ -10,6 +10,13 @@ namespace FM.App.Services;
 /// </summary>
 public class TransferDialogService : ITransferDialogService
 {
+    private readonly IThumbnailService? _thumbnailService;
+
+    public TransferDialogService(IThumbnailService? thumbnailService = null)
+    {
+        _thumbnailService = thumbnailService;
+    }
+
     public async Task<ConflictDecision> ShowConflictDialogAsync(ConflictInfo info, CancellationToken ct = default)
     {
         var dispatcher = Application.Current?.Dispatcher;
@@ -33,7 +40,7 @@ public class TransferDialogService : ITransferDialogService
                 return;
             }
 
-            var dialog = new ConflictDialog(info);
+            var dialog = new ConflictDialog(info, _thumbnailService);
             var mainWindow = Application.Current?.MainWindow;
             if (mainWindow != null && mainWindow.IsVisible)
             {

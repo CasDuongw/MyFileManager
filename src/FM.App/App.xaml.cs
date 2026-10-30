@@ -106,6 +106,7 @@ public partial class App : Application
 
         // 2. Application Services
         services.AddSingleton<IIconService, IconService>();
+        services.AddSingleton<IThumbnailService, ThumbnailService>();
         services.AddSingleton<ISettingsService, SettingsService>();
         services.AddSingleton<IInputDialogService, InputDialogService>();
         services.AddSingleton<IShellLauncher, ShellLauncher>();

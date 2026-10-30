@@ -1,102 +1,69 @@
-using System.IO;
+using System.Runtime.InteropServices;
 using System.Windows;
-using System.Windows.Controls;
-using System.Windows.Media;
-using FM.App.Helpers;
+using System.Windows.Interop;
+using FM.App.Services;
+using FM.App.ViewModels;
 using FM.Core.Operations.Transfer;
 
 namespace FM.App.Views;
 
 /// <summary>
 /// Interaction logic for ConflictDialog.xaml.
-/// Provides side-by-side comparison of source and destination files with visual badges for newer/larger files,
-/// warning notice for overwrite operations, and conflict resolution actions.
+/// Uses Windows 11 Fluent layout, DWM rounded window corners, dynamic backup safety notices,
+/// and asynchronous STA thumbnail rendering.
 /// </summary>
 public partial class ConflictDialog : Window
 {
-    public ConflictDecision Decision { get; private set; } = new(ConflictAction.Cancel);
+    private const int DWMWA_WINDOW_CORNER_PREFERENCE = 33;
+    private const int DWMWCP_ROUND = 2;
 
-    public ConflictDialog(ConflictInfo info)
+    [DllImport("dwmapi.dll", PreserveSig = true)]
+    private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int attrValue, int attrSize);
+
+    public ConflictDialogViewModel ViewModel { get; }
+
+    public ConflictDecision Decision => ViewModel.Decision;
+
+    public ConflictDialog(ConflictInfo info, IThumbnailService? thumbnailService = null)
     {
         InitializeComponent();
 
-        FileNameText.Text = Path.GetFileName(info.SourcePath);
+        ViewModel = new ConflictDialogViewModel(info, thumbnailService);
+        DataContext = ViewModel;
 
-        SourceSizeText.Text = $"{FormatHelper.FormatFileSize(info.SourceSize, false)} ({info.SourceSize:N0} bytes)";
-        DestSizeText.Text = $"{FormatHelper.FormatFileSize(info.ExistingSize, false)} ({info.ExistingSize:N0} bytes)";
-
-        SourceModifiedText.Text = info.SourceModified == DateTime.MinValue
-            ? "Unknown"
-            : info.SourceModified.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss");
-
-        DestModifiedText.Text = info.ExistingModified == DateTime.MinValue
-            ? "Unknown"
-            : info.ExistingModified.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss");
-
-        // Compare modified dates (tolerance 1 second)
-        var dateDiff = (info.SourceModified - info.ExistingModified).TotalSeconds;
-        if (dateDiff > 1.0)
+        ViewModel.RequestClose += () =>
         {
-            SetBadge(SourceDateBadge, SourceDateBadgeText, "Newer", "#DCFCE7", "#166534");
-            SetBadge(DestDateBadge, DestDateBadgeText, "Older", "#F3F4F6", "#6B7280");
-        }
-        else if (dateDiff < -1.0)
-        {
-            SetBadge(DestDateBadge, DestDateBadgeText, "Newer", "#DCFCE7", "#166534");
-            SetBadge(SourceDateBadge, SourceDateBadgeText, "Older", "#F3F4F6", "#6B7280");
-        }
+            Dispatcher.Invoke(() =>
+            {
+                if (IsLoaded)
+                {
+                    Close();
+                }
+            });
+        };
 
-        // Compare sizes
-        if (info.SourceSize > info.ExistingSize)
+        SourceInitialized += (s, e) =>
         {
-            SetBadge(SourceSizeBadge, SourceSizeBadgeText, "Larger", "#DBEAFE", "#1E40AF");
-            SetBadge(DestSizeBadge, DestSizeBadgeText, "Smaller", "#F3F4F6", "#6B7280");
-        }
-        else if (info.SourceSize < info.ExistingSize)
-        {
-            SetBadge(DestSizeBadge, DestSizeBadgeText, "Larger", "#DBEAFE", "#1E40AF");
-            SetBadge(SourceSizeBadge, SourceSizeBadgeText, "Smaller", "#F3F4F6", "#6B7280");
-        }
+            try
+            {
+                var hwnd = new WindowInteropHelper(this).Handle;
+                int preference = DWMWCP_ROUND;
+                DwmSetWindowAttribute(hwnd, DWMWA_WINDOW_CORNER_PREFERENCE, ref preference, sizeof(int));
+            }
+            catch
+            {
+                // Silently ignore on Windows 10 or when DWM attribute is unsupported
+            }
+        };
 
         Loaded += (s, e) => KeepBothButton.Focus();
+
+        Closing += (s, e) => ViewModel.CancelThumbnailLoading();
     }
 
-    private static void SetBadge(Border badge, TextBlock badgeText, string text, string bgHex, string fgHex)
-    {
-        badgeText.Text = text;
-        badgeText.Foreground = (Brush)new BrushConverter().ConvertFromString(fgHex)!;
-        badge.Background = (Brush)new BrushConverter().ConvertFromString(bgHex)!;
-        badge.Visibility = Visibility.Visible;
-    }
-
-    private void OnKeepBothClicked(object sender, RoutedEventArgs e)
-    {
-        Decision = new ConflictDecision(ConflictAction.KeepBoth, ApplyToAllCheckBox.IsChecked == true);
-        Close();
-    }
-
-    private void OnOverwriteClicked(object sender, RoutedEventArgs e)
-    {
-        Decision = new ConflictDecision(ConflictAction.Overwrite, ApplyToAllCheckBox.IsChecked == true);
-        Close();
-    }
-
-    private void OnOverwriteIfNewerClicked(object sender, RoutedEventArgs e)
-    {
-        Decision = new ConflictDecision(ConflictAction.OverwriteIfNewer, ApplyToAllCheckBox.IsChecked == true);
-        Close();
-    }
-
-    private void OnSkipClicked(object sender, RoutedEventArgs e)
-    {
-        Decision = new ConflictDecision(ConflictAction.Skip, ApplyToAllCheckBox.IsChecked == true);
-        Close();
-    }
-
-    private void OnCancelClicked(object sender, RoutedEventArgs e)
-    {
-        Decision = new ConflictDecision(ConflictAction.Cancel, ApplyToAllCheckBox.IsChecked == true);
-        Close();
-    }
+    private void OnKeepBothClicked(object sender, RoutedEventArgs e) => ViewModel.ChooseKeepBoth();
+    private void OnOverwriteIfNewerClicked(object sender, RoutedEventArgs e) => ViewModel.ChooseOverwriteIfNewer();
+    private void OnOverwriteClicked(object sender, RoutedEventArgs e) => ViewModel.ChooseOverwrite();
+    private void OnSkipClicked(object sender, RoutedEventArgs e) => ViewModel.ChooseSkip();
+    private void OnCancelClicked(object sender, RoutedEventArgs e) => ViewModel.ChooseCancel();
 }
-
