@@ -30,9 +30,11 @@ public partial class MainWindow : Window
     {
         if (ViewModel != null)
         {
+            double left = WindowState == WindowState.Normal ? Left : RestoreBounds.Left;
+            double top = WindowState == WindowState.Normal ? Top : RestoreBounds.Top;
             double width = WindowState == WindowState.Normal ? Width : RestoreBounds.Width;
             double height = WindowState == WindowState.Normal ? Height : RestoreBounds.Height;
-            ViewModel.PersistSettings(width, height, WindowState.ToString());
+            ViewModel.PersistSettings(left, top, width, height, WindowState.ToString());
         }
     }
 

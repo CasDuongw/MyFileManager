@@ -86,10 +86,12 @@ public partial class MainViewModel : ObservableObject
         RightPane.Navigate(settings.RightPanePath);
     }
 
-    public void PersistSettings(double width, double height, string windowState)
+    public void PersistSettings(double left, double top, double width, double height, string windowState)
     {
         var settings = new AppSettings
         {
+            WindowLeft = left,
+            WindowTop = top,
             WindowWidth = width,
             WindowHeight = height,
             WindowState = windowState,

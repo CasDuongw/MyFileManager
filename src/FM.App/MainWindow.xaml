@@ -11,7 +11,6 @@
         Width="1100" Height="700"
         MinWidth="800" MinHeight="450"
         Background="#F3F4F6"
-        WindowStartupLocation="CenterScreen"
         Loaded="OnWindowLoaded"
         Closing="OnWindowClosing"
         PreviewKeyDown="OnWindowPreviewKeyDown">

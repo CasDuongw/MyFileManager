@@ -4,8 +4,8 @@ using System.Text.Json;
 namespace FM.App.Services;
 
 /// <summary>
-/// Saves and loads application configuration to %AppData%/MyFileManager/settings.json.
-/// Handles I/O errors gracefully and provides default fallback paths.
+/// Saves and loads application configuration to %AppData%/MyFileManager/settings.json or a custom path.
+/// Handles I/O errors gracefully, handles corrupted JSON, and enforces value validation.
 /// </summary>
 public class SettingsService : ISettingsService
 {
@@ -13,11 +13,18 @@ public class SettingsService : ISettingsService
 
     private readonly string _settingsFilePath;
 
-    public SettingsService()
+    public SettingsService(string? customFilePath = null)
     {
-        string appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-        string folder = Path.Combine(appData, "MyFileManager");
-        _settingsFilePath = Path.Combine(folder, "settings.json");
+        if (!string.IsNullOrWhiteSpace(customFilePath))
+        {
+            _settingsFilePath = customFilePath;
+        }
+        else
+        {
+            string appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+            string folder = Path.Combine(appData, "MyFileManager");
+            _settingsFilePath = Path.Combine(folder, "settings.json");
+        }
     }
 
     public AppSettings LoadSettings()
@@ -37,7 +44,7 @@ public class SettingsService : ISettingsService
         }
         catch
         {
-            // Fall back to defaults on corrupted file or permission issues
+            // Fall back to defaults on corrupted file, invalid JSON, or permission issues
         }
 
         var defaultSettings = new AppSettings();
@@ -49,6 +56,7 @@ public class SettingsService : ISettingsService
     {
         try
         {
+            ValidateSettings(settings);
             string? dir = Path.GetDirectoryName(_settingsFilePath);
             if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
             {
@@ -79,7 +87,32 @@ public class SettingsService : ISettingsService
             settings.RightPanePath = defaultPath;
         }
 
-        if (settings.WindowWidth < 600) settings.WindowWidth = 1100;
-        if (settings.WindowHeight < 400) settings.WindowHeight = 700;
+        if (settings.WindowWidth < 600 || double.IsNaN(settings.WindowWidth) || double.IsInfinity(settings.WindowWidth))
+        {
+            settings.WindowWidth = 1100;
+        }
+
+        if (settings.WindowHeight < 400 || double.IsNaN(settings.WindowHeight) || double.IsInfinity(settings.WindowHeight))
+        {
+            settings.WindowHeight = 700;
+        }
+
+        if (settings.WindowLeft.HasValue && (double.IsNaN(settings.WindowLeft.Value) || double.IsInfinity(settings.WindowLeft.Value)))
+        {
+            settings.WindowLeft = null;
+        }
+
+        if (settings.WindowTop.HasValue && (double.IsNaN(settings.WindowTop.Value) || double.IsInfinity(settings.WindowTop.Value)))
+        {
+            settings.WindowTop = null;
+        }
+
+        if (string.IsNullOrWhiteSpace(settings.WindowState) ||
+            (!string.Equals(settings.WindowState, "Normal", StringComparison.OrdinalIgnoreCase) &&
+             !string.Equals(settings.WindowState, "Maximized", StringComparison.OrdinalIgnoreCase) &&
+             !string.Equals(settings.WindowState, "Minimized", StringComparison.OrdinalIgnoreCase)))
+        {
+            settings.WindowState = "Normal";
+        }
     }
 }
