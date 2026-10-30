@@ -56,7 +56,11 @@ public record TransferRequest(
     IReadOnlyList<string> Sources,
     string DestinationDirectory,
     TransferOptions Options,
-    ITransferInteraction? Interaction = null);
+    ITransferInteraction? Interaction = null,
+    Guid OperationId = default)
+{
+    public Guid OperationId { get; init; } = OperationId == default ? Guid.NewGuid() : OperationId;
+}
 
 public record ConflictInfo(
     string SourcePath,
@@ -64,7 +68,8 @@ public record ConflictInfo(
     DateTime SourceModified,
     string ExistingPath,
     long ExistingSize,
-    DateTime ExistingModified);
+    DateTime ExistingModified,
+    bool OverwriteIsUndoable = false);
 
 public record ConflictDecision(
     ConflictAction Action,
@@ -114,7 +119,8 @@ public record TransferItemResult(
     ItemOutcome Outcome,
     long Size,
     DateTime? ModifiedAfter,
-    string? Error);
+    string? Error,
+    string? BackupPath = null);
 
 public record TransferResult(
     TransferState FinalState,

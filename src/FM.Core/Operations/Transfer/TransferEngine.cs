@@ -12,11 +12,13 @@ namespace FM.Core.Operations.Transfer;
 public sealed class TransferEngine : ITransferEngine
 {
     private readonly IFileSystem _fs;
+    private readonly IStagingBackupStore? _stager;
     private readonly TimeProvider _timeProvider;
 
-    public TransferEngine(IFileSystem fs, TimeProvider? timeProvider = null)
+    public TransferEngine(IFileSystem fs, IStagingBackupStore? stager = null, TimeProvider? timeProvider = null)
     {
         _fs = fs ?? throw new ArgumentNullException(nameof(fs));
+        _stager = stager;
         _timeProvider = timeProvider ?? TimeProvider.System;
     }
 
@@ -54,7 +56,7 @@ public sealed class TransferEngine : ITransferEngine
         // 2. Execute plan
         if (request.Kind == TransferKind.Move && !plan.IsCrossVolume)
         {
-            return await ExecuteSameVolumeMoveAsync(plan, progress, ct).ConfigureAwait(false);
+            return await ExecuteSameVolumeMoveAsync(plan, progress, gate, ct).ConfigureAwait(false);
         }
 
         return await ExecuteCopyOrCrossVolumeMoveAsync(plan, progress, gate, ct).ConfigureAwait(false);
@@ -67,6 +69,7 @@ public sealed class TransferEngine : ITransferEngine
     private async Task<TransferResult> ExecuteSameVolumeMoveAsync(
         TransferPlan plan,
         IProgress<TransferProgress>? progress,
+        PauseGate? gate,
         CancellationToken ct)
     {
         var results = new List<TransferItemResult>();
@@ -77,6 +80,10 @@ public sealed class TransferEngine : ITransferEngine
         foreach (var source in plan.Request.Sources)
         {
             ct.ThrowIfCancellationRequested();
+            if (gate != null)
+            {
+                await gate.WaitIfPausedAsync(ct).ConfigureAwait(false);
+            }
 
             var info = _fs.GetInfo(source);
             if (info == null || !info.Exists) continue;
@@ -104,7 +111,9 @@ public sealed class TransferEngine : ITransferEngine
 
             if (conflictResult.Action == ConflictAction.Skip)
             {
-                results.Add(new TransferItemResult(source, destinationPath, info.IsDirectory, ItemOutcome.Skipped, info.Size, null, null));
+                var skipOutcome = conflictResult.Outcome == ItemOutcome.Failed ? ItemOutcome.Failed : ItemOutcome.Skipped;
+                string? skipErr = conflictResult.Outcome == ItemOutcome.Failed ? "Cannot replace a directory with a file or vice-versa." : null;
+                results.Add(new TransferItemResult(source, destinationPath, info.IsDirectory, skipOutcome, info.Size, null, skipErr));
                 itemsDone++;
                 ReportItemProgress(progress, source, itemsDone, totalItems);
                 continue;
@@ -113,10 +122,39 @@ public sealed class TransferEngine : ITransferEngine
             string finalDst = conflictResult.FinalDestinationPath;
             ItemOutcome outcome = conflictResult.Outcome;
 
+            string? backupPath = null;
             try
             {
-                _fs.Move(source, finalDst, overwrite: (outcome == ItemOutcome.Replaced));
-                results.Add(new TransferItemResult(source, finalDst, info.IsDirectory, outcome, info.Size, info.Modified, null));
+                if (outcome == ItemOutcome.Replaced)
+                {
+                    if (_stager != null)
+                    {
+                        var staged = await _stager.StageAsync(finalDst, plan.Request.OperationId, itemsDone, ct).ConfigureAwait(false);
+                        backupPath = staged.BackupPath;
+                        try
+                        {
+                            _fs.Move(source, finalDst, overwrite: false);
+                        }
+                        catch
+                        {
+                            if (backupPath != null)
+                            {
+                                try { await _stager.RestoreAsync(backupPath, finalDst, ct).ConfigureAwait(false); } catch { }
+                            }
+                            throw;
+                        }
+                    }
+                    else
+                    {
+                        _fs.Move(source, finalDst, overwrite: true);
+                    }
+                }
+                else
+                {
+                    _fs.Move(source, finalDst, overwrite: false);
+                }
+
+                results.Add(new TransferItemResult(source, finalDst, info.IsDirectory, outcome, info.Size, info.Modified, null, backupPath));
             }
             catch (Exception ex)
             {
@@ -198,7 +236,9 @@ public sealed class TransferEngine : ITransferEngine
 
             if (conflictResult.Action == ConflictAction.Skip)
             {
-                results.Add(new TransferItemResult(item.SourcePath, finalDestinationPath, false, ItemOutcome.Skipped, item.Size, null, null));
+                var skipOutcome = conflictResult.Outcome == ItemOutcome.Failed ? ItemOutcome.Failed : ItemOutcome.Skipped;
+                string? skipErr = conflictResult.Outcome == ItemOutcome.Failed ? "Cannot replace a directory with a file or vice-versa." : null;
+                results.Add(new TransferItemResult(item.SourcePath, finalDestinationPath, false, skipOutcome, item.Size, null, skipErr));
                 filesDone++;
                 continue;
             }
@@ -210,6 +250,7 @@ public sealed class TransferEngine : ITransferEngine
             bool transferSuccess = false;
             string? transferError = null;
             DateTime? modifiedAfter = null;
+            string? backupPath = null;
             int attempt = 0;
 
             while (!transferSuccess)
@@ -221,13 +262,14 @@ public sealed class TransferEngine : ITransferEngine
 
                 try
                 {
-                    modifiedAfter = await CopySingleFileAsync(
+                    (modifiedAfter, backupPath) = await CopySingleFileAsync(
                         item.SourcePath,
                         finalDestinationPath,
                         tempPath,
                         item.Size,
                         item.Modified,
                         outcome,
+                        filesDone,
                         plan,
                         buffer,
                         overallBytesDone,
@@ -303,7 +345,10 @@ public sealed class TransferEngine : ITransferEngine
                     try
                     {
                         _fs.Delete(item.SourcePath);
-                        outcome = ItemOutcome.Moved;
+                        if (outcome != ItemOutcome.Replaced)
+                        {
+                            outcome = ItemOutcome.Moved;
+                        }
                     }
                     catch (Exception ex)
                     {
@@ -319,7 +364,8 @@ public sealed class TransferEngine : ITransferEngine
                     outcome,
                     item.Size,
                     modifiedAfter,
-                    transferError));
+                    transferError,
+                    backupPath));
             }
             else
             {
@@ -361,13 +407,14 @@ public sealed class TransferEngine : ITransferEngine
         return new TransferResult(anyErrors ? TransferState.CompletedWithErrors : TransferState.Completed, results);
     }
 
-    private async Task<DateTime> CopySingleFileAsync(
+    private async Task<(DateTime Modified, string? BackupPath)> CopySingleFileAsync(
         string sourcePath,
         string destinationPath,
         string tempPath,
         long fileSize,
         DateTime sourceModified,
         ItemOutcome outcome,
+        int itemIndex,
         TransferPlan plan,
         byte[] buffer,
         long baseOverallBytes,
@@ -469,15 +516,48 @@ public sealed class TransferEngine : ITransferEngine
             _fs.SetModified(tempPath, modifiedUtc);
         }
 
-        // Atomic rename from .fmpart to final destination
-        _fs.Move(tempPath, destinationPath, overwrite: (outcome == ItemOutcome.Replaced));
+        string? backupPath = null;
+        if (outcome == ItemOutcome.Replaced)
+        {
+            if (_stager != null)
+            {
+                var staged = await _stager.StageAsync(destinationPath, plan.Request.OperationId, itemIndex, ct).ConfigureAwait(false);
+                backupPath = staged.BackupPath;
+
+                try
+                {
+                    _fs.Move(tempPath, destinationPath, overwrite: false);
+                }
+                catch (Exception moveEx)
+                {
+                    try
+                    {
+                        await _stager.RestoreAsync(backupPath, destinationPath, ct).ConfigureAwait(false);
+                    }
+                    catch
+                    {
+                        // Best effort rollback
+                    }
+                    CleanupTemp(tempPath);
+                    throw new IOException($"Failed to place new file after staging backup: {moveEx.Message}", moveEx);
+                }
+            }
+            else
+            {
+                _fs.Move(tempPath, destinationPath, overwrite: true);
+            }
+        }
+        else
+        {
+            _fs.Move(tempPath, destinationPath, overwrite: false);
+        }
 
         if (plan.Request.Options.PreserveTimestamps)
         {
             _fs.SetModified(destinationPath, modifiedUtc);
         }
 
-        return modifiedUtc;
+        return (modifiedUtc, backupPath);
     }
 
     private void CleanupTemp(string tempPath)
@@ -519,10 +599,22 @@ public sealed class TransferEngine : ITransferEngine
             return new ConflictResolutionResult(ConflictAction.Overwrite, destinationPath, defaultOutcome, rememberedConflict);
         }
 
+        // Self-overwrite prevention (e.g. source == destination path)
+        if (string.Equals(Path.GetFullPath(sourcePath), Path.GetFullPath(destinationPath), StringComparison.OrdinalIgnoreCase))
+        {
+            return new ConflictResolutionResult(ConflictAction.Skip, destinationPath, ItemOutcome.Skipped, rememberedConflict);
+        }
+
         // Directory vs Directory: automatically merges
         if (isDirectory && existingInfo.IsDirectory)
         {
             return new ConflictResolutionResult(ConflictAction.Overwrite, destinationPath, defaultOutcome, rememberedConflict);
+        }
+
+        // File vs Directory or Directory vs File mismatch: cannot overwrite/replace
+        if (isDirectory != existingInfo.IsDirectory)
+        {
+            return new ConflictResolutionResult(ConflictAction.Skip, destinationPath, ItemOutcome.Failed, rememberedConflict);
         }
 
         // File vs File conflict
@@ -539,7 +631,8 @@ public sealed class TransferEngine : ITransferEngine
                 sourceModified,
                 destinationPath,
                 existingInfo.Size,
-                existingInfo.Modified);
+                existingInfo.Modified,
+                OverwriteIsUndoable: (_stager != null));
 
             decision = await request.Interaction.OnConflictAsync(conflictInfo, ct).ConfigureAwait(false);
             if (decision.ApplyToAll)

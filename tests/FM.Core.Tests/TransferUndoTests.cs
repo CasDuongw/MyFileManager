@@ -160,6 +160,24 @@ public class TransferUndoTests
     }
 
     [Fact]
+    public void ReplacedOutcome_WithBackup_IsUndoable()
+    {
+        var fs = new InMemoryFileSystem();
+        var stager = new StagingBackupStore(fs, @"C:\staging");
+        fs.CreateVirtualFile(@"C:\staging\backup.bak", 100);
+
+        var result = new TransferResult(
+            TransferState.Completed,
+            new[]
+            {
+                new TransferItemResult(@"C:\src\file1.txt", @"D:\dest\file1.txt", IsDirectory: false, ItemOutcome.Replaced, 100, DateTime.UtcNow, null, @"C:\staging\backup.bak")
+            });
+
+        var undoOp = new TransferUndoOperation(fs, TransferKind.Copy, result, stager);
+        Assert.True(undoOp.CanUndo);
+    }
+
+    [Fact]
     public void NoTransferredItems_MarkedNonUndoable()
     {
         var fs = new InMemoryFileSystem();

@@ -8,7 +8,7 @@ public sealed class TransferJob : ITransferJob
     private readonly CancellationTokenSource _cts = new();
     private readonly PauseGate _gate = new();
 
-    public Guid Id { get; } = Guid.NewGuid();
+    public Guid Id { get; }
     public TransferRequest Request { get; }
     public string DestinationVolumeId { get; }
 
@@ -24,6 +24,7 @@ public sealed class TransferJob : ITransferJob
     {
         Request = request;
         DestinationVolumeId = destinationVolumeId;
+        Id = request.OperationId;
     }
 
     public void Pause() => _gate.Pause();
