@@ -1,6 +1,8 @@
+using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using System.Windows.Media;
 using FM.App.Helpers;
 using FM.App.ViewModels;
 
@@ -14,6 +16,14 @@ public partial class FilePaneView : UserControl
 {
     public FilePaneViewModel? ViewModel => DataContext as FilePaneViewModel;
     private bool _isSyncingSelection;
+    private Point? _dragStartPoint;
+    private ListViewItem? _deferredSelectionItem;
+    private bool _isDragging;
+    private ListViewItem? _lastHoverItem;
+    private Brush? _lastHoverOriginalBackground;
+
+    private static readonly Brush HighlightBrush = new SolidColorBrush(Color.FromRgb(0x00, 0x78, 0xD4));
+    private static readonly Brush ItemHoverHighlightBrush = new SolidColorBrush(Color.FromArgb(0x40, 0x00, 0x78, 0xD4));
 
     public FilePaneView()
     {
@@ -115,7 +125,6 @@ public partial class FilePaneView : UserControl
         }
     }
 
-
     private void OnFileListViewKeyDown(object sender, KeyEventArgs e)
     {
         if (e.Key == Key.Enter)
@@ -150,5 +159,306 @@ public partial class FilePaneView : UserControl
         {
             _isSyncingSelection = false;
         }
+    }
+
+    private void OnFileListViewPreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        var depObj = e.OriginalSource as DependencyObject;
+        var item = depObj?.FindVisualAncestor<ListViewItem>();
+
+        if (item != null)
+        {
+            _dragStartPoint = e.GetPosition(FileListView);
+
+            // Preserve multi-selection: if clicked item is already selected and no Ctrl/Shift,
+            // defer deselection of other items until MouseUp so user can drag all selected items.
+            if (item.IsSelected &&
+                !Keyboard.Modifiers.HasFlag(ModifierKeys.Control) &&
+                !Keyboard.Modifiers.HasFlag(ModifierKeys.Shift) &&
+                FileListView.SelectedItems.Count > 1)
+            {
+                _deferredSelectionItem = item;
+                e.Handled = true;
+            }
+        }
+        else
+        {
+            _dragStartPoint = null;
+            _deferredSelectionItem = null;
+        }
+    }
+
+    private void OnFileListViewPreviewMouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+    {
+        if (_deferredSelectionItem != null)
+        {
+            var item = _deferredSelectionItem;
+            _deferredSelectionItem = null;
+            FileListView.SelectedItems.Clear();
+            item.IsSelected = true;
+        }
+
+        _dragStartPoint = null;
+    }
+
+    private void OnFileListViewMouseMove(object sender, MouseEventArgs e)
+    {
+        if (_isDragging || _dragStartPoint == null || e.LeftButton != MouseButtonState.Pressed)
+        {
+            return;
+        }
+
+        Point currentPoint = e.GetPosition(FileListView);
+        Vector diff = _dragStartPoint.Value - currentPoint;
+
+        if (Math.Abs(diff.X) > SystemParameters.MinimumHorizontalDragDistance ||
+            Math.Abs(diff.Y) > SystemParameters.MinimumVerticalDragDistance)
+        {
+            StartDrag();
+        }
+    }
+
+    private void StartDrag()
+    {
+        if (ViewModel == null) return;
+
+        var selected = ViewModel.SelectedItems.Select(x => x.FullPath).ToArray();
+        if (selected.Length == 0 && FileListView.SelectedItem is FileItemViewModel single)
+        {
+            selected = new[] { single.FullPath };
+        }
+
+        if (selected.Length == 0) return;
+
+        _deferredSelectionItem = null;
+        _isDragging = true;
+
+        var mainVm = Window.GetWindow(this)?.DataContext as MainViewModel;
+        string paneId = (ViewModel == mainVm?.LeftPane) ? "Left" : "Right";
+
+        var data = new DataObject(DataFormats.FileDrop, selected);
+        data.SetData("FM.App.PaneDrag", paneId);
+
+        try
+        {
+            DragDrop.DoDragDrop(FileListView, data, DragDropEffects.Copy | DragDropEffects.Move);
+        }
+        catch
+        {
+            // Guard against OLE COM exceptions during drag
+        }
+        finally
+        {
+            _isDragging = false;
+            _dragStartPoint = null;
+            _deferredSelectionItem = null;
+        }
+
+        // After DoDragDrop returns: refresh both panes.
+        // DO NOT delete source files based on returned effect (Explorer handles external moves; our Drop handles internal).
+        if (mainVm != null)
+        {
+            _ = mainVm.LeftPane.RefreshAsync();
+            _ = mainVm.RightPane.RefreshAsync();
+        }
+    }
+
+    private void OnFileListViewDragEnter(object sender, DragEventArgs e)
+    {
+        HandleDragOver(e);
+    }
+
+    private void OnFileListViewDragOver(object sender, DragEventArgs e)
+    {
+        HandleDragOver(e);
+    }
+
+    private void HandleDragOver(DragEventArgs e)
+    {
+        if (!e.Data.GetDataPresent(DataFormats.FileDrop) || ViewModel == null)
+        {
+            e.Effects = DragDropEffects.None;
+            ClearDropHighlights();
+            e.Handled = true;
+            return;
+        }
+
+        // Auto-scroll when near top or bottom edges (~24 px)
+        var scrollViewer = FileListView.FindVisualChild<ScrollViewer>();
+        if (scrollViewer != null)
+        {
+            Point pos = e.GetPosition(FileListView);
+            if (pos.Y >= 0 && pos.Y < 24)
+            {
+                scrollViewer.LineUp();
+            }
+            else if (pos.Y <= FileListView.ActualHeight && pos.Y > FileListView.ActualHeight - 24)
+            {
+                scrollViewer.LineDown();
+            }
+        }
+
+        string[]? sources = null;
+        try
+        {
+            sources = e.Data.GetData(DataFormats.FileDrop) as string[];
+        }
+        catch
+        {
+            // Ignore format extraction errors
+        }
+
+        if (sources == null || sources.Length == 0)
+        {
+            e.Effects = DragDropEffects.None;
+            ClearDropHighlights();
+            e.Handled = true;
+            return;
+        }
+
+        // Target: hovered directory item or pane CurrentPath
+        var depObj = e.OriginalSource as DependencyObject;
+        var hoverItem = depObj?.FindVisualAncestor<ListViewItem>();
+
+        string targetDir;
+        bool isHoveringFolder = false;
+
+        if (hoverItem?.DataContext is FileItemViewModel fileItem &&
+            fileItem.IsDirectory &&
+            !sources.Contains(fileItem.FullPath, StringComparer.OrdinalIgnoreCase))
+        {
+            targetDir = fileItem.FullPath;
+            isHoveringFolder = true;
+        }
+        else
+        {
+            targetDir = ViewModel.CurrentPath;
+        }
+
+        var resolution = DropEffectResolver.Resolve(ViewModel.FileSystem, sources, targetDir, e.KeyStates);
+        if (resolution.IsValid)
+        {
+            e.Effects = resolution.Effect;
+            ApplyDropHighlight(isHoveringFolder ? hoverItem : null);
+        }
+        else
+        {
+            e.Effects = DragDropEffects.None;
+            ClearDropHighlights();
+        }
+
+        e.Handled = true;
+    }
+
+    private void OnFileListViewDragLeave(object sender, DragEventArgs e)
+    {
+        ClearDropHighlights();
+    }
+
+    private void OnFileListViewDrop(object sender, DragEventArgs e)
+    {
+        ClearDropHighlights();
+
+        if (!e.Data.GetDataPresent(DataFormats.FileDrop) || ViewModel == null)
+        {
+            e.Effects = DragDropEffects.None;
+            e.Handled = true;
+            return;
+        }
+
+        string[]? sources = null;
+        try
+        {
+            sources = e.Data.GetData(DataFormats.FileDrop) as string[];
+        }
+        catch
+        {
+            // Ignore format extraction errors
+        }
+
+        if (sources == null || sources.Length == 0)
+        {
+            e.Effects = DragDropEffects.None;
+            e.Handled = true;
+            return;
+        }
+
+        var depObj = e.OriginalSource as DependencyObject;
+        var hoverItem = depObj?.FindVisualAncestor<ListViewItem>();
+
+        string targetDir;
+        if (hoverItem?.DataContext is FileItemViewModel fileItem &&
+            fileItem.IsDirectory &&
+            !sources.Contains(fileItem.FullPath, StringComparer.OrdinalIgnoreCase))
+        {
+            targetDir = fileItem.FullPath;
+        }
+        else
+        {
+            targetDir = ViewModel.CurrentPath;
+        }
+
+        var resolution = DropEffectResolver.Resolve(ViewModel.FileSystem, sources, targetDir, e.KeyStates);
+        if (!resolution.IsValid || !resolution.Kind.HasValue)
+        {
+            e.Effects = DragDropEffects.None;
+            e.Handled = true;
+            return;
+        }
+
+        var mainVm = Window.GetWindow(this)?.DataContext as MainViewModel;
+        if (mainVm != null)
+        {
+            // OwnerPane for Undo:
+            // Internal drag -> Source Pane
+            // External drag (from Explorer) -> Target Pane (this ViewModel)
+            FilePaneViewModel ownerPane = ViewModel;
+            if (e.Data.GetDataPresent("FM.App.PaneDrag"))
+            {
+                var paneId = e.Data.GetData("FM.App.PaneDrag") as string;
+                if (paneId == "Left") ownerPane = mainVm.LeftPane;
+                else if (paneId == "Right") ownerPane = mainVm.RightPane;
+            }
+
+            // Fast enqueue - returns immediately without blocking OLE loop
+            mainVm.EnqueueTransfer(resolution.Kind.Value, sources, targetDir, ownerPane);
+        }
+
+        e.Effects = resolution.Effect;
+        e.Handled = true;
+    }
+
+    private void ApplyDropHighlight(ListViewItem? hoverItem)
+    {
+        if (hoverItem != null)
+        {
+            if (_lastHoverItem != hoverItem)
+            {
+                ClearDropHighlights();
+                _lastHoverItem = hoverItem;
+                _lastHoverOriginalBackground = hoverItem.Background;
+                hoverItem.Background = ItemHoverHighlightBrush;
+            }
+        }
+        else
+        {
+            ClearDropHighlights();
+            PaneBorder.BorderBrush = HighlightBrush;
+        }
+    }
+
+    private void ClearDropHighlights()
+    {
+        if (_lastHoverItem != null)
+        {
+            _lastHoverItem.Background = _lastHoverOriginalBackground;
+            _lastHoverItem = null;
+            _lastHoverOriginalBackground = null;
+        }
+
+        // Restore PaneBorder brush according to active state
+        PaneBorder.BorderBrush = (ViewModel?.IsActive == true)
+            ? HighlightBrush
+            : new SolidColorBrush(Color.FromRgb(0xE5, 0xE7, 0xEB));
     }
 }

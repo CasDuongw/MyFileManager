@@ -40,6 +40,7 @@ public partial class FilePaneViewModel : ObservableObject
     private bool _showHiddenFiles;
 
     public IUndoStack UndoStack { get; }
+    public IFileSystem FileSystem => _fileSystem;
 
     public BulkObservableCollection<FileItemViewModel> Items { get; } = new();
 

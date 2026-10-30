@@ -168,4 +168,48 @@ public class MainViewModelTransferTests
         Assert.True(_fs.FileExists(@"C:\right\doc1.txt"));
         Assert.True(_fs.FileExists(@"C:\right\doc2.txt"));
     }
+
+    [Fact]
+    public async Task DropTransfer_FromOtherPane_AssignsUndoToSourcePane()
+    {
+        _fs.CreateVirtualFile(@"C:\left\dragged.txt", 100);
+        await _mainViewModel.LeftPane.NavigateAsync(@"C:\left");
+        await _mainViewModel.RightPane.NavigateAsync(@"C:\right");
+
+        // Simulating drop originating from LeftPane onto RightPane
+        var job = _mainViewModel.EnqueueTransfer(
+            TransferKind.Move,
+            new[] { @"C:\left\dragged.txt" },
+            @"C:\right",
+            _mainViewModel.LeftPane); // Source pane owns Undo
+
+        Assert.NotNull(job);
+        await _mainViewModel.WaitForJobCompletionAsync(job);
+
+        Assert.True(_fs.FileExists(@"C:\right\dragged.txt"));
+        Assert.False(_fs.FileExists(@"C:\left\dragged.txt"));
+        Assert.True(_mainViewModel.LeftPane.UndoStack.CanUndo);
+        Assert.False(_mainViewModel.RightPane.UndoStack.CanUndo);
+    }
+
+    [Fact]
+    public async Task DropTransfer_FromExplorer_AssignsUndoToTargetPane()
+    {
+        _fs.CreateVirtualFile(@"D:\external\photo.png", 500);
+        await _mainViewModel.LeftPane.NavigateAsync(@"C:\left");
+        await _mainViewModel.RightPane.NavigateAsync(@"C:\right");
+
+        // Simulating drop originating from external Explorer onto RightPane
+        var job = _mainViewModel.EnqueueTransfer(
+            TransferKind.Copy,
+            new[] { @"D:\external\photo.png" },
+            @"C:\right",
+            _mainViewModel.RightPane); // Target pane owns Undo
+
+        Assert.NotNull(job);
+        await _mainViewModel.WaitForJobCompletionAsync(job);
+
+        Assert.True(_fs.FileExists(@"C:\right\photo.png"));
+        Assert.True(_mainViewModel.RightPane.UndoStack.CanUndo);
+    }
 }

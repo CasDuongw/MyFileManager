@@ -23,6 +23,7 @@ public partial class MainViewModel : ObservableObject
     private readonly IUndoJournalStore? _journalStore;
     private readonly IStagingBackupStore? _stagingStore;
     private readonly object _transferStatusLock = new();
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<Guid, Task> _completionTasks = new();
     private int _activeTransfersCount;
 
     public FilePaneViewModel LeftPane { get; }
@@ -174,7 +175,19 @@ public partial class MainViewModel : ObservableObject
         }
 
         var completionTask = HandleJobCompletionAsync(job, kind, ownerPane);
+        _completionTasks[job.Id] = completionTask;
         return (job, completionTask);
+    }
+
+    public async Task WaitForJobCompletionAsync(ITransferJob job)
+    {
+        ArgumentNullException.ThrowIfNull(job);
+        await job.Completion.ConfigureAwait(false);
+        if (_completionTasks.TryGetValue(job.Id, out var task))
+        {
+            await task.ConfigureAwait(false);
+            _completionTasks.TryRemove(job.Id, out _);
+        }
     }
 
     private async Task HandleJobCompletionAsync(ITransferJob job, TransferKind kind, FilePaneViewModel ownerPane)
