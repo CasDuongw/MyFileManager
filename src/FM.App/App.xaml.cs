@@ -113,6 +113,7 @@ public partial class App : Application
         services.AddSingleton<ITransferDialogService, TransferDialogService>();
 
         // 3. ViewModels
+        services.AddSingleton<TransferDrawerViewModel>();
         services.AddSingleton<MainViewModel>();
 
         // 4. Views

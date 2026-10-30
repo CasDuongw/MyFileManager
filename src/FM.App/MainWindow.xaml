@@ -60,92 +60,102 @@
     </Window.Resources>
 
     <Grid>
-        <Grid.ColumnDefinitions>
-            <!-- Sidebar -->
-            <ColumnDefinition Width="190" MinWidth="130" MaxWidth="320" />
-            <!-- Splitter between Sidebar and File Panes -->
-            <ColumnDefinition Width="4" />
-            <!-- Dual Panes Content -->
-            <ColumnDefinition Width="*" />
-        </Grid.ColumnDefinitions>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
 
-        <!-- Left Navigation Sidebar -->
-        <Border Grid.Column="0"
-                Background="#F9FAFB"
-                BorderBrush="#E5E7EB"
-                BorderThickness="0,0,1,0"
-                Padding="6,8">
-            <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-                <StackPanel>
-                    <!-- Favorites Group -->
-                    <TextBlock Text="FAVORITES"
-                               FontSize="11" FontWeight="SemiBold"
-                               Foreground="#9CA3AF"
-                               Margin="8,4,8,4" />
-
-                    <ListBox ItemsSource="{Binding SidebarFavorites}"
-                             ItemTemplate="{StaticResource SidebarItemTemplate}"
-                             ItemContainerStyle="{StaticResource SidebarItemContainerStyle}"
-                             BorderThickness="0"
-                             Background="Transparent"
-                             SelectionChanged="OnSidebarSelectionChanged" />
-
-                    <!-- Divider -->
-                    <Separator Margin="6,10" Background="#E5E7EB" />
-
-                    <!-- Drives Group -->
-                    <TextBlock Text="DRIVES"
-                               FontSize="11" FontWeight="SemiBold"
-                               Foreground="#9CA3AF"
-                               Margin="8,4,8,4" />
-
-                    <ListBox ItemsSource="{Binding SidebarDrives}"
-                             ItemTemplate="{StaticResource SidebarItemTemplate}"
-                             ItemContainerStyle="{StaticResource SidebarItemContainerStyle}"
-                             BorderThickness="0"
-                             Background="Transparent"
-                             SelectionChanged="OnSidebarSelectionChanged" />
-                </StackPanel>
-            </ScrollViewer>
-        </Border>
-
-        <!-- Splitter for Sidebar -->
-        <GridSplitter Grid.Column="1"
-                      Width="4"
-                      HorizontalAlignment="Center"
-                      VerticalAlignment="Stretch"
-                      Background="#E5E7EB"
-                      ShowsPreview="False" />
-
-        <!-- Dual Pane Workspace -->
-        <Grid Grid.Column="2" Margin="4">
+        <Grid Grid.Row="0">
             <Grid.ColumnDefinitions>
-                <!-- Left Pane -->
-                <ColumnDefinition Width="*" MinWidth="200" />
-                <!-- GridSplitter between Panes -->
-                <ColumnDefinition Width="6" />
-                <!-- Right Pane -->
-                <ColumnDefinition Width="*" MinWidth="200" />
+                <!-- Sidebar -->
+                <ColumnDefinition Width="190" MinWidth="130" MaxWidth="320" />
+                <!-- Splitter between Sidebar and File Panes -->
+                <ColumnDefinition Width="4" />
+                <!-- Dual Panes Content -->
+                <ColumnDefinition Width="*" />
             </Grid.ColumnDefinitions>
 
-            <!-- Left Pane -->
-            <views:FilePaneView x:Name="LeftPaneControl"
-                                Grid.Column="0"
-                                DataContext="{Binding LeftPane}" />
+            <!-- Left Navigation Sidebar -->
+            <Border Grid.Column="0"
+                    Background="#F9FAFB"
+                    BorderBrush="#E5E7EB"
+                    BorderThickness="0,0,1,0"
+                    Padding="6,8">
+                <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                    <StackPanel>
+                        <!-- Favorites Group -->
+                        <TextBlock Text="FAVORITES"
+                                   FontSize="11" FontWeight="SemiBold"
+                                   Foreground="#9CA3AF"
+                                   Margin="8,4,8,4" />
 
-            <!-- GridSplitter between Left and Right Panes -->
+                        <ListBox ItemsSource="{Binding SidebarFavorites}"
+                                 ItemTemplate="{StaticResource SidebarItemTemplate}"
+                                 ItemContainerStyle="{StaticResource SidebarItemContainerStyle}"
+                                 BorderThickness="0"
+                                 Background="Transparent"
+                                 SelectionChanged="OnSidebarSelectionChanged" />
+
+                        <!-- Divider -->
+                        <Separator Margin="6,10" Background="#E5E7EB" />
+
+                        <!-- Drives Group -->
+                        <TextBlock Text="DRIVES"
+                                   FontSize="11" FontWeight="SemiBold"
+                                   Foreground="#9CA3AF"
+                                   Margin="8,4,8,4" />
+
+                        <ListBox ItemsSource="{Binding SidebarDrives}"
+                                 ItemTemplate="{StaticResource SidebarItemTemplate}"
+                                 ItemContainerStyle="{StaticResource SidebarItemContainerStyle}"
+                                 BorderThickness="0"
+                                 Background="Transparent"
+                                 SelectionChanged="OnSidebarSelectionChanged" />
+                    </StackPanel>
+                </ScrollViewer>
+            </Border>
+
+            <!-- Splitter for Sidebar -->
             <GridSplitter Grid.Column="1"
-                          Width="6"
+                          Width="4"
                           HorizontalAlignment="Center"
                           VerticalAlignment="Stretch"
                           Background="#E5E7EB"
-                          ShowsPreview="False"
-                          Cursor="SizeWE" />
+                          ShowsPreview="False" />
 
-            <!-- Right Pane -->
-            <views:FilePaneView x:Name="RightPaneControl"
-                                Grid.Column="2"
-                                DataContext="{Binding RightPane}" />
+            <!-- Dual Pane Workspace -->
+            <Grid Grid.Column="2" Margin="4">
+                <Grid.ColumnDefinitions>
+                    <!-- Left Pane -->
+                    <ColumnDefinition Width="*" MinWidth="200" />
+                    <!-- GridSplitter between Panes -->
+                    <ColumnDefinition Width="6" />
+                    <!-- Right Pane -->
+                    <ColumnDefinition Width="*" MinWidth="200" />
+                </Grid.ColumnDefinitions>
+
+                <!-- Left Pane -->
+                <views:FilePaneView x:Name="LeftPaneControl"
+                                    Grid.Column="0"
+                                    DataContext="{Binding LeftPane}" />
+
+                <!-- GridSplitter between Left and Right Panes -->
+                <GridSplitter Grid.Column="1"
+                              Width="6"
+                              HorizontalAlignment="Center"
+                              VerticalAlignment="Stretch"
+                              Background="#E5E7EB"
+                              ShowsPreview="False"
+                              Cursor="SizeWE" />
+
+                <!-- Right Pane -->
+                <views:FilePaneView x:Name="RightPaneControl"
+                                    Grid.Column="2"
+                                    DataContext="{Binding RightPane}" />
+            </Grid>
         </Grid>
+
+        <!-- Bottom Transfer Drawer -->
+        <views:TransferDrawerView Grid.Row="1" DataContext="{Binding TransferDrawer}" />
     </Grid>
 </Window>

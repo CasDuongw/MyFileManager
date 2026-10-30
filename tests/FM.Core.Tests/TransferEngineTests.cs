@@ -231,5 +231,58 @@ public class TransferEngineTests
         Assert.False(fs.FileExists(@"C:\data.bin"));
         Assert.True(fs.FileExists(@"D:\target\data.bin"));
     }
+
+    [Fact]
+    public async Task Move_SameVolume_PauseResumeAndCancel_WorksCorrectly()
+    {
+        var fs = new InMemoryFileSystem();
+        fs.CreateVirtualFile(@"C:\Source\doc1.txt", 100);
+        fs.CreateVirtualFile(@"C:\Source\doc2.txt", 100);
+        fs.CreateDirectory(@"C:\Destination");
+
+        var engine = new TransferEngine(fs);
+        var gate = new PauseGate();
+        gate.Pause(); // Pause before starting
+
+        var request = new TransferRequest(
+            TransferKind.Move,
+            new[] { @"C:\Source\doc1.txt", @"C:\Source\doc2.txt" },
+            @"C:\Destination",
+            new TransferOptions());
+
+        var runTask = engine.RunAsync(request, gate: gate);
+        await Task.Yield();
+
+        // While paused, no files should have been moved yet
+        Assert.False(runTask.IsCompleted);
+        Assert.False(fs.FileExists(@"C:\Destination\doc1.txt"));
+
+        // Resume -> moves files to completion
+        gate.Resume();
+        var result = await runTask;
+
+        Assert.Equal(TransferState.Completed, result.FinalState);
+        Assert.Equal(2, result.Items.Count);
+        Assert.True(fs.FileExists(@"C:\Destination\doc1.txt"));
+        Assert.True(fs.FileExists(@"C:\Destination\doc2.txt"));
+
+        // Now test cancellation while paused
+        fs.CreateVirtualFile(@"C:\Source\doc3.txt", 100);
+        var cts = new CancellationTokenSource();
+        gate.Pause();
+
+        var request2 = new TransferRequest(
+            TransferKind.Move,
+            new[] { @"C:\Source\doc3.txt" },
+            @"C:\Destination",
+            new TransferOptions());
+
+        var runTask2 = engine.RunAsync(request2, gate: gate, ct: cts.Token);
+        await Task.Yield();
+        cts.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => runTask2);
+        Assert.False(fs.FileExists(@"C:\Destination\doc3.txt"));
+    }
 }
 

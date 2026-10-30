@@ -30,6 +30,7 @@ public interface ITransferJob
 {
     Guid Id { get; }
     TransferRequest Request { get; }
+    string DestinationVolumeId { get; }
     TransferState State { get; }
     TransferProgress? LastProgress { get; }
     Task<TransferResult> Completion { get; }

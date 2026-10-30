@@ -22,9 +22,12 @@ public partial class MainViewModel : ObservableObject
     private readonly ITransferDialogService _dialogService;
     private readonly IUndoJournalStore? _journalStore;
     private readonly IStagingBackupStore? _stagingStore;
+    private readonly object _transferStatusLock = new();
+    private int _activeTransfersCount;
 
     public FilePaneViewModel LeftPane { get; }
     public FilePaneViewModel RightPane { get; }
+    public TransferDrawerViewModel TransferDrawer { get; }
 
     [ObservableProperty]
     private FilePaneViewModel _activePane;
@@ -45,7 +48,8 @@ public partial class MainViewModel : ObservableObject
         IShellLauncher? shellLauncher = null,
         ITransferDialogService? transferDialogService = null,
         IUndoJournalStore? journalStore = null,
-        IStagingBackupStore? stagingStore = null)
+        IStagingBackupStore? stagingStore = null,
+        TransferDrawerViewModel? transferDrawer = null)
     {
         _iconService = iconService;
         _settingsService = settingsService;
@@ -54,6 +58,7 @@ public partial class MainViewModel : ObservableObject
         _journalStore = journalStore;
         _transferQueue = transferQueue ?? new TransferQueue(_fileSystem, _stagingStore, _journalStore);
         _dialogService = transferDialogService ?? new TransferDialogService();
+        TransferDrawer = transferDrawer ?? new TransferDrawerViewModel(_transferQueue);
 
         LeftPane = new FilePaneViewModel(directoryService, iconService, _fileSystem, inputDialogService, shellLauncher: shellLauncher);
         RightPane = new FilePaneViewModel(directoryService, iconService, _fileSystem, inputDialogService, shellLauncher: shellLauncher);
@@ -100,48 +105,57 @@ public partial class MainViewModel : ObservableObject
 
     private void OnTransferQueueProgressChanged(object? sender, TransferProgressEventArgs e)
     {
-        var progress = e.Progress;
-        int pct = (progress.OverallTotal.HasValue && progress.OverallTotal.Value > 0)
-            ? (int)(progress.OverallBytes * 100 / progress.OverallTotal.Value)
-            : 0;
-
-        string speed = $"{FormatHelper.FormatFileSize((long)progress.BytesPerSecond, isDirectory: false)}/s";
-        string verb = e.Job.Request.Kind == TransferKind.Copy ? "Copying" : "Moving";
-        string fileText = progress.FilesTotal.HasValue
-            ? $"{progress.FilesDone} of {progress.FilesTotal.Value}"
-            : $"{progress.FilesDone}";
-
-        string status = $"{verb} {fileText}, {pct}%, {speed}";
-        ActivePane.SetStatusText(status);
+        // Detailed progress is handled in TransferDrawerViewModel.
+        // Status bar on pane only reflects consolidated summary to prevent clobbering dialog statuses.
     }
 
-    [RelayCommand(CanExecute = nameof(CanTransferToOtherPane))]
+    [RelayCommand(CanExecute = nameof(CanTransferToOtherPane), AllowConcurrentExecutions = true)]
     public async Task CopyToOtherPaneAsync()
     {
-        await TransferToOtherPaneAsync(TransferKind.Copy);
+        var sourcePaths = ActivePane.SelectedItems.Select(x => x.FullPath).ToList();
+        var destDir = TargetPane.CurrentPath;
+        var (_, completionTask) = EnqueueTransferInternal(TransferKind.Copy, sourcePaths, destDir, ActivePane);
+        if (completionTask != null)
+        {
+            await completionTask;
+        }
     }
 
-    [RelayCommand(CanExecute = nameof(CanTransferToOtherPane))]
+    [RelayCommand(CanExecute = nameof(CanTransferToOtherPane), AllowConcurrentExecutions = true)]
     public async Task MoveToOtherPaneAsync()
     {
-        await TransferToOtherPaneAsync(TransferKind.Move);
+        var sourcePaths = ActivePane.SelectedItems.Select(x => x.FullPath).ToList();
+        var destDir = TargetPane.CurrentPath;
+        var (_, completionTask) = EnqueueTransferInternal(TransferKind.Move, sourcePaths, destDir, ActivePane);
+        if (completionTask != null)
+        {
+            await completionTask;
+        }
     }
 
-    private async Task TransferToOtherPaneAsync(TransferKind kind)
+    public ITransferJob? EnqueueTransfer(
+        TransferKind kind,
+        IReadOnlyList<string> sourcePaths,
+        string destDir,
+        FilePaneViewModel ownerPane)
     {
-        var sourcePane = ActivePane;
-        var targetPane = TargetPane;
-        var sourcePaths = sourcePane.SelectedItems.Select(x => x.FullPath).ToList();
-        string destDir = targetPane.CurrentPath;
+        return EnqueueTransferInternal(kind, sourcePaths, destDir, ownerPane).Job;
+    }
 
-        if (sourcePaths.Count == 0 || string.IsNullOrWhiteSpace(destDir))
+    private (ITransferJob? Job, Task? CompletionTask) EnqueueTransferInternal(
+        TransferKind kind,
+        IReadOnlyList<string> sourcePaths,
+        string destDir,
+        FilePaneViewModel ownerPane)
+    {
+        if (sourcePaths == null || sourcePaths.Count == 0 || string.IsNullOrWhiteSpace(destDir))
         {
-            return;
+            return (null, null);
         }
 
         var interaction = new WpfTransferInteraction(_dialogService, () =>
         {
-            sourcePane.SetStatusText("Waiting for your decision...");
+            ownerPane.SetStatusText("Waiting for your decision...");
         });
 
         var request = new TransferRequest(
@@ -152,11 +166,31 @@ public partial class MainViewModel : ObservableObject
             interaction);
 
         var job = _transferQueue.Enqueue(request);
-        var result = await job.Completion;
 
-        // 1. Refresh both panes
-        await LeftPane.RefreshAsync();
-        await RightPane.RefreshAsync();
+        lock (_transferStatusLock)
+        {
+            _activeTransfersCount++;
+            ownerPane.SetStatusText(_activeTransfersCount == 1 ? "1 transfer running..." : $"{_activeTransfersCount} transfers running...");
+        }
+
+        var completionTask = HandleJobCompletionAsync(job, kind, ownerPane);
+        return (job, completionTask);
+    }
+
+    private async Task HandleJobCompletionAsync(ITransferJob job, TransferKind kind, FilePaneViewModel ownerPane)
+    {
+        TransferResult result;
+        try
+        {
+            result = await job.Completion.ConfigureAwait(false);
+        }
+        catch
+        {
+            result = new TransferResult(TransferState.Failed, Array.Empty<TransferItemResult>());
+        }
+
+        // 1. Refresh panes
+        await RefreshPanesAfterTransferAsync().ConfigureAwait(false);
 
         // 2. Summary
         int failed = result.Items.Count(i => i.Outcome == ItemOutcome.Failed);
@@ -178,14 +212,31 @@ public partial class MainViewModel : ObservableObject
             summary = $"{verbPast} {transferred} item(s) successfully.";
         }
 
-        sourcePane.SetStatusText(summary, TimeSpan.FromSeconds(5));
+        lock (_transferStatusLock)
+        {
+            _activeTransfersCount = Math.Max(0, _activeTransfersCount - 1);
+            if (_activeTransfersCount > 0)
+            {
+                ownerPane.SetStatusText(_activeTransfersCount == 1 ? "1 transfer running..." : $"{_activeTransfersCount} transfers running...");
+            }
+            else
+            {
+                ownerPane.SetStatusText(summary, TimeSpan.FromSeconds(5));
+            }
+        }
 
         // 3. Push TransferUndoOperation if undoable
         var undoOp = new TransferUndoOperation(_fileSystem, kind, result, _stagingStore, job.Id, _journalStore);
         if (undoOp.CanUndo)
         {
-            sourcePane.UndoStack.Push(undoOp);
+            ownerPane.UndoStack.Push(undoOp);
         }
+    }
+
+    private async Task RefreshPanesAfterTransferAsync()
+    {
+        await LeftPane.RefreshAsync().ConfigureAwait(false);
+        await RightPane.RefreshAsync().ConfigureAwait(false);
     }
 
     private void OnPaneActivated(FilePaneViewModel pane)

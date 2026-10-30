@@ -135,4 +135,37 @@ public class MainViewModelTransferTests
         Assert.True(vm.LeftPane.UndoStack.CanUndo);
         Assert.Equal("Copy of 1 files", vm.LeftPane.UndoStack.NextUndoDescription);
     }
+
+    [Fact]
+    public async Task EnqueueMultipleTransfers_Concurrently_WithoutBlocking()
+    {
+        _fs.CreateVirtualFile(@"C:\left\doc1.txt", 100);
+        _fs.CreateVirtualFile(@"C:\left\doc2.txt", 100);
+        await _mainViewModel.LeftPane.NavigateAsync(@"C:\left");
+        await _mainViewModel.RightPane.NavigateAsync(@"C:\right");
+
+        _mainViewModel.SetActivePane(_mainViewModel.LeftPane);
+
+        // Enqueue transfer 1 via EnqueueTransfer
+        var job1 = _mainViewModel.EnqueueTransfer(
+            TransferKind.Copy,
+            new[] { @"C:\left\doc1.txt" },
+            @"C:\right",
+            _mainViewModel.LeftPane);
+
+        // Enqueue transfer 2 immediately without waiting for job1
+        var job2 = _mainViewModel.EnqueueTransfer(
+            TransferKind.Copy,
+            new[] { @"C:\left\doc2.txt" },
+            @"C:\right",
+            _mainViewModel.LeftPane);
+
+        Assert.NotNull(job1);
+        Assert.NotNull(job2);
+
+        await Task.WhenAll(job1.Completion, job2.Completion);
+
+        Assert.True(_fs.FileExists(@"C:\right\doc1.txt"));
+        Assert.True(_fs.FileExists(@"C:\right\doc2.txt"));
+    }
 }

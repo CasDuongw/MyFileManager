@@ -19,6 +19,7 @@ public sealed class TransferJob : ITransferJob
     internal PauseGate Gate => _gate;
     internal CancellationToken CancellationToken => _cts.Token;
     internal TaskCompletionSource<TransferResult> Tcs => _tcs;
+    internal Action<TransferJob>? OnCancelQueued { get; set; }
 
     public TransferJob(TransferRequest request, string destinationVolumeId)
     {
@@ -27,12 +28,26 @@ public sealed class TransferJob : ITransferJob
         Id = request.OperationId;
     }
 
-    public void Pause() => _gate.Pause();
-    public void Resume() => _gate.Resume();
+    public void Pause()
+    {
+        if (State == TransferState.Running)
+        {
+            _gate.Pause();
+        }
+    }
+
+    public void Resume()
+    {
+        if (State == TransferState.Paused || State == TransferState.Pausing)
+        {
+            _gate.Resume();
+        }
+    }
 
     public Task CancelAsync()
     {
         _cts.Cancel();
+        OnCancelQueued?.Invoke(this);
         return Task.CompletedTask;
     }
 }
@@ -93,6 +108,27 @@ public sealed class TransferQueue : ITransferQueue
         string volumeId = _fs.GetVolumeId(request.DestinationDirectory);
         var job = new TransferJob(request, volumeId);
 
+        job.OnCancelQueued = j =>
+        {
+            TransferState oldState = TransferState.Queued;
+            bool cancelledNow = false;
+            lock (_lock)
+            {
+                if (j.State == TransferState.Queued)
+                {
+                    oldState = j.State;
+                    j.State = TransferState.Cancelled;
+                    cancelledNow = true;
+                }
+            }
+
+            if (cancelledNow)
+            {
+                j.Tcs.TrySetResult(new TransferResult(TransferState.Cancelled, Array.Empty<TransferItemResult>()));
+                StateChanged?.Invoke(this, new TransferStateChangedEventArgs(j, oldState, TransferState.Cancelled));
+            }
+        };
+
         // Gate state notifications
         job.Gate.SetStateNotifier(newState =>
         {
@@ -110,6 +146,7 @@ public sealed class TransferQueue : ITransferQueue
         lock (_lock)
         {
             _jobs.Add(job);
+            stateChanges.Add((job, TransferState.Queued, TransferState.Queued));
             ProcessQueue_Locked(stateChanges);
         }
 
@@ -185,8 +222,6 @@ public sealed class TransferQueue : ITransferQueue
             result = new TransferResult(TransferState.Failed, new[] { errItem });
         }
 
-        job.Tcs.TrySetResult(result);
-
         List<(TransferJob Job, TransferState OldState, TransferState NewState)> stateChanges = new();
 
         lock (_lock)
@@ -200,6 +235,8 @@ public sealed class TransferQueue : ITransferQueue
 
             ProcessQueue_Locked(stateChanges);
         }
+
+        job.Tcs.TrySetResult(result);
 
         foreach (var change in stateChanges)
         {
