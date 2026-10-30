@@ -264,12 +264,20 @@ public partial class FilePaneViewModel : ObservableObject
 
             // Clear view items immediately
             Items.ReplaceAll(Array.Empty<FileItemViewModel>());
+            OnPropertyChanged(nameof(SelectionStatusText));
 
+            var statusUpdateSw = Stopwatch.StartNew();
             await foreach (var batch in _directoryService.EnumerateBatchesAsync(resolvedPath, 150, ct))
             {
                 if (!IsCurrent()) return;
                 var batchVms = batch.Select(e => new FileItemViewModel(e, _iconService, () => _loadCts?.Token ?? CancellationToken.None)).ToList();
                 Items.AddRange(batchVms);
+
+                if (statusUpdateSw.ElapsedMilliseconds >= 100)
+                {
+                    OnPropertyChanged(nameof(SelectionStatusText));
+                    statusUpdateSw.Restart();
+                }
             }
 
             if (!IsCurrent()) return;
@@ -283,6 +291,8 @@ public partial class FilePaneViewModel : ObservableObject
             {
                 SelectedItem = Items.FirstOrDefault(i => string.Equals(i.FullPath, previousSelection, StringComparison.OrdinalIgnoreCase));
             }
+
+            OnPropertyChanged(nameof(SelectionStatusText));
         }
         catch (OperationCanceledException)
         {
@@ -325,6 +335,7 @@ public partial class FilePaneViewModel : ObservableObject
             if (IsCurrent())
             {
                 IsLoading = false;
+                OnPropertyChanged(nameof(SelectionStatusText));
             }
         }
     }

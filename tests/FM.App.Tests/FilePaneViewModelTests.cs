@@ -186,6 +186,35 @@ public class FilePaneViewModelTests : IDisposable
     }
 
     [Fact]
+    public async Task Navigate_RaisesPropertyChangedForSelectionStatusText()
+    {
+        string dir = Path.Combine(_testRoot, "StatusTextDir");
+        Directory.CreateDirectory(dir);
+
+        _fakeDirService.AddDirectory(dir, new[]
+        {
+            new FileEntry("file1.txt", Path.Combine(dir, "file1.txt"), false, 1024, DateTime.Now),
+            new FileEntry("file2.txt", Path.Combine(dir, "file2.txt"), false, 2048, DateTime.Now),
+            new FileEntry("file3.txt", Path.Combine(dir, "file3.txt"), false, 4096, DateTime.Now)
+        });
+
+        var propertyChangedEvents = new List<string>();
+        _viewModel.PropertyChanged += (sender, e) =>
+        {
+            if (e.PropertyName == nameof(FilePaneViewModel.SelectionStatusText))
+            {
+                propertyChangedEvents.Add(_viewModel.SelectionStatusText);
+            }
+        };
+
+        await _viewModel.NavigateInternalAsync(dir, NavigationPhaseType.New);
+
+        // Must have received PropertyChanged notifications, with final value reflecting the loaded count
+        Assert.NotEmpty(propertyChangedEvents);
+        Assert.Equal("3 items", propertyChangedEvents.Last());
+    }
+
+    [Fact]
     public async Task Cancellation_WhenNavigatingAwayMidLoad()
     {
         string dirSlow = Path.Combine(_testRoot, "DirSlow");
