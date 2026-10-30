@@ -100,4 +100,13 @@ public partial class FilePaneView : UserControl
             }
         }
     }
+
+    private void OnFileListViewSelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (ViewModel != null)
+        {
+            var selected = FileListView.SelectedItems.Cast<FileItemViewModel>().ToList();
+            ViewModel.UpdateSelectedItems(selected);
+        }
+    }
 }

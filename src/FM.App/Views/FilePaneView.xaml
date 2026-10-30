@@ -138,6 +138,8 @@
                       Margin="2"
                       ItemsSource="{Binding Items}"
                       SelectedItem="{Binding SelectedItem}"
+                      SelectionMode="Extended"
+                      SelectionChanged="OnFileListViewSelectionChanged"
                       VirtualizingPanel.IsVirtualizing="True"
                       VirtualizingPanel.VirtualizationMode="Recycling"
                       ScrollViewer.CanContentScroll="True"
@@ -225,7 +227,7 @@
                         <ColumnDefinition Width="*" />
                         <ColumnDefinition Width="Auto" />
                     </Grid.ColumnDefinitions>
-                    <TextBlock Text="{Binding Items.Count, StringFormat='{}{0} items'}"
+                    <TextBlock Text="{Binding SelectionStatusText}"
                                FontSize="11" Foreground="#6B7280" />
                     <TextBlock Grid.Column="1"
                                Text="{Binding SortStatusText}"

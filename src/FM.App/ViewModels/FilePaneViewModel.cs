@@ -3,6 +3,7 @@ using System.IO;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using FM.App.Collections;
+using FM.App.Helpers;
 using FM.App.Services;
 using FM.Core.Helpers;
 using FM.Core.Models;
@@ -51,6 +52,34 @@ public partial class FilePaneViewModel : ObservableObject
 
     [ObservableProperty]
     private FileItemViewModel? _selectedItem;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(SelectionStatusText))]
+    private IReadOnlyList<FileItemViewModel> _selectedItems = Array.Empty<FileItemViewModel>();
+
+    public string SelectionStatusText
+    {
+        get
+        {
+            int selectedCount = SelectedItems.Count;
+            int totalCount = Items.Count;
+            if (selectedCount == 0)
+            {
+                return $"{totalCount} items";
+            }
+
+            long totalSelectedBytes = SelectedItems.Where(i => !i.IsDirectory).Sum(i => i.Size);
+            string formattedBytes = FormatHelper.FormatFileSize(totalSelectedBytes, isDirectory: false);
+
+            return $"{selectedCount} of {totalCount} selected ({formattedBytes})";
+        }
+    }
+
+    public void UpdateSelectedItems(IEnumerable<FileItemViewModel> selected)
+    {
+        SelectedItems = selected.ToList();
+        SelectedItem = SelectedItems.Count > 0 ? SelectedItems[0] : null;
+    }
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(SortStatusText))]
