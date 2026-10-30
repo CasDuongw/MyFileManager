@@ -119,3 +119,4 @@ public record TransferItemResult(
 public record TransferResult(
     TransferState FinalState,
     IReadOnlyList<TransferItemResult> Items);
+

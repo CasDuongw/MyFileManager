@@ -117,3 +117,4 @@ public class TransferPlannerTests
         Assert.DoesNotContain(plan.Items, i => i.RelativeDestinationPath.Contains("invisible.txt"));
     }
 }
+

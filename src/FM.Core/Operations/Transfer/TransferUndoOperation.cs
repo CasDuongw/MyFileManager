@@ -186,3 +186,4 @@ public sealed class TransferUndoOperation : IFileOperation
         return OperationResult.Ok();
     }
 }
+

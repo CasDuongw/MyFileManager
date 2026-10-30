@@ -35,3 +35,4 @@ public interface IUndoJournalStore
     Task<IReadOnlyList<PersistentUndoEntry>> LoadEntriesAsync(CancellationToken ct = default);
     Task DeleteEntryAsync(Guid operationId, CancellationToken ct = default);
 }
+

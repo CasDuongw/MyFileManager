@@ -81,3 +81,4 @@ public sealed class PauseGate
         await waitTask.WaitAsync(ct).ConfigureAwait(false);
     }
 }
+
