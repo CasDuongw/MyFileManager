@@ -272,7 +272,9 @@ public partial class FilePaneViewModel : ObservableObject
             OnPropertyChanged(nameof(SelectionStatusText));
 
             var statusUpdateSw = Stopwatch.StartNew();
-            await foreach (var batch in _directoryService.EnumerateBatchesAsync(resolvedPath, 150, ct))
+            var batchSw = Stopwatch.StartNew();
+            int currentBatchSize = 50;
+            await foreach (var batch in _directoryService.EnumerateBatchesAsync(resolvedPath, currentBatchSize, ct))
             {
                 if (!IsCurrent()) return;
                 EnsureHistoryCommitted();
@@ -284,7 +286,17 @@ public partial class FilePaneViewModel : ObservableObject
                     OnPropertyChanged(nameof(SelectionStatusText));
                     statusUpdateSw.Restart();
                 }
+
+                if (System.Windows.Application.Current != null)
+                {
+                    await System.Windows.Threading.Dispatcher.Yield(System.Windows.Threading.DispatcherPriority.Background);
+                }
+                else
+                {
+                    await Task.Yield();
+                }
             }
+            batchSw.Stop();
 
             if (!IsCurrent()) return;
             EnsureHistoryCommitted();

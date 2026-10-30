@@ -90,6 +90,7 @@ public class DirectoryService : IDirectoryService
                 using (enumerator)
                 {
                     var buffer = new List<FileEntry>(batchSize);
+                    int currentTarget = Math.Min(50, batchSize);
 
                     while (true)
                     {
@@ -147,11 +148,15 @@ public class DirectoryService : IDirectoryService
                         if (entry != null)
                         {
                             buffer.Add(entry);
-                            if (buffer.Count >= batchSize)
+                            if (buffer.Count >= currentTarget)
                             {
                                 var chunk = buffer.ToArray();
                                 buffer.Clear();
                                 await channel.Writer.WriteAsync(chunk, producerCt).ConfigureAwait(false);
+                                if (currentTarget < batchSize)
+                                {
+                                    currentTarget = Math.Min(currentTarget * 2, batchSize);
+                                }
                             }
                         }
                     }

@@ -22,6 +22,7 @@ public class BulkObservableCollection<T> : ObservableCollection<T>
         var list = collection as IList<T> ?? collection.ToList();
         if (list.Count == 0) return;
 
+        int startIndex = Items.Count;
         foreach (var item in list)
         {
             Items.Add(item);
@@ -29,20 +30,26 @@ public class BulkObservableCollection<T> : ObservableCollection<T>
 
         OnPropertyChanged(CountPropertyChanged);
         OnPropertyChanged(IndexerPropertyChanged);
-        OnCollectionChanged(ResetNotification);
+
+        for (int i = 0; i < list.Count; i++)
+        {
+            OnCollectionChanged(new NotifyCollectionChangedEventArgs(
+                NotifyCollectionChangedAction.Add,
+                list[i],
+                startIndex + i));
+        }
     }
 
     public void ReplaceAll(IEnumerable<T> collection)
     {
         CheckReentrancy();
-        Items.Clear();
+        var list = collection as IList<T> ?? collection?.ToList() ?? new List<T>();
+        if (Items.Count == 0 && list.Count == 0) return;
 
-        if (collection != null)
+        Items.Clear();
+        foreach (var item in list)
         {
-            foreach (var item in collection)
-            {
-                Items.Add(item);
-            }
+            Items.Add(item);
         }
 
         OnPropertyChanged(CountPropertyChanged);
