@@ -11,3 +11,4 @@ TestResults/
 *.rsuser
 .DS_Store
 repomix-output.xml
+*_wpftmp.csproj
