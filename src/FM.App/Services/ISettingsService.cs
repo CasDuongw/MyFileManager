@@ -18,4 +18,5 @@ public interface ISettingsService
 {
     AppSettings LoadSettings();
     void SaveSettings(AppSettings settings);
+    Task ValidatePathsAsync(AppSettings settings, TimeSpan? timeout = null);
 }

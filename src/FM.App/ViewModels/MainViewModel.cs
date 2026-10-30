@@ -45,7 +45,7 @@ public partial class MainViewModel : ObservableObject
         LeftPane.IsActive = true;
         RightPane.IsActive = false;
 
-        PopulateSidebar();
+        _ = PopulateSidebarAsync();
     }
 
     private void OnPaneActivated(FilePaneViewModel pane)
@@ -77,9 +77,9 @@ public partial class MainViewModel : ObservableObject
         }
     }
 
-    public void InitializeSettings()
+    public async Task InitializeSettingsAsync(AppSettings settings)
     {
-        var settings = _settingsService.LoadSettings();
+        await _settingsService.ValidatePathsAsync(settings);
 
         // Navigate both panes to their persisted or fallback paths
         LeftPane.Navigate(settings.LeftPanePath);
@@ -102,40 +102,63 @@ public partial class MainViewModel : ObservableObject
         _settingsService.SaveSettings(settings);
     }
 
-    private void PopulateSidebar()
+    public async Task PopulateSidebarAsync()
     {
-        // 1. Favorites
-        var desktopPath = Environment.GetFolderPath(Environment.SpecialFolder.Desktop);
-        var docsPath = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
-        var userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-        var downloadsPath = Path.Combine(userProfile, "Downloads");
-
-        if (Directory.Exists(desktopPath))
-            SidebarFavorites.Add(new SidebarItemViewModel("Desktop", desktopPath, SidebarItemCategory.Favorite));
-
-        if (Directory.Exists(docsPath))
-            SidebarFavorites.Add(new SidebarItemViewModel("Documents", docsPath, SidebarItemCategory.Favorite));
-
-        if (Directory.Exists(downloadsPath))
-            SidebarFavorites.Add(new SidebarItemViewModel("Downloads", downloadsPath, SidebarItemCategory.Favorite));
-
-        // 2. Drives
-        try
+        // 1. Favorites - evaluate paths off UI thread
+        var favorites = await Task.Run(() =>
         {
-            foreach (var drive in DriveInfo.GetDrives())
-            {
-                if (!drive.IsReady) continue;
+            var list = new List<SidebarItemViewModel>();
+            var desktopPath = Environment.GetFolderPath(Environment.SpecialFolder.Desktop);
+            var docsPath = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
+            var userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+            var downloadsPath = Path.Combine(userProfile, "Downloads");
 
-                string label = string.IsNullOrWhiteSpace(drive.VolumeLabel)
-                    ? drive.Name.TrimEnd('\\')
-                    : $"{drive.VolumeLabel} ({drive.Name.TrimEnd('\\')})";
+            if (!string.IsNullOrEmpty(desktopPath) && Directory.Exists(desktopPath))
+                list.Add(new SidebarItemViewModel("Desktop", desktopPath, SidebarItemCategory.Favorite));
 
-                SidebarDrives.Add(new SidebarItemViewModel(label, drive.RootDirectory.FullName, SidebarItemCategory.Drive));
-            }
+            if (!string.IsNullOrEmpty(docsPath) && Directory.Exists(docsPath))
+                list.Add(new SidebarItemViewModel("Documents", docsPath, SidebarItemCategory.Favorite));
+
+            if (!string.IsNullOrEmpty(downloadsPath) && Directory.Exists(downloadsPath))
+                list.Add(new SidebarItemViewModel("Downloads", downloadsPath, SidebarItemCategory.Favorite));
+
+            return list;
+        });
+
+        SidebarFavorites.Clear();
+        foreach (var item in favorites)
+        {
+            SidebarFavorites.Add(item);
         }
-        catch
+
+        // 2. Drives - enumerate drives off UI thread
+        var drives = await Task.Run(() =>
         {
-            // Fall back gracefully if drive interrogation throws security exception
+            var list = new List<SidebarItemViewModel>();
+            try
+            {
+                foreach (var drive in DriveInfo.GetDrives())
+                {
+                    if (!drive.IsReady) continue;
+
+                    string label = string.IsNullOrWhiteSpace(drive.VolumeLabel)
+                        ? drive.Name.TrimEnd('\\')
+                        : $"{drive.VolumeLabel} ({drive.Name.TrimEnd('\\')})";
+
+                    list.Add(new SidebarItemViewModel(label, drive.RootDirectory.FullName, SidebarItemCategory.Drive));
+                }
+            }
+            catch
+            {
+                // Fall back gracefully if drive interrogation throws security exception
+            }
+            return list;
+        });
+
+        SidebarDrives.Clear();
+        foreach (var drive in drives)
+        {
+            SidebarDrives.Add(drive);
         }
 
         // 3. Asynchronously load shell icons for sidebar items

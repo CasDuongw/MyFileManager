@@ -23,7 +23,6 @@ public partial class MainWindow : Window
 
     private void OnWindowLoaded(object sender, RoutedEventArgs e)
     {
-        ViewModel?.InitializeSettings();
         FocusActivePane();
     }
 

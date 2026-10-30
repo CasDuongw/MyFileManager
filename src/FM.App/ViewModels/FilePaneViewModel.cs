@@ -109,52 +109,58 @@ public partial class FilePaneViewModel : ObservableObject
     }
 
     [RelayCommand(CanExecute = nameof(CanGoBack))]
-    private void GoBack()
+    public async Task GoBackAsync()
     {
         string? target = _history.PeekBack();
         if (target != null)
         {
-            _ = NavigateInternalAsync(target, NavigationPhaseType.Back);
+            await NavigateInternalAsync(target, NavigationPhaseType.Back);
         }
     }
 
     [RelayCommand(CanExecute = nameof(CanGoForward))]
-    private void GoForward()
+    public async Task GoForwardAsync()
     {
         string? target = _history.PeekForward();
         if (target != null)
         {
-            _ = NavigateInternalAsync(target, NavigationPhaseType.Forward);
+            await NavigateInternalAsync(target, NavigationPhaseType.Forward);
         }
     }
 
     [RelayCommand(CanExecute = nameof(CanGoUp))]
-    public void GoUp()
+    public async Task GoUpAsync()
     {
         string? parent = _history.GetParentPath();
         if (!string.IsNullOrEmpty(parent))
         {
-            Navigate(parent);
+            await NavigateAsync(parent);
         }
     }
 
     [RelayCommand]
-    public void Refresh()
+    public async Task RefreshAsync()
     {
         if (!string.IsNullOrEmpty(CurrentPath))
         {
-            _ = NavigateInternalAsync(CurrentPath, NavigationPhaseType.Refresh);
+            await NavigateInternalAsync(CurrentPath, NavigationPhaseType.Refresh);
         }
     }
 
     [RelayCommand]
-    public void Navigate(string? path)
+    public async Task NavigateAsync(string? path)
     {
         string target = string.IsNullOrWhiteSpace(path) ? AddressText : path;
         if (string.IsNullOrWhiteSpace(target)) return;
 
-        _ = NavigateInternalAsync(target, NavigationPhaseType.New);
+        await NavigateInternalAsync(target, NavigationPhaseType.New);
     }
+
+    public void Navigate(string? path) => _ = NavigateAsync(path);
+    public void Refresh() => _ = RefreshAsync();
+    public void GoBack() => _ = GoBackAsync();
+    public void GoForward() => _ = GoForwardAsync();
+    public void GoUp() => _ = GoUpAsync();
 
     [RelayCommand]
     public async Task Sort(string columnStr)
@@ -228,37 +234,33 @@ public partial class FilePaneViewModel : ObservableObject
         try
         {
             string resolvedPath = Path.GetFullPath(targetPath);
-
-            if (!Directory.Exists(resolvedPath))
-            {
-                if (!IsCurrent()) return;
-                ErrorMessage = $"Directory not found: '{targetPath}'";
-                IsLoading = false;
-                UpdateHistoryCommandStates();
-                return;
-            }
-
             if (!IsCurrent()) return;
 
-            // Commit history now that directory existence is confirmed
-            switch (phaseType)
+            bool historyCommitted = false;
+            void EnsureHistoryCommitted()
             {
-                case NavigationPhaseType.New:
-                    _history.CommitNavigate(resolvedPath);
-                    break;
-                case NavigationPhaseType.Back:
-                    _history.CommitBack();
-                    break;
-                case NavigationPhaseType.Forward:
-                    _history.CommitForward();
-                    break;
-                case NavigationPhaseType.Refresh:
-                    break;
-            }
+                if (historyCommitted) return;
+                historyCommitted = true;
 
-            CurrentPath = resolvedPath;
-            AddressText = resolvedPath;
-            UpdateHistoryCommandStates();
+                switch (phaseType)
+                {
+                    case NavigationPhaseType.New:
+                        _history.CommitNavigate(resolvedPath);
+                        break;
+                    case NavigationPhaseType.Back:
+                        _history.CommitBack();
+                        break;
+                    case NavigationPhaseType.Forward:
+                        _history.CommitForward();
+                        break;
+                    case NavigationPhaseType.Refresh:
+                        break;
+                }
+
+                CurrentPath = resolvedPath;
+                AddressText = resolvedPath;
+                UpdateHistoryCommandStates();
+            }
 
             string? previousSelection = SelectedItem?.FullPath;
 
@@ -270,6 +272,7 @@ public partial class FilePaneViewModel : ObservableObject
             await foreach (var batch in _directoryService.EnumerateBatchesAsync(resolvedPath, 150, ct))
             {
                 if (!IsCurrent()) return;
+                EnsureHistoryCommitted();
                 var batchVms = batch.Select(e => new FileItemViewModel(e, _iconService, () => _loadCts?.Token ?? CancellationToken.None)).ToList();
                 Items.AddRange(batchVms);
 
@@ -281,6 +284,7 @@ public partial class FilePaneViewModel : ObservableObject
             }
 
             if (!IsCurrent()) return;
+            EnsureHistoryCommitted();
 
             // Apply folders-first sort order once enumeration completes
             await ApplySortAsync(currentVersion, ct);

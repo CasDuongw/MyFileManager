@@ -102,8 +102,6 @@ public class FilePaneViewModelTests : IDisposable
     {
         string dir1 = Path.Combine(_testRoot, "Dir1");
         string dir2 = Path.Combine(_testRoot, "Dir2");
-        Directory.CreateDirectory(dir1);
-        Directory.CreateDirectory(dir2);
 
         _fakeDirService.AddDirectory(dir1, Array.Empty<FileEntry>());
         _fakeDirService.AddDirectory(dir2, Array.Empty<FileEntry>());
@@ -115,14 +113,11 @@ public class FilePaneViewModelTests : IDisposable
         Assert.Equal(dir2, _viewModel.CurrentPath);
         Assert.True(_viewModel.CanGoBack);
 
-        // Delete Dir1 on disk
-        Directory.Delete(dir1, true);
+        // Delete Dir1 from fake service (simulating external deletion)
+        _fakeDirService.RemoveDirectory(dir1);
 
-        // Attempt GoBack
-        _viewModel.GoBackCommand.Execute(null);
-
-        // Allow async handler to run
-        await Task.Delay(50);
+        // Attempt GoBack and await command execution deterministically (no Task.Delay)
+        await _viewModel.GoBackCommand.ExecuteAsync(null);
 
         // Dir1 was deleted, so error is displayed, but CurrentPath remains Dir2 and CanGoBack remains true
         Assert.True(_viewModel.HasError);

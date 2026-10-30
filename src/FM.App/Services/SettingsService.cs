@@ -63,8 +63,29 @@ public class SettingsService : ISettingsService
                 Directory.CreateDirectory(dir);
             }
 
-            string json = JsonSerializer.Serialize(settings, JsonOptions);
-            File.WriteAllText(_settingsFilePath, json);
+            // Atomic file write: write to temp file then replace or move
+            string tempFile = Path.Combine(dir ?? Path.GetTempPath(), $"settings_{Guid.NewGuid():N}.tmp");
+            try
+            {
+                string json = JsonSerializer.Serialize(settings, JsonOptions);
+                File.WriteAllText(tempFile, json);
+
+                if (File.Exists(_settingsFilePath))
+                {
+                    File.Replace(tempFile, _settingsFilePath, null);
+                }
+                else
+                {
+                    File.Move(tempFile, _settingsFilePath);
+                }
+            }
+            finally
+            {
+                if (File.Exists(tempFile))
+                {
+                    try { File.Delete(tempFile); } catch { }
+                }
+            }
         }
         catch
         {
@@ -72,17 +93,55 @@ public class SettingsService : ISettingsService
         }
     }
 
+    public async Task ValidatePathsAsync(AppSettings settings, TimeSpan? timeout = null)
+    {
+        var effectiveTimeout = timeout ?? TimeSpan.FromMilliseconds(500);
+        string userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        string fallbackPath = !string.IsNullOrEmpty(userProfile) ? userProfile : @"C:\";
+
+        bool CheckPath(string? path)
+        {
+            if (string.IsNullOrWhiteSpace(path)) return false;
+            try
+            {
+                var checkTask = Task.Run(() => Directory.Exists(path));
+                if (checkTask.Wait(effectiveTimeout))
+                {
+                    return checkTask.Result;
+                }
+            }
+            catch
+            {
+                // Timeout or error
+            }
+            return false;
+        }
+
+        await Task.Run(() =>
+        {
+            if (!CheckPath(settings.LeftPanePath))
+            {
+                settings.LeftPanePath = fallbackPath;
+            }
+
+            if (!CheckPath(settings.RightPanePath))
+            {
+                settings.RightPanePath = fallbackPath;
+            }
+        });
+    }
+
     private static void ValidateSettings(AppSettings settings)
     {
         string userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-        string defaultPath = Directory.Exists(userProfile) ? userProfile : @"C:\";
+        string defaultPath = !string.IsNullOrEmpty(userProfile) ? userProfile : @"C:\";
 
-        if (string.IsNullOrWhiteSpace(settings.LeftPanePath) || !Directory.Exists(settings.LeftPanePath))
+        if (string.IsNullOrWhiteSpace(settings.LeftPanePath))
         {
             settings.LeftPanePath = defaultPath;
         }
 
-        if (string.IsNullOrWhiteSpace(settings.RightPanePath) || !Directory.Exists(settings.RightPanePath))
+        if (string.IsNullOrWhiteSpace(settings.RightPanePath))
         {
             settings.RightPanePath = defaultPath;
         }

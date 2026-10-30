@@ -37,11 +37,6 @@ public class DirectoryService : IDirectoryService
 
         string normalizedPath = NormalizePath(path);
 
-        if (!Directory.Exists(normalizedPath))
-        {
-            throw new DirectoryNotFoundException($"Directory not found: '{path}'");
-        }
-
         if (batchSize <= 0) batchSize = 200;
 
         // Bounded channel to prevent background producer from outrunning consumer and bloating memory
@@ -60,6 +55,12 @@ public class DirectoryService : IDirectoryService
         {
             try
             {
+                if (!Directory.Exists(normalizedPath))
+                {
+                    channel.Writer.Complete(new DirectoryNotFoundException($"Directory not found: '{path}'"));
+                    return;
+                }
+
                 var dirInfo = new DirectoryInfo(normalizedPath);
 
                 // Explicitly probe root directory with IgnoreInaccessible = false so access denied on root

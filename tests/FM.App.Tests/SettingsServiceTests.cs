@@ -85,7 +85,7 @@ public class SettingsServiceTests : IDisposable
     }
 
     [Fact]
-    public void InvalidValues_ClampedToSensibleDefaults()
+    public async Task InvalidValues_ClampedToSensibleDefaults()
     {
         var service = new SettingsService(_tempFile);
 
@@ -103,13 +103,31 @@ public class SettingsServiceTests : IDisposable
         service.SaveSettings(invalid);
         var loaded = service.LoadSettings();
 
-        // Enforced clamping
+        // Enforced clamping without blocking disk I/O
         Assert.Equal(1100, loaded.WindowWidth);
         Assert.Equal(700, loaded.WindowHeight);
         Assert.Null(loaded.WindowLeft);
         Assert.Null(loaded.WindowTop);
         Assert.Equal("Normal", loaded.WindowState);
+
+        // Path validation happens asynchronously
+        await service.ValidatePathsAsync(loaded);
         Assert.True(Directory.Exists(loaded.LeftPanePath));
         Assert.True(Directory.Exists(loaded.RightPanePath));
+    }
+
+    [Fact]
+    public void SaveSettings_AtomicWrite_LeavesNoTempFiles()
+    {
+        var service = new SettingsService(_tempFile);
+        service.SaveSettings(new AppSettings { WindowWidth = 1200 });
+
+        Assert.True(File.Exists(_tempFile));
+        string? dir = Path.GetDirectoryName(_tempFile);
+        if (!string.IsNullOrEmpty(dir))
+        {
+            var tempFiles = Directory.GetFiles(dir, "settings_*.tmp");
+            Assert.Empty(tempFiles);
+        }
     }
 }

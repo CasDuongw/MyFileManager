@@ -16,6 +16,11 @@ public class FakeDirectoryService : IDirectoryService
         _directories[Path.GetFullPath(path)] = entries.ToList();
     }
 
+    public void RemoveDirectory(string path)
+    {
+        _directories.Remove(Path.GetFullPath(path));
+    }
+
     public void SetError(string path, Exception ex)
     {
         _errors[Path.GetFullPath(path)] = ex;

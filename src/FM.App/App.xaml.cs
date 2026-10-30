@@ -13,7 +13,7 @@ public partial class App : Application
 {
     private ServiceProvider? _serviceProvider;
 
-    protected override void OnStartup(StartupEventArgs e)
+    protected override async void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
 
@@ -21,6 +21,7 @@ public partial class App : Application
         ConfigureServices(services);
         _serviceProvider = services.BuildServiceProvider();
 
+        // Load settings once at application startup
         var settingsService = _serviceProvider.GetRequiredService<ISettingsService>();
         var settings = settingsService.LoadSettings();
 
@@ -29,6 +30,10 @@ public partial class App : Application
         ApplyWindowBounds(mainWindow, settings);
 
         mainWindow.Show();
+
+        // Initialize view model paths asynchronously without blocking UI startup
+        var mainViewModel = _serviceProvider.GetRequiredService<MainViewModel>();
+        await mainViewModel.InitializeSettingsAsync(settings);
     }
 
     private static void ApplyWindowBounds(Window window, AppSettings settings)
