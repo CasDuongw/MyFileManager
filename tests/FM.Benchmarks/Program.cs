@@ -100,7 +100,7 @@ public static class Program
     public static int Main(string[] args)
     {
         Console.WriteLine("=============================================================");
-        Console.WriteLine("          MyFileManager v0.2.1 Performance Benchmarks        ");
+        Console.WriteLine("          MyFileManager v0.4 Performance Benchmarks          ");
         Console.WriteLine("=============================================================");
         Console.WriteLine($"Target Framework : .NET 10.0 (Windows)");
         Console.WriteLine($"Host OS          : {Environment.OSVersion}");
@@ -311,11 +311,11 @@ public static class Program
     private static async Task<int> RunTransferBenchmarkAsync()
     {
         Console.WriteLine("=============================================================");
-        Console.WriteLine("       MyFileManager v0.3 In-Memory Transfer Benchmark       ");
+        Console.WriteLine("       MyFileManager v0.4 In-Memory Transfer Benchmark       ");
         Console.WriteLine("=============================================================");
         Console.WriteLine($"Target Framework : .NET 10.0 (Windows)");
         Console.WriteLine($"Host OS          : {Environment.OSVersion}");
-        Console.WriteLine($"Mode             : 2 GB Virtual File Copy (0 disk writes, in-memory)");
+        Console.WriteLine($"Mode             : 2 GB Virtual File Copy with Write-Ahead Journal");
         Console.WriteLine("=============================================================\n");
 
         long wsBefore = Process.GetCurrentProcess().WorkingSet64;
@@ -325,8 +325,10 @@ public static class Program
         long twoGigabytes = 2L * 1024 * 1024 * 1024;
         fs.CreateVirtualFile(@"C:\bench\source\virtual_2gb.bin", twoGigabytes);
         fs.CreateDirectory(@"D:\bench\dest");
+        fs.CreateDirectory(@"C:\bench\journal");
 
-        var engine = new FM.Core.Operations.Transfer.TransferEngine(fs);
+        var journal = new FM.Core.Operations.Transfer.FileUndoJournalStore(fs, @"C:\bench\journal\undo-journal.jsonl");
+        var engine = new FM.Core.Operations.Transfer.TransferEngine(fs, journal: journal);
         var request = new FM.Core.Operations.Transfer.TransferRequest(
             FM.Core.Operations.Transfer.TransferKind.Copy,
             new[] { @"C:\bench\source\virtual_2gb.bin" },
