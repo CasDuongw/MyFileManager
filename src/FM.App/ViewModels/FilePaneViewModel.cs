@@ -167,13 +167,19 @@ public partial class FilePaneViewModel : ObservableObject
         ErrorMessage = null;
     }
 
+    private long _navigationVersion;
+
     public async Task NavigateInternalAsync(string targetPath, bool recordHistory)
     {
+        long currentVersion = Interlocked.Increment(ref _navigationVersion);
+
         // Cancel previous loading task so fast navigation never displays stale results
         _loadCts?.Cancel();
         _loadCts?.Dispose();
         _loadCts = new CancellationTokenSource();
         var ct = _loadCts.Token;
+
+        bool IsCurrent() => currentVersion == Interlocked.Read(ref _navigationVersion) && !ct.IsCancellationRequested;
 
         ErrorMessage = null;
         IsLoading = true;
@@ -184,10 +190,13 @@ public partial class FilePaneViewModel : ObservableObject
 
             if (!Directory.Exists(resolvedPath))
             {
+                if (!IsCurrent()) return;
                 ErrorMessage = $"Directory not found: '{targetPath}'";
                 IsLoading = false;
                 return;
             }
+
+            if (!IsCurrent()) return;
 
             if (recordHistory)
             {
@@ -203,10 +212,13 @@ public partial class FilePaneViewModel : ObservableObject
 
             await foreach (var batch in _directoryService.EnumerateBatchesAsync(resolvedPath, 150, ct))
             {
+                if (!IsCurrent()) return;
                 var batchVms = batch.Select(e => new FileItemViewModel(e)).ToList();
                 Items.AddRange(batchVms);
                 _ = LoadIconsForBatchAsync(batchVms, ct);
             }
+
+            if (!IsCurrent()) return;
 
             // Apply folders-first sort order once enumeration completes
             ApplySort();
@@ -217,27 +229,39 @@ public partial class FilePaneViewModel : ObservableObject
         }
         catch (UnauthorizedAccessException)
         {
-            ErrorMessage = $"Access denied: '{targetPath}'";
-            Items.ReplaceAll(Array.Empty<FileItemViewModel>());
+            if (IsCurrent())
+            {
+                ErrorMessage = $"Access denied: '{targetPath}'";
+                Items.ReplaceAll(Array.Empty<FileItemViewModel>());
+            }
         }
         catch (DirectoryNotFoundException)
         {
-            ErrorMessage = $"Directory not found: '{targetPath}'";
-            Items.ReplaceAll(Array.Empty<FileItemViewModel>());
+            if (IsCurrent())
+            {
+                ErrorMessage = $"Directory not found: '{targetPath}'";
+                Items.ReplaceAll(Array.Empty<FileItemViewModel>());
+            }
         }
         catch (IOException ex)
         {
-            ErrorMessage = $"I/O Error: {ex.Message}";
-            Items.ReplaceAll(Array.Empty<FileItemViewModel>());
+            if (IsCurrent())
+            {
+                ErrorMessage = $"I/O Error: {ex.Message}";
+                Items.ReplaceAll(Array.Empty<FileItemViewModel>());
+            }
         }
         catch (Exception ex)
         {
-            ErrorMessage = $"Error: {ex.Message}";
-            Items.ReplaceAll(Array.Empty<FileItemViewModel>());
+            if (IsCurrent())
+            {
+                ErrorMessage = $"Error: {ex.Message}";
+                Items.ReplaceAll(Array.Empty<FileItemViewModel>());
+            }
         }
         finally
         {
-            if (!ct.IsCancellationRequested)
+            if (IsCurrent())
             {
                 IsLoading = false;
             }
