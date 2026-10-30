@@ -16,13 +16,4 @@ public interface IDirectoryService
     /// <param name="ct">Cancellation token to cancel ongoing enumeration.</param>
     /// <returns>An async stream of <see cref="IReadOnlyList{FileEntry}"/> batches.</returns>
     IAsyncEnumerable<IReadOnlyList<FileEntry>> EnumerateBatchesAsync(string path, int batchSize = 200, CancellationToken ct = default);
-
-    /// <summary>
-    /// Enumerates all accessible file entries in the specified directory path.
-    /// Inaccessible entries are skipped without throwing exceptions.
-    /// </summary>
-    /// <param name="path">Absolute directory path to enumerate.</param>
-    /// <param name="ct">Cancellation token to cancel ongoing enumeration.</param>
-    /// <returns>An async stream of <see cref="FileEntry"/>.</returns>
-    IAsyncEnumerable<FileEntry> EnumerateAsync(string path, CancellationToken ct = default);
 }

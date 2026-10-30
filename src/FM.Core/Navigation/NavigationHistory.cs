@@ -91,21 +91,6 @@ public class NavigationHistory
     }
 
     /// <summary>
-    /// Navigates to a new path in a single step (calls <see cref="CommitNavigate"/>).
-    /// </summary>
-    public bool Navigate(string newPath) => CommitNavigate(newPath);
-
-    /// <summary>
-    /// Navigates back in a single step (calls <see cref="CommitBack"/>).
-    /// </summary>
-    public string? GoBack() => CommitBack();
-
-    /// <summary>
-    /// Navigates forward in a single step (calls <see cref="CommitForward"/>).
-    /// </summary>
-    public string? GoForward() => CommitForward();
-
-    /// <summary>
     /// Returns the parent directory path of <see cref="CurrentPath"/>, or null if already at root or path is invalid.
     /// </summary>
     public string? GetParentPath()

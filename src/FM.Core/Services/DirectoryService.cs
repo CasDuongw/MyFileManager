@@ -11,20 +11,6 @@ namespace FM.Core.Services;
 /// </summary>
 public class DirectoryService : IDirectoryService
 {
-    public async IAsyncEnumerable<FileEntry> EnumerateAsync(
-        string path,
-        [EnumeratorCancellation] CancellationToken ct = default)
-    {
-        await foreach (var batch in EnumerateBatchesAsync(path, batchSize: 200, ct).ConfigureAwait(false))
-        {
-            foreach (var item in batch)
-            {
-                ct.ThrowIfCancellationRequested();
-                yield return item;
-            }
-        }
-    }
-
     public async IAsyncEnumerable<IReadOnlyList<FileEntry>> EnumerateBatchesAsync(
         string path,
         int batchSize = 200,

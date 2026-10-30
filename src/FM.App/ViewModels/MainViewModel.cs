@@ -12,7 +12,6 @@ namespace FM.App.ViewModels;
 /// </summary>
 public partial class MainViewModel : ObservableObject
 {
-    private readonly IDirectoryService _directoryService;
     private readonly IIconService _iconService;
     private readonly ISettingsService _settingsService;
 
@@ -30,7 +29,6 @@ public partial class MainViewModel : ObservableObject
         IIconService iconService,
         ISettingsService settingsService)
     {
-        _directoryService = directoryService;
         _iconService = iconService;
         _settingsService = settingsService;
 

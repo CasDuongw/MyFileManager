@@ -276,7 +276,7 @@ public partial class FilePaneViewModel : ObservableObject
             {
                 if (!IsCurrent()) return;
                 EnsureHistoryCommitted();
-                var batchVms = batch.Select(e => new FileItemViewModel(e, _iconService, () => _loadCts?.Token ?? CancellationToken.None)).ToList();
+                var batchVms = batch.Select(e => new FileItemViewModel(e, _iconService, ct)).ToList();
                 Items.AddRange(batchVms);
 
                 if (statusUpdateSw.ElapsedMilliseconds >= 100)

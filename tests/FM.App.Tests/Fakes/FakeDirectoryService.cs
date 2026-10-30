@@ -60,18 +60,4 @@ public class FakeDirectoryService : IDirectoryService
             yield return batch;
         }
     }
-
-    public async IAsyncEnumerable<FileEntry> EnumerateAsync(
-        string path,
-        [EnumeratorCancellation] CancellationToken ct = default)
-    {
-        await foreach (var batch in EnumerateBatchesAsync(path, 200, ct))
-        {
-            foreach (var item in batch)
-            {
-                ct.ThrowIfCancellationRequested();
-                yield return item;
-            }
-        }
-    }
 }

@@ -14,7 +14,7 @@ public partial class FileItemViewModel : ObservableObject
 {
     public FileEntry Entry { get; }
     private readonly IIconService? _iconService;
-    private readonly Func<CancellationToken>? _getCancellationToken;
+    private readonly CancellationToken _cancellationToken;
 
     private bool _iconRequested;
     private ImageSource? _icon;
@@ -47,29 +47,41 @@ public partial class FileItemViewModel : ObservableObject
     public FileItemViewModel(
         FileEntry entry,
         IIconService? iconService = null,
-        Func<CancellationToken>? getCancellationToken = null)
+        CancellationToken cancellationToken = default)
     {
         Entry = entry;
         _iconService = iconService;
-        _getCancellationToken = getCancellationToken;
+        _cancellationToken = cancellationToken;
     }
 
     private async Task RequestIconAsync()
     {
         if (_iconService == null) return;
-        var ct = _getCancellationToken?.Invoke() ?? CancellationToken.None;
+        if (_cancellationToken.IsCancellationRequested)
+        {
+            _iconRequested = false;
+            return;
+        }
 
         try
         {
-            var icon = await _iconService.GetIconAsync(FullPath, IsDirectory, isDrive: false, ct);
-            if (!ct.IsCancellationRequested && icon != null)
+            var icon = await _iconService.GetIconAsync(FullPath, IsDirectory, isDrive: false, _cancellationToken);
+            if (!_cancellationToken.IsCancellationRequested && icon != null)
             {
                 Icon = icon;
             }
+            else if (_cancellationToken.IsCancellationRequested)
+            {
+                _iconRequested = false;
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            _iconRequested = false;
         }
         catch
         {
-            // Ignore cancellation or missing icon
+            // Ignore missing icon
         }
     }
 }

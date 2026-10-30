@@ -19,21 +19,21 @@ public class NavigationHistoryTests
     {
         var history = new NavigationHistory(@"C:\Folder1");
 
-        history.Navigate(@"C:\Folder2");
+        history.CommitNavigate(@"C:\Folder2");
 
         Assert.Equal(@"C:\Folder2", history.CurrentPath);
         Assert.True(history.CanGoBack);
         Assert.False(history.CanGoForward);
 
         // Go back to Folder1
-        string? back = history.GoBack();
+        string? back = history.CommitBack();
         Assert.Equal(@"C:\Folder1", back);
         Assert.Equal(@"C:\Folder1", history.CurrentPath);
         Assert.False(history.CanGoBack);
         Assert.True(history.CanGoForward);
 
         // Go forward to Folder2
-        string? forward = history.GoForward();
+        string? forward = history.CommitForward();
         Assert.Equal(@"C:\Folder2", forward);
         Assert.Equal(@"C:\Folder2", history.CurrentPath);
         Assert.True(history.CanGoBack);
@@ -45,7 +45,7 @@ public class NavigationHistoryTests
     {
         var history = new NavigationHistory(@"C:\Folder1");
 
-        bool navigated = history.Navigate(@"C:\Folder1");
+        bool navigated = history.CommitNavigate(@"C:\Folder1");
         Assert.False(navigated);
         Assert.False(history.CanGoBack);
     }
@@ -54,13 +54,13 @@ public class NavigationHistoryTests
     public void NavigateAfterGoBack_ClearsForwardStack()
     {
         var history = new NavigationHistory(@"C:\1");
-        history.Navigate(@"C:\2");
-        history.Navigate(@"C:\3");
+        history.CommitNavigate(@"C:\2");
+        history.CommitNavigate(@"C:\3");
 
-        history.GoBack(); // Current is C:\2, Forward has C:\3
+        history.CommitBack(); // Current is C:\2, Forward has C:\3
         Assert.True(history.CanGoForward);
 
-        history.Navigate(@"C:\4"); // Navigating clears Forward stack
+        history.CommitNavigate(@"C:\4"); // Navigating clears Forward stack
         Assert.Equal(@"C:\4", history.CurrentPath);
         Assert.False(history.CanGoForward);
         Assert.True(history.CanGoBack);

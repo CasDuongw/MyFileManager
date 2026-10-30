@@ -35,9 +35,9 @@ public class DirectoryServiceTests : IDisposable
     public async Task EmptyDirectory_ReturnsNoItems()
     {
         var items = new List<FileEntry>();
-        await foreach (var item in _service.EnumerateAsync(_testRoot))
+        await foreach (var batch in _service.EnumerateBatchesAsync(_testRoot))
         {
-            items.Add(item);
+            items.AddRange(batch);
         }
 
         Assert.Empty(items);
@@ -50,7 +50,7 @@ public class DirectoryServiceTests : IDisposable
 
         await Assert.ThrowsAsync<DirectoryNotFoundException>(async () =>
         {
-            await foreach (var _ in _service.EnumerateAsync(fakePath))
+            await foreach (var _ in _service.EnumerateBatchesAsync(fakePath))
             {
             }
         });
@@ -92,9 +92,9 @@ public class DirectoryServiceTests : IDisposable
             var entries = new List<FileEntry>();
             var exception = await Record.ExceptionAsync(async () =>
             {
-                await foreach (var entry in _service.EnumerateAsync(_testRoot))
+                await foreach (var batch in _service.EnumerateBatchesAsync(_testRoot))
                 {
-                    entries.Add(entry);
+                    entries.AddRange(batch);
                 }
             });
 
@@ -148,7 +148,7 @@ public class DirectoryServiceTests : IDisposable
         {
             await Assert.ThrowsAsync<UnauthorizedAccessException>(async () =>
             {
-                await foreach (var _ in _service.EnumerateAsync(deniedDir))
+                await foreach (var _ in _service.EnumerateBatchesAsync(deniedDir))
                 {
                 }
             });
@@ -179,9 +179,9 @@ public class DirectoryServiceTests : IDisposable
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(async () =>
         {
-            await foreach (var item in _service.EnumerateAsync(_testRoot, cts.Token))
+            await foreach (var batch in _service.EnumerateBatchesAsync(_testRoot, batchSize: 5, cts.Token))
             {
-                items.Add(item);
+                items.AddRange(batch);
                 if (items.Count >= 5)
                 {
                     cts.Cancel();
