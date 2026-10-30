@@ -12,6 +12,7 @@ public class AppSettings
     public string WindowState { get; set; } = "Normal";
     public string LeftPanePath { get; set; } = string.Empty;
     public string RightPanePath { get; set; } = string.Empty;
+    public bool ShowHiddenFiles { get; set; } = false;
 }
 
 public interface ISettingsService

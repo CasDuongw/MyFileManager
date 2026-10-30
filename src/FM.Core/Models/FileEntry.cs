@@ -8,4 +8,13 @@ namespace FM.Core.Models;
 /// <param name="IsDirectory">True if this entry is a directory, false if a file.</param>
 /// <param name="Size">Size in bytes (0 for directories).</param>
 /// <param name="Modified">Last modified date and time.</param>
-public record FileEntry(string Name, string FullPath, bool IsDirectory, long Size, DateTime Modified);
+/// <param name="IsHidden">True if this entry has the Hidden attribute.</param>
+/// <param name="IsSystem">True if this entry has the System attribute.</param>
+public record FileEntry(
+    string Name,
+    string FullPath,
+    bool IsDirectory,
+    long Size,
+    DateTime Modified,
+    bool IsHidden = false,
+    bool IsSystem = false);

@@ -26,6 +26,9 @@ public partial class MainViewModel : ObservableObject
     [ObservableProperty]
     private FilePaneViewModel _activePane;
 
+    [ObservableProperty]
+    private bool _showHiddenFiles;
+
     public ObservableCollection<SidebarItemViewModel> SidebarFavorites { get; } = new();
     public ObservableCollection<SidebarItemViewModel> SidebarDrives { get; } = new();
 
@@ -35,15 +38,16 @@ public partial class MainViewModel : ObservableObject
         ISettingsService settingsService,
         IFileSystem? fileSystem = null,
         IInputDialogService? inputDialogService = null,
-        ITransferQueue? transferQueue = null)
+        ITransferQueue? transferQueue = null,
+        IShellLauncher? shellLauncher = null)
     {
         _iconService = iconService;
         _settingsService = settingsService;
         _fileSystem = fileSystem ?? new PhysicalFileSystem();
         _transferQueue = transferQueue ?? new TransferQueue(_fileSystem);
 
-        LeftPane = new FilePaneViewModel(directoryService, iconService, _fileSystem, inputDialogService);
-        RightPane = new FilePaneViewModel(directoryService, iconService, _fileSystem, inputDialogService);
+        LeftPane = new FilePaneViewModel(directoryService, iconService, _fileSystem, inputDialogService, shellLauncher: shellLauncher);
+        RightPane = new FilePaneViewModel(directoryService, iconService, _fileSystem, inputDialogService, shellLauncher: shellLauncher);
 
         LeftPane.Activated += OnPaneActivated;
         RightPane.Activated += OnPaneActivated;
@@ -199,9 +203,32 @@ public partial class MainViewModel : ObservableObject
         }
     }
 
+    [RelayCommand]
+    public async Task ToggleHiddenFilesAsync()
+    {
+        ShowHiddenFiles = !ShowHiddenFiles;
+        LeftPane.ShowHiddenFiles = ShowHiddenFiles;
+        RightPane.ShowHiddenFiles = ShowHiddenFiles;
+
+        var settings = _settingsService.LoadSettings();
+        settings.ShowHiddenFiles = ShowHiddenFiles;
+        _settingsService.SaveSettings(settings);
+
+        string status = ShowHiddenFiles ? "Hidden files: Shown" : "Hidden files: Hidden";
+        ActivePane.SetStatusText(status, TimeSpan.FromSeconds(3));
+
+        await Task.WhenAll(LeftPane.RefreshAsync(), RightPane.RefreshAsync());
+    }
+
+    public void ToggleHiddenFiles() => _ = ToggleHiddenFilesAsync();
+
     public async Task InitializeSettingsAsync(AppSettings settings)
     {
         await _settingsService.ValidatePathsAsync(settings);
+
+        ShowHiddenFiles = settings.ShowHiddenFiles;
+        LeftPane.ShowHiddenFiles = settings.ShowHiddenFiles;
+        RightPane.ShowHiddenFiles = settings.ShowHiddenFiles;
 
         // Navigate both panes to their persisted or fallback paths
         LeftPane.Navigate(settings.LeftPanePath);
@@ -218,7 +245,8 @@ public partial class MainViewModel : ObservableObject
             WindowHeight = height,
             WindowState = windowState,
             LeftPanePath = string.IsNullOrEmpty(LeftPane.CurrentPath) ? @"C:\" : LeftPane.CurrentPath,
-            RightPanePath = string.IsNullOrEmpty(RightPane.CurrentPath) ? @"C:\" : RightPane.CurrentPath
+            RightPanePath = string.IsNullOrEmpty(RightPane.CurrentPath) ? @"C:\" : RightPane.CurrentPath,
+            ShowHiddenFiles = ShowHiddenFiles
         };
 
         _settingsService.SaveSettings(settings);

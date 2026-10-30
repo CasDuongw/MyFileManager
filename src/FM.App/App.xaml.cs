@@ -93,6 +93,7 @@ public partial class App : Application
         services.AddSingleton<IIconService, IconService>();
         services.AddSingleton<ISettingsService, SettingsService>();
         services.AddSingleton<IInputDialogService, InputDialogService>();
+        services.AddSingleton<IShellLauncher, ShellLauncher>();
 
         // 3. ViewModels
         services.AddSingleton<MainViewModel>();

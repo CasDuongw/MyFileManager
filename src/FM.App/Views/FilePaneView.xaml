@@ -152,6 +152,7 @@
                         <ColumnDefinition Width="Auto" />
                     </Grid.ColumnDefinitions>
                     <TextBlock Text="{Binding ErrorMessage}"
+                               ToolTip="{Binding ErrorMessage}"
                                Foreground="#B91C1C"
                                VerticalAlignment="Center"
                                TextTrimming="CharacterEllipsis" />
@@ -182,6 +183,12 @@
                       GridViewColumnHeader.Click="OnGridViewColumnHeaderClicked"
                       MouseDoubleClick="OnFileListViewMouseDoubleClick"
                       KeyDown="OnFileListViewKeyDown">
+                <ListView.ItemContainerStyle>
+                    <Style TargetType="ListViewItem">
+                        <Setter Property="Opacity" Value="{Binding Opacity}" />
+                        <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                    </Style>
+                </ListView.ItemContainerStyle>
                 <ListView.View>
                     <GridView>
                         <!-- Name Column with Icon -->

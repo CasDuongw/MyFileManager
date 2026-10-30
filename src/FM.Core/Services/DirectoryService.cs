@@ -113,7 +113,10 @@ public class DirectoryService : IDirectoryService
                         FileEntry? entry = null;
                         try
                         {
-                            bool isDirectory = (current.Attributes & FileAttributes.Directory) == FileAttributes.Directory;
+                            var attrs = current.Attributes;
+                            bool isDirectory = (attrs & FileAttributes.Directory) == FileAttributes.Directory;
+                            bool isHidden = (attrs & FileAttributes.Hidden) == FileAttributes.Hidden;
+                            bool isSystem = (attrs & FileAttributes.System) == FileAttributes.System;
                             long size = 0;
 
                             if (!isDirectory && current is FileInfo fileInfo)
@@ -138,7 +141,7 @@ public class DirectoryService : IDirectoryService
                                 modified = DateTime.MinValue;
                             }
 
-                            entry = new FileEntry(current.Name, current.FullName, isDirectory, size, modified);
+                            entry = new FileEntry(current.Name, current.FullName, isDirectory, size, modified, isHidden, isSystem);
                         }
                         catch (Exception ex) when (ex is UnauthorizedAccessException or IOException)
                         {

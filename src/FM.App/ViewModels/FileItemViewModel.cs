@@ -44,6 +44,10 @@ public partial class FileItemViewModel : ObservableObject
     public string FormattedModified => Entry.Modified == DateTime.MinValue ? string.Empty : Entry.Modified.ToString("yyyy-MM-dd HH:mm");
     public string DisplayType => FormatHelper.FormatFileType(Entry.Name, Entry.IsDirectory);
 
+    public bool IsHidden => Entry.IsHidden;
+    public bool IsSystem => Entry.IsSystem;
+    public double Opacity => (Entry.IsHidden || Entry.IsSystem) ? 0.5 : 1.0;
+
     public FileItemViewModel(
         FileEntry entry,
         IIconService? iconService = null,

@@ -224,6 +224,43 @@ public class DirectoryServiceTests : IClassFixture<DirectoryTestFixture>
         }
     }
 
+    [Fact]
+    public async Task EnumerateBatchesAsync_ExtractsHiddenAndSystemAttributesCorrectly()
+    {
+        using var workspace = new FM.Tests.Common.TestWorkspace("hidden_system_attrs");
+        string normalFile = workspace.CreateFile("normal.txt", new byte[] { 1 });
+        string hiddenFile = workspace.CreateFile("hidden.txt", new byte[] { 2 });
+        string sysHiddenFile = workspace.CreateFile("sys_hidden.txt", new byte[] { 3 });
+
+        File.SetAttributes(hiddenFile, FileAttributes.Hidden);
+        File.SetAttributes(sysHiddenFile, FileAttributes.System | FileAttributes.Hidden);
+
+        var entries = new List<FileEntry>();
+        await foreach (var batch in _service.EnumerateBatchesAsync(workspace.RootPath))
+        {
+            entries.AddRange(batch);
+        }
+
+        var normalEntry = entries.FirstOrDefault(e => e.Name == "normal.txt");
+        Assert.NotNull(normalEntry);
+        Assert.False(normalEntry.IsHidden);
+        Assert.False(normalEntry.IsSystem);
+
+        var hiddenEntry = entries.FirstOrDefault(e => e.Name == "hidden.txt");
+        Assert.NotNull(hiddenEntry);
+        Assert.True(hiddenEntry.IsHidden);
+        Assert.False(hiddenEntry.IsSystem);
+
+        var sysHiddenEntry = entries.FirstOrDefault(e => e.Name == "sys_hidden.txt");
+        Assert.NotNull(sysHiddenEntry);
+        Assert.True(sysHiddenEntry.IsHidden);
+        Assert.True(sysHiddenEntry.IsSystem);
+
+        // Reset attributes before workspace dispose so directory deletion won't fail
+        File.SetAttributes(hiddenFile, FileAttributes.Normal);
+        File.SetAttributes(sysHiddenFile, FileAttributes.Normal);
+    }
+
     private static void ResetAclWithRetry(string path)
     {
         if (!OperatingSystem.IsWindows()) return;

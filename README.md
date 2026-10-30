@@ -93,7 +93,9 @@ MyFileManager/
 │       │   ├── ISettingsService.cs      # User settings persistence contract
 │       │   ├── SettingsService.cs      # AppData settings.json persistence with clamping
 │       │   ├── IInputDialogService.cs   # Dialog contract for user prompts
-│       │   └── InputDialogService.cs    # WPF dialog window implementation
+│       │   ├── InputDialogService.cs    # WPF dialog window implementation
+│       │   ├── IShellLauncher.cs        # OS shell process launcher abstraction
+│       │   └── ShellLauncher.cs         # Shell execution implementation
 │       ├── ViewModels/
 │       │   ├── FileItemViewModel.cs     # Lazy icon-loaded file item representation
 │       │   ├── FilePaneViewModel.cs     # Pane navigation, sorting, multi-selection, and status
@@ -109,8 +111,8 @@ MyFileManager/
 ├── tests/
 │   ├── Common/
 │   │   └── TestWorkspace.cs             # Bounded %TEMP%\FM_* workspace manager (max 200 files / 1 MiB)
-│   ├── FM.Core.Tests/           # Core library xUnit test suite (95 tests)
-│   ├── FM.App.Tests/            # App-level xUnit test suite (23 tests)
+│   ├── FM.Core.Tests/           # Core library xUnit test suite (96 tests)
+│   ├── FM.App.Tests/            # App-level xUnit test suite (36 tests)
 │   └── FM.Benchmarks/           # Performance benchmark harness
 │       └── Program.cs                   # Navigation and 2 GB transfer benchmarks
 │
@@ -126,6 +128,7 @@ MyFileManager/
 | Shortcut | Action | Scope |
 | :--- | :--- | :--- |
 | **`Tab`** | Switch active pane between Left and Right | File list focused (preserves normal Tab in address bar) |
+| **`Ctrl + H`** | Toggle display of hidden and system files | Active pane & persisted in AppSettings |
 | **`Ctrl + Shift + C`** | Copy selected items to the other pane | Active pane |
 | **`Ctrl + Shift + M`** | Move selected items to the other pane | Active pane |
 | **`Ctrl + Shift + N`** | Create a new folder | Active pane |
@@ -215,3 +218,23 @@ The current version is **v0.3** (Transfer Engine & Core Wiring):
 - **Interactive Conflict Dialog:** v0.3 defaults to `ConflictAction.KeepBoth`. An interactive prompt modal allowing Overwrite/Skip/KeepBoth/ApplyToAll during runtime is scheduled for v0.4.
 - **Persistent Write-Ahead Journal:** The `IUndoJournalStore` interface is designed and ready; file-backed persistent disk journaling (surviving app crashes) is scheduled for v0.4.
 - **Drag-and-Drop:** Mouse drag-and-drop between panes is planned for future versions.
+
+---
+
+## 9. Manual Verification Checklist (F5 in Visual Studio)
+
+1. **Launch Solution:** Press **F5** in Visual Studio. Both panes initialize cleanly.
+2. **Hidden Files Toggle (`Ctrl + H`):**
+   - Navigate to a folder containing hidden or system items (e.g. `%USERPROFILE%` or `C:\`).
+   - By default, hidden items are not visible (matching Explorer).
+   - Press **`Ctrl + H`**: status footer confirms `"Hidden files: Shown"`, hidden items appear with **50% opacity**.
+   - Press **`Ctrl + H`** again: status footer confirms `"Hidden files: Hidden"`, hidden items disappear.
+   - Restart app to verify `ShowHiddenFiles` setting is persisted.
+3. **Resilient File Opening (`OpenItem`):**
+   - Double-click or press **Enter** on a valid file: file opens in default Windows application.
+   - If a file is deleted externally while listed: press **Enter** -> red banner cleanly reports `"File no longer exists"` and pane auto-refreshes.
+   - If file has no association or permission denied: clean friendly error is reported (`"No application is associated with this file"` or `"Access denied"`), with unabridged text available via tooltip on hover.
+   - If Windows Open With or UAC prompt is cancelled: no false-positive error banner is displayed.
+4. **Transfer & Undo:**
+   - Select items, press **`Ctrl + Shift + C`** (Copy) or **`Ctrl + Shift + M`** (Move) to other pane.
+   - Press **`Ctrl + Z`** to undo.

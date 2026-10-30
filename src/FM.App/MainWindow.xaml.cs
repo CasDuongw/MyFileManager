@@ -167,6 +167,17 @@ public partial class MainWindow : Window
                 return;
             }
         }
+
+        // 11. Ctrl+H: Toggle hidden files
+        if (isCtrl && !isShift && e.Key == Key.H)
+        {
+            if (ViewModel?.ToggleHiddenFilesCommand.CanExecute(null) == true)
+            {
+                ViewModel.ToggleHiddenFilesCommand.Execute(null);
+                e.Handled = true;
+                return;
+            }
+        }
     }
 
     private void FocusActivePane()

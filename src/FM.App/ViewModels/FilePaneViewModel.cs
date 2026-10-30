@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -31,8 +32,12 @@ public partial class FilePaneViewModel : ObservableObject
     private readonly IIconService _iconService;
     private readonly IFileSystem _fileSystem;
     private readonly IInputDialogService _inputDialogService;
+    private readonly IShellLauncher _shellLauncher;
     private readonly NavigationHistory _history = new();
     private CancellationTokenSource? _loadCts;
+
+    [ObservableProperty]
+    private bool _showHiddenFiles;
 
     public IUndoStack UndoStack { get; }
 
@@ -170,13 +175,15 @@ public partial class FilePaneViewModel : ObservableObject
         IIconService iconService,
         IFileSystem? fileSystem = null,
         IInputDialogService? inputDialogService = null,
-        IUndoStack? undoStack = null)
+        IUndoStack? undoStack = null,
+        IShellLauncher? shellLauncher = null)
     {
         _directoryService = directoryService;
         _iconService = iconService;
         _fileSystem = fileSystem ?? new PhysicalFileSystem();
         _inputDialogService = inputDialogService ?? new InputDialogService();
         UndoStack = undoStack ?? new UndoStack();
+        _shellLauncher = shellLauncher ?? new ShellLauncher();
 
         UndoStack.CanUndoChanged += () => UndoCommand.NotifyCanExecuteChanged();
     }
@@ -259,7 +266,7 @@ public partial class FilePaneViewModel : ObservableObject
     }
 
     [RelayCommand]
-    public void OpenItem(FileItemViewModel? item)
+    public async Task OpenItemAsync(FileItemViewModel? item)
     {
         var target = item ?? SelectedItem;
         if (target == null) return;
@@ -270,14 +277,38 @@ public partial class FilePaneViewModel : ObservableObject
         }
         else
         {
+            if (!_fileSystem.FileExists(target.FullPath))
+            {
+                await RefreshAsync();
+                ErrorMessage = "File no longer exists";
+                return;
+            }
+
             try
             {
-                // Launch file with registered default Windows application
-                var psi = new ProcessStartInfo(target.FullPath)
+                _shellLauncher.Launch(target.FullPath);
+            }
+            catch (Win32Exception ex)
+            {
+                switch (ex.NativeErrorCode)
                 {
-                    UseShellExecute = true
-                };
-                Process.Start(psi);
+                    case 2: // ERROR_FILE_NOT_FOUND
+                    case 3: // ERROR_PATH_NOT_FOUND
+                        ErrorMessage = "File not found";
+                        break;
+                    case 5: // ERROR_ACCESS_DENIED
+                        ErrorMessage = "Access denied";
+                        break;
+                    case 1155: // ERROR_NO_ASSOCIATION
+                        ErrorMessage = "No application is associated with this file";
+                        break;
+                    case 1223: // ERROR_CANCELLED
+                        // User cancelled the prompt (e.g. UAC elevation or Open With dialog); silently ignore
+                        break;
+                    default:
+                        ErrorMessage = $"{ex.Message} (Error code: {ex.NativeErrorCode})";
+                        break;
+                }
             }
             catch (Exception ex)
             {
@@ -285,6 +316,8 @@ public partial class FilePaneViewModel : ObservableObject
             }
         }
     }
+
+    public void OpenItem(FileItemViewModel? item) => _ = OpenItemAsync(item);
 
     [RelayCommand]
     private void DismissError()
@@ -466,8 +499,14 @@ public partial class FilePaneViewModel : ObservableObject
             {
                 if (!IsCurrent()) return;
                 EnsureHistoryCommitted();
-                var batchVms = batch.Select(e => new FileItemViewModel(e, _iconService, ct)).ToList();
-                Items.AddRange(batchVms);
+                var filteredBatch = ShowHiddenFiles
+                    ? batch
+                    : batch.Where(e => !e.IsHidden && !e.IsSystem);
+                var batchVms = filteredBatch.Select(e => new FileItemViewModel(e, _iconService, ct)).ToList();
+                if (batchVms.Count > 0)
+                {
+                    Items.AddRange(batchVms);
+                }
 
                 if (statusUpdateSw.ElapsedMilliseconds >= 100)
                 {
