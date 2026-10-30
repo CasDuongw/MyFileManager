@@ -108,10 +108,15 @@ public static class Program
 
         string? realDiskPath = null;
         int syntheticCount = 10_000; // Default smoke mode
+        bool isTransferMode = false;
 
         for (int i = 0; i < args.Length; i++)
         {
-            if (args[i].Equals("--path", StringComparison.OrdinalIgnoreCase) && i + 1 < args.Length)
+            if (args[i].Equals("--transfer", StringComparison.OrdinalIgnoreCase))
+            {
+                isTransferMode = true;
+            }
+            else if (args[i].Equals("--path", StringComparison.OrdinalIgnoreCase) && i + 1 < args.Length)
             {
                 realDiskPath = args[++i];
             }
@@ -123,6 +128,11 @@ public static class Program
             {
                 syntheticCount = 200_000;
             }
+        }
+
+        if (isTransferMode)
+        {
+            return RunTransferBenchmarkAsync().GetAwaiter().GetResult();
         }
 
         bool isRealDisk = !string.IsNullOrEmpty(realDiskPath);
@@ -296,6 +306,78 @@ public static class Program
 
         Dispatcher.Run();
         return exitCode;
+    }
+
+    private static async Task<int> RunTransferBenchmarkAsync()
+    {
+        Console.WriteLine("=============================================================");
+        Console.WriteLine("       MyFileManager v0.3 In-Memory Transfer Benchmark       ");
+        Console.WriteLine("=============================================================");
+        Console.WriteLine($"Target Framework : .NET 10.0 (Windows)");
+        Console.WriteLine($"Host OS          : {Environment.OSVersion}");
+        Console.WriteLine($"Mode             : 2 GB Virtual File Copy (0 disk writes, in-memory)");
+        Console.WriteLine("=============================================================\n");
+
+        long wsBefore = Process.GetCurrentProcess().WorkingSet64;
+        long allocBefore = GC.GetTotalAllocatedBytes();
+
+        var fs = new FM.Core.FileSystem.InMemoryFileSystem();
+        long twoGigabytes = 2L * 1024 * 1024 * 1024;
+        fs.CreateVirtualFile(@"C:\bench\source\virtual_2gb.bin", twoGigabytes);
+        fs.CreateDirectory(@"D:\bench\dest");
+
+        var engine = new FM.Core.Operations.Transfer.TransferEngine(fs);
+        var request = new FM.Core.Operations.Transfer.TransferRequest(
+            FM.Core.Operations.Transfer.TransferKind.Copy,
+            new[] { @"C:\bench\source\virtual_2gb.bin" },
+            @"D:\bench\dest",
+            new FM.Core.Operations.Transfer.TransferOptions(
+                BufferSize: 4 * 1024 * 1024,
+                VerifyAfterCopy: false));
+
+        Console.WriteLine("Starting in-memory 2 GB virtual file copy...");
+        var sw = Stopwatch.StartNew();
+        var result = await engine.RunAsync(request);
+        sw.Stop();
+
+        long allocAfter = GC.GetTotalAllocatedBytes();
+        long wsAfter = Process.GetCurrentProcess().WorkingSet64;
+
+        if (result.FinalState != FM.Core.Operations.Transfer.TransferState.Completed)
+        {
+            Console.ForegroundColor = ConsoleColor.Red;
+            Console.WriteLine($"Transfer benchmark failed with state: {result.FinalState}");
+            Console.ResetColor();
+            return 1;
+        }
+
+        var copiedInfo = fs.GetInfo(@"D:\bench\dest\virtual_2gb.bin");
+        if (copiedInfo == null || copiedInfo.Size != twoGigabytes)
+        {
+            Console.ForegroundColor = ConsoleColor.Red;
+            Console.WriteLine("Transfer benchmark failed: Destination file size mismatch!");
+            Console.ResetColor();
+            return 1;
+        }
+
+        double seconds = sw.Elapsed.TotalSeconds;
+        double throughputMbSec = (twoGigabytes / (1024.0 * 1024.0)) / Math.Max(seconds, 0.0001);
+        double allocMb = (allocAfter - allocBefore) / (1024.0 * 1024.0);
+        double wsDeltaMb = (wsAfter - wsBefore) / (1024.0 * 1024.0);
+
+        Console.WriteLine("\n=============================================================");
+        Console.WriteLine("                 TRANSFER BENCHMARK RESULTS                  ");
+        Console.WriteLine("=============================================================");
+        Console.WriteLine($"Total Bytes Copied  : {twoGigabytes:N0} bytes (2.00 GiB)");
+        Console.WriteLine($"Execution Time      : {sw.ElapsedMilliseconds:N0} ms ({seconds:F3} s)");
+        Console.WriteLine($"Throughput          : {throughputMbSec:F2} MB/s");
+        Console.WriteLine($"Total Allocations   : {allocMb:F2} MiB");
+        Console.WriteLine($"Working Set Initial : {wsBefore / (1024.0 * 1024.0):F2} MiB");
+        Console.WriteLine($"Working Set Final   : {wsAfter / (1024.0 * 1024.0):F2} MiB (Delta: +{wsDeltaMb:F2} MiB)");
+        Console.WriteLine($"Physical Disk Usage : 0 bytes (Pure in-memory virtual stream)");
+        Console.WriteLine("=============================================================\n");
+
+        return 0;
     }
 
     private static T GetMedian<T>(List<T> values) where T : IComparable<T>
