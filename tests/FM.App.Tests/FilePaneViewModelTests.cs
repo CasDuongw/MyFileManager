@@ -127,6 +127,37 @@ public class FilePaneViewModelTests : IDisposable
     }
 
     [Fact]
+    public async Task HistoryConsistency_ForwardToDeletedFolder_MaintainsHistory()
+    {
+        string dir1 = Path.Combine(_testRoot, "DirFwd1");
+        string dir2 = Path.Combine(_testRoot, "DirFwd2");
+
+        _fakeDirService.AddDirectory(dir1, Array.Empty<FileEntry>());
+        _fakeDirService.AddDirectory(dir2, Array.Empty<FileEntry>());
+
+        // Navigate Dir1 -> Dir2
+        await _viewModel.NavigateInternalAsync(dir1, NavigationPhaseType.New);
+        await _viewModel.NavigateInternalAsync(dir2, NavigationPhaseType.New);
+
+        // GoBack to Dir1
+        await _viewModel.GoBackCommand.ExecuteAsync(null);
+        Assert.Equal(dir1, _viewModel.CurrentPath);
+        Assert.True(_viewModel.CanGoForward);
+
+        // Delete Dir2 from fake service
+        _fakeDirService.RemoveDirectory(dir2);
+
+        // Attempt GoForward and await execution
+        await _viewModel.GoForwardCommand.ExecuteAsync(null);
+
+        // Dir2 was deleted: error is displayed, CurrentPath remains Dir1, CanGoForward remains true
+        Assert.True(_viewModel.HasError);
+        Assert.Contains("Directory not found", _viewModel.ErrorMessage);
+        Assert.Equal(dir1, _viewModel.CurrentPath);
+        Assert.True(_viewModel.CanGoForward);
+    }
+
+    [Fact]
     public async Task Sort_PreservesSelection()
     {
         string dir = Path.Combine(_testRoot, "SortDir");
