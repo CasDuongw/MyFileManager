@@ -120,24 +120,42 @@ MyFileManager/
 
 ## 5. Performance Measurements & Benchmarks
 
-To eliminate unverified performance claims, `MyFileManager` includes a benchmark harness (`tests/FM.Benchmarks`) that generates physical test files in temporary directories on disk, streams them through the real `DirectoryService` and `FilePaneViewModel`, and measures UI thread stalls using `DispatcherTimer` drift monitoring (5 ms precision timer on the WPF Dispatcher thread).
+To eliminate unverified claims, `MyFileManager` features a benchmark harness (`tests/FM.Benchmarks`) adhering to a strict **zero-disk-generation** policy. It measures directory loading and UI responsiveness using synthetic in-memory streaming through the real `FilePaneViewModel` hosted inside an active WPF `Window` (1024x768) to capture authentic layout, data-binding, and UI virtualization overhead. UI thread stalls are tracked with a 16 ms precision `DispatcherTimer`.
 
-### Measured Results on Windows 11 (.NET 10, 12 cores):
+### Benchmark Environment:
+- **CPU:** 12th Gen Intel(R) Core(TM) i5-12450HX (8 cores, 12 logical processors)
+- **RAM:** 16 GB DDR5
+- **OS:** Windows 11 (NT 10.0.26300.0)
+- **Runtime:** .NET 10.0 (Windows Desktop)
+- **Command:** `dotnet run --project tests/FM.Benchmarks/FM.Benchmarks.csproj --no-build`
 
-| File Count | Time to First Batch (ms) | Time to Full List (ms) | Max UI Thread Stall (ms) |
-| :---: | :---: | :---: | :---: |
-| **10,000 files** | **20 ms** | **42 ms** | **15.73 ms** |
-| **50,000 files** | **10 ms** | **98 ms** | **14.52 ms** |
-| **200,000 files** | **40 ms** | **560 ms** | **26.46 ms** |
+### Measured Results:
 
-### Performance Observations:
-- **Immediate User Feedback:** The first batch of files is visible in under 40 ms regardless of directory size, providing instant interactivity.
-- **Minimal UI Stall:** Maximum UI thread stall remains below **27 ms** even when loading a 200,000-file directory, ensuring the window remains responsive to clicks, resizing, and keyboard inputs throughout the load.
-- **Zero UI-Thread Disk IO:** Directory traversal runs completely off the UI thread via `Task.Run` and streams batches through a bounded `System.Threading.Channels.Channel<IReadOnlyList<FileEntry>>`.
+| Metric | Warm-up Run | Measured Runs (Median of 5) | Target / Note |
+| :--- | :---: | :---: | :--- |
+| **Directory Mode** | Synthetic In-Memory | Synthetic In-Memory | 10,000 entries (0 disk files created) |
+| **Time to First Batch** | 65 ms | **3 ms** | First 50 items displayed immediately |
+| **Time to Full List** | 778 ms | **293 ms** | Complete 10,000 item streaming & sorting |
+| **Max UI Thread Stall** | 191.20 ms | **65.22 ms** | 16 ms timer drift during full layout |
+| **Collection Reset Events** | 1 | **1** | Target: <= 1 per navigation (never per batch) |
+| **Initial Working Set** | 28.10 MiB | 28.10 MiB | Process memory at startup |
+| **Final Working Set** | 135.57 MiB | 135.57 MiB | Working set after 10k items + WPF visuals |
+
+> *Note: Only verified, locally executed benchmarks are reported. Real-disk mode is available via `dotnet run --project tests/FM.Benchmarks/FM.Benchmarks.csproj -- --path <existing_folder>` and runs in READ-ONLY mode without writing to disk.*
 
 ---
 
-## 6. Engineering Architecture & Highlights
+## 6. Strict Low-Disk Testing & Resource Policy
+
+To protect developer storage and ensure fast, deterministic CI pipelines, all tests and benchmarks enforce strict resource limits:
+1. **Hard Budget:** No test run or command may create more than 200 files or 1 MiB total on disk.
+2. **Pure In-Memory ViewModel Tests:** All tests in `FM.App.Tests` use hand-written fakes (`FakeDirectoryService`, `FakeIconService`) and synthetic paths (`C:\MockTest\...`), touching **zero** physical disk files.
+3. **Managed TestWorkspace:** Core disk tests (`FM.Core.Tests`) use `TestWorkspace` under `%TEMP%\FM_{purpose}_{guid}`. It enforces maximum file count and total size, cleans up in `finally`/`Dispose`, and sweeps stale `FM_*` folders older than 1 hour on startup.
+4. **Read-Only Benchmarks:** Benchmarks never create files or folders on disk.
+
+---
+
+## 7. Engineering Architecture & Highlights
 
 - **Pure Core Logic (`FM.Core`):** `FM.Core` targets `.NET 10` standard class library and does not reference any WPF assemblies. All business logic, models, and directory streaming reside here.
 - **Channel-Based Producer/Consumer Streaming:** `IDirectoryService.EnumerateBatchesAsync` runs directory enumeration in a `Task.Run` producer writing batches (150–256 items) into a bounded channel. The UI thread consumes batches asynchronously without performing disk I/O or Win32 calls.
