@@ -176,6 +176,7 @@ public class DirectoryService : IDirectoryService
             {
                 while (channel.Reader.TryRead(out var batch))
                 {
+                    ct.ThrowIfCancellationRequested();
                     yield return batch;
                 }
             }

@@ -1,41 +1,54 @@
 using System.Diagnostics;
 using FM.Core.Models;
 using FM.Core.Services;
+using FM.Tests.Common;
 
 namespace FM.Core.Tests;
 
-public class DirectoryServiceTests : IDisposable
+/// <summary>
+/// Shared fixture creating a single directory structure with &lt;= 50 files total for all DirectoryService read tests.
+/// </summary>
+public sealed class DirectoryTestFixture : IDisposable
 {
-    private readonly string _testRoot;
-    private readonly DirectoryService _service;
+    public TestWorkspace Workspace { get; }
+    public string EmptyPath { get; }
+    public string PopulatedPath { get; }
+    public const int PopulatedFileCount = 30;
 
-    public DirectoryServiceTests()
+    public DirectoryTestFixture()
     {
-        _testRoot = Path.Combine(Path.GetTempPath(), "FM_Tests_" + Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(_testRoot);
-        _service = new DirectoryService();
+        Workspace = new TestWorkspace("DirSvcFixture");
+        EmptyPath = Workspace.CreateDirectory("empty");
+        PopulatedPath = Workspace.CreateDirectory("populated");
+
+        for (int i = 0; i < PopulatedFileCount; i++)
+        {
+            Workspace.CreateTextFile(Path.Combine("populated", $"file_{i:D2}.txt"), "data");
+        }
     }
 
     public void Dispose()
     {
-        try
-        {
-            if (Directory.Exists(_testRoot))
-            {
-                Directory.Delete(_testRoot, true);
-            }
-        }
-        catch
-        {
-            // Best effort cleanup
-        }
+        Workspace.Dispose();
+    }
+}
+
+public class DirectoryServiceTests : IClassFixture<DirectoryTestFixture>
+{
+    private readonly DirectoryTestFixture _fixture;
+    private readonly DirectoryService _service;
+
+    public DirectoryServiceTests(DirectoryTestFixture fixture)
+    {
+        _fixture = fixture;
+        _service = new DirectoryService();
     }
 
     [Fact]
     public async Task EmptyDirectory_ReturnsNoItems()
     {
         var items = new List<FileEntry>();
-        await foreach (var batch in _service.EnumerateBatchesAsync(_testRoot))
+        await foreach (var batch in _service.EnumerateBatchesAsync(_fixture.EmptyPath))
         {
             items.AddRange(batch);
         }
@@ -46,7 +59,7 @@ public class DirectoryServiceTests : IDisposable
     [Fact]
     public async Task NonexistentPath_ThrowsDirectoryNotFoundException()
     {
-        string fakePath = Path.Combine(_testRoot, "Does_Not_Exist_" + Guid.NewGuid().ToString("N"));
+        string fakePath = Path.Combine(_fixture.EmptyPath, "Does_Not_Exist_" + Guid.NewGuid().ToString("N"));
 
         await Assert.ThrowsAsync<DirectoryNotFoundException>(async () =>
         {
@@ -57,34 +70,26 @@ public class DirectoryServiceTests : IDisposable
     }
 
     [Fact]
+    [Trait("Category", "Acl")]
     public async Task InaccessibleSubfolder_SkippedWithoutCrash()
     {
-        // Create normal file
-        string normalFile = Path.Combine(_testRoot, "normal.txt");
-        await File.WriteAllTextAsync(normalFile, "Hello World");
+        if (!OperatingSystem.IsWindows()) return;
 
-        // Create a subfolder and lock it down using icacls on Windows
-        string lockedDir = Path.Combine(_testRoot, "LockedFolder");
-        Directory.CreateDirectory(lockedDir);
+        using var workspace = new TestWorkspace("AclSubfolder");
+        workspace.CreateTextFile("normal.txt", "Hello World");
 
-        bool aclApplied = false;
-        if (OperatingSystem.IsWindows())
+        string lockedDir = workspace.CreateDirectory("LockedFolder");
+        workspace.CreateTextFile(Path.Combine("LockedFolder", "child.txt"), "child data");
+
+        // Deny list/read ONLY for the current user
+        var psi = new ProcessStartInfo("icacls", $"\"{lockedDir}\" /deny \"{Environment.UserName}:(RD)\" /Q")
         {
-            try
-            {
-                var psi = new ProcessStartInfo("icacls", $"\"{lockedDir}\" /deny Everyone:(OI)(CI)(F) /Q")
-                {
-                    CreateNoWindow = true,
-                    UseShellExecute = false
-                };
-                using var p = Process.Start(psi);
-                p?.WaitForExit();
-                aclApplied = true;
-            }
-            catch
-            {
-                // If icacls fails, test continues with normal check
-            }
+            CreateNoWindow = true,
+            UseShellExecute = false
+        };
+        using (var p = Process.Start(psi))
+        {
+            p?.WaitForExit();
         }
 
         try
@@ -92,49 +97,44 @@ public class DirectoryServiceTests : IDisposable
             var entries = new List<FileEntry>();
             var exception = await Record.ExceptionAsync(async () =>
             {
-                await foreach (var batch in _service.EnumerateBatchesAsync(_testRoot))
+                await foreach (var batch in _service.EnumerateBatchesAsync(workspace.RootPath))
                 {
                     entries.AddRange(batch);
                 }
             });
 
-            // Proves that inaccessible subfolder is tolerated without crashing enumeration
+            // DirectoryService guarantees top-level enumeration does not crash when encountering an inaccessible subfolder.
+            // None of the inaccessible subfolder's children appear in the parent enumeration.
             Assert.Null(exception);
             Assert.Contains(entries, e => e.Name == "normal.txt");
-            Assert.NotEmpty(entries);
+            Assert.DoesNotContain(entries, e => e.Name == "child.txt");
+
+            // Attempting to enumerate the inaccessible folder directly throws UnauthorizedAccessException
+            await Assert.ThrowsAsync<UnauthorizedAccessException>(async () =>
+            {
+                await foreach (var _ in _service.EnumerateBatchesAsync(lockedDir))
+                {
+                }
+            });
         }
         finally
         {
-            if (aclApplied && OperatingSystem.IsWindows())
-            {
-                try
-                {
-                    var resetPsi = new ProcessStartInfo("icacls", $"\"{lockedDir}\" /reset /Q")
-                    {
-                        CreateNoWindow = true,
-                        UseShellExecute = false
-                    };
-                    using var p = Process.Start(resetPsi);
-                    p?.WaitForExit();
-                }
-                catch
-                {
-                    // Best effort cleanup
-                }
-            }
+            ResetAclWithRetry(lockedDir);
         }
     }
 
     [Fact]
+    [Trait("Category", "Acl")]
     public async Task DeniedRootDirectory_ThrowsUnauthorizedAccessException()
     {
         if (!OperatingSystem.IsWindows()) return;
 
-        string deniedDir = Path.Combine(_testRoot, "DeniedRootFolder");
-        Directory.CreateDirectory(deniedDir);
-        File.WriteAllText(Path.Combine(deniedDir, "secret.txt"), "secret data");
+        using var workspace = new TestWorkspace("AclDeniedRoot");
+        string deniedDir = workspace.CreateDirectory("DeniedRootFolder");
+        workspace.CreateTextFile(Path.Combine("DeniedRootFolder", "secret.txt"), "secret data");
 
-        var psi = new ProcessStartInfo("icacls", $"\"{deniedDir}\" /deny Everyone:(OI)(CI)(F) /Q")
+        // Deny list/read ONLY for the current user
+        var psi = new ProcessStartInfo("icacls", $"\"{deniedDir}\" /deny \"{Environment.UserName}:(RD)\" /Q")
         {
             CreateNoWindow = true,
             UseShellExecute = false
@@ -155,31 +155,19 @@ public class DirectoryServiceTests : IDisposable
         }
         finally
         {
-            var resetPsi = new ProcessStartInfo("icacls", $"\"{deniedDir}\" /reset /Q")
-            {
-                CreateNoWindow = true,
-                UseShellExecute = false
-            };
-            using var resetP = Process.Start(resetPsi);
-            resetP?.WaitForExit();
+            ResetAclWithRetry(deniedDir);
         }
     }
 
     [Fact]
     public async Task CancellationMidEnumeration_StopsEnumerationAndThrowsCancellation()
     {
-        // Create multiple files
-        for (int i = 0; i < 50; i++)
-        {
-            File.WriteAllText(Path.Combine(_testRoot, $"file_{i}.txt"), "content");
-        }
-
         using var cts = new CancellationTokenSource();
         var items = new List<FileEntry>();
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(async () =>
         {
-            await foreach (var batch in _service.EnumerateBatchesAsync(_testRoot, batchSize: 5, cts.Token))
+            await foreach (var batch in _service.EnumerateBatchesAsync(_fixture.PopulatedPath, batchSize: 5, cts.Token))
             {
                 items.AddRange(batch);
                 if (items.Count >= 5)
@@ -190,7 +178,7 @@ public class DirectoryServiceTests : IDisposable
         });
 
         Assert.True(items.Count >= 5);
-        Assert.True(items.Count < 50);
+        Assert.True(items.Count < DirectoryTestFixture.PopulatedFileCount);
     }
 
     private class StrictSyncContext : SynchronizationContext
@@ -213,11 +201,6 @@ public class DirectoryServiceTests : IDisposable
     [Fact]
     public async Task EnumerateBatchesAsync_DoesNotRunEnumerationWorkOnCallerSynchronizationContext()
     {
-        for (int i = 0; i < 20; i++)
-        {
-            File.WriteAllText(Path.Combine(_testRoot, $"test_{i}.txt"), "content");
-        }
-
         var customContext = new StrictSyncContext();
         var originalContext = SynchronizationContext.Current;
 
@@ -226,18 +209,43 @@ public class DirectoryServiceTests : IDisposable
             SynchronizationContext.SetSynchronizationContext(customContext);
 
             var batches = new List<IReadOnlyList<FileEntry>>();
-            await foreach (var batch in _service.EnumerateBatchesAsync(_testRoot, batchSize: 5).ConfigureAwait(false))
+            await foreach (var batch in _service.EnumerateBatchesAsync(_fixture.PopulatedPath, batchSize: 5).ConfigureAwait(false))
             {
                 batches.Add(batch);
             }
 
             Assert.NotEmpty(batches);
-            Assert.Equal(20, batches.Sum(b => b.Count));
+            Assert.Equal(DirectoryTestFixture.PopulatedFileCount, batches.Sum(b => b.Count));
             Assert.Equal(0, customContext.PostedCallbacks);
         }
         finally
         {
             SynchronizationContext.SetSynchronizationContext(originalContext);
+        }
+    }
+
+    private static void ResetAclWithRetry(string path)
+    {
+        if (!OperatingSystem.IsWindows()) return;
+
+        for (int attempt = 1; attempt <= 3; attempt++)
+        {
+            try
+            {
+                var resetPsi = new ProcessStartInfo("icacls", $"\"{path}\" /reset /Q")
+                {
+                    CreateNoWindow = true,
+                    UseShellExecute = false
+                };
+                using var resetP = Process.Start(resetPsi);
+                resetP?.WaitForExit();
+                if (resetP?.ExitCode == 0) return;
+            }
+            catch
+            {
+                // Retry after brief delay
+            }
+            Thread.Sleep(50 * attempt);
         }
     }
 }
