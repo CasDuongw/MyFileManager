@@ -11,6 +11,14 @@ using FM.Core.Services;
 
 namespace FM.App.ViewModels;
 
+public enum NavigationPhaseType
+{
+    New,
+    Back,
+    Forward,
+    Refresh
+}
+
 /// <summary>
 /// ViewModel managing the state, navigation, and file listing of a single file pane.
 /// </summary>
@@ -70,20 +78,20 @@ public partial class FilePaneViewModel : ObservableObject
     [RelayCommand(CanExecute = nameof(CanGoBack))]
     private void GoBack()
     {
-        string? path = _history.GoBack();
-        if (path != null)
+        string? target = _history.PeekBack();
+        if (target != null)
         {
-            _ = NavigateInternalAsync(path, recordHistory: false);
+            _ = NavigateInternalAsync(target, NavigationPhaseType.Back);
         }
     }
 
     [RelayCommand(CanExecute = nameof(CanGoForward))]
     private void GoForward()
     {
-        string? path = _history.GoForward();
-        if (path != null)
+        string? target = _history.PeekForward();
+        if (target != null)
         {
-            _ = NavigateInternalAsync(path, recordHistory: false);
+            _ = NavigateInternalAsync(target, NavigationPhaseType.Forward);
         }
     }
 
@@ -102,7 +110,7 @@ public partial class FilePaneViewModel : ObservableObject
     {
         if (!string.IsNullOrEmpty(CurrentPath))
         {
-            _ = NavigateInternalAsync(CurrentPath, recordHistory: false);
+            _ = NavigateInternalAsync(CurrentPath, NavigationPhaseType.Refresh);
         }
     }
 
@@ -112,7 +120,7 @@ public partial class FilePaneViewModel : ObservableObject
         string target = string.IsNullOrWhiteSpace(path) ? AddressText : path;
         if (string.IsNullOrWhiteSpace(target)) return;
 
-        _ = NavigateInternalAsync(target, recordHistory: true);
+        _ = NavigateInternalAsync(target, NavigationPhaseType.New);
     }
 
     [RelayCommand]
@@ -169,7 +177,7 @@ public partial class FilePaneViewModel : ObservableObject
 
     private long _navigationVersion;
 
-    public async Task NavigateInternalAsync(string targetPath, bool recordHistory)
+    public async Task NavigateInternalAsync(string targetPath, NavigationPhaseType phaseType)
     {
         long currentVersion = Interlocked.Increment(ref _navigationVersion);
 
@@ -193,14 +201,26 @@ public partial class FilePaneViewModel : ObservableObject
                 if (!IsCurrent()) return;
                 ErrorMessage = $"Directory not found: '{targetPath}'";
                 IsLoading = false;
+                UpdateHistoryCommandStates();
                 return;
             }
 
             if (!IsCurrent()) return;
 
-            if (recordHistory)
+            // Commit history now that directory existence is confirmed
+            switch (phaseType)
             {
-                _history.Navigate(resolvedPath);
+                case NavigationPhaseType.New:
+                    _history.CommitNavigate(resolvedPath);
+                    break;
+                case NavigationPhaseType.Back:
+                    _history.CommitBack();
+                    break;
+                case NavigationPhaseType.Forward:
+                    _history.CommitForward();
+                    break;
+                case NavigationPhaseType.Refresh:
+                    break;
             }
 
             CurrentPath = resolvedPath;

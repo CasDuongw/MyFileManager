@@ -2,7 +2,8 @@ namespace FM.Core.Navigation;
 
 /// <summary>
 /// Manages backward and forward navigation history for a file pane.
-/// Contains no UI dependencies and maintains stack integrity.
+/// Supports two-phase navigation (peek target first, commit only after validation)
+/// to prevent stack corruption when navigating to deleted or inaccessible folders.
 /// </summary>
 public class NavigationHistory
 {
@@ -20,14 +21,28 @@ public class NavigationHistory
     }
 
     /// <summary>
-    /// Navigates to a new path. Pushes the current path onto the back stack and clears the forward stack.
-    /// If the path is identical to <see cref="CurrentPath"/> (case-insensitive on Windows), no history change is recorded.
+    /// Peeks at the next path on the back stack without modifying any stacks.
     /// </summary>
-    public bool Navigate(string newPath)
+    public string? PeekBack()
+    {
+        return CanGoBack ? _backStack.Peek() : null;
+    }
+
+    /// <summary>
+    /// Peeks at the next path on the forward stack without modifying any stacks.
+    /// </summary>
+    public string? PeekForward()
+    {
+        return CanGoForward ? _forwardStack.Peek() : null;
+    }
+
+    /// <summary>
+    /// Commits navigation to a new path. Pushes current path onto back stack and clears forward stack.
+    /// </summary>
+    public bool CommitNavigate(string newPath)
     {
         if (string.IsNullOrWhiteSpace(newPath)) return false;
 
-        // Compare paths using case-insensitive comparison on Windows
         if (CurrentPath != null && string.Equals(Path.GetFullPath(CurrentPath), Path.GetFullPath(newPath), StringComparison.OrdinalIgnoreCase))
         {
             return false;
@@ -44,10 +59,9 @@ public class NavigationHistory
     }
 
     /// <summary>
-    /// Navigates back one step in history.
+    /// Commits moving back in history after the target path has been validated.
     /// </summary>
-    /// <returns>The previous path, or null if cannot go back.</returns>
-    public string? GoBack()
+    public string? CommitBack()
     {
         if (!CanGoBack) return null;
 
@@ -61,10 +75,9 @@ public class NavigationHistory
     }
 
     /// <summary>
-    /// Navigates forward one step in history.
+    /// Commits moving forward in history after the target path has been validated.
     /// </summary>
-    /// <returns>The forward path, or null if cannot go forward.</returns>
-    public string? GoForward()
+    public string? CommitForward()
     {
         if (!CanGoForward) return null;
 
@@ -76,6 +89,21 @@ public class NavigationHistory
         CurrentPath = _forwardStack.Pop();
         return CurrentPath;
     }
+
+    /// <summary>
+    /// Navigates to a new path in a single step (calls <see cref="CommitNavigate"/>).
+    /// </summary>
+    public bool Navigate(string newPath) => CommitNavigate(newPath);
+
+    /// <summary>
+    /// Navigates back in a single step (calls <see cref="CommitBack"/>).
+    /// </summary>
+    public string? GoBack() => CommitBack();
+
+    /// <summary>
+    /// Navigates forward in a single step (calls <see cref="CommitForward"/>).
+    /// </summary>
+    public string? GoForward() => CommitForward();
 
     /// <summary>
     /// Returns the parent directory path of <see cref="CurrentPath"/>, or null if already at root or path is invalid.

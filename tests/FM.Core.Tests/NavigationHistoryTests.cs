@@ -76,4 +76,37 @@ public class NavigationHistoryTests
         Assert.NotNull(parent);
         Assert.EndsWith("Windows", parent, StringComparison.OrdinalIgnoreCase);
     }
+
+    [Fact]
+    public void TwoPhaseNavigation_TargetFailsValidation_HistoryRemainsConsistent()
+    {
+        var history = new NavigationHistory(@"C:\FolderA");
+        history.CommitNavigate(@"C:\FolderB");
+
+        // User requests GoBack -> peek target
+        string? target = history.PeekBack();
+        Assert.Equal(@"C:\FolderA", target);
+
+        // Validation fails (e.g. FolderA was deleted), so CommitBack is NOT called.
+        // History state must remain completely consistent at FolderB.
+        Assert.Equal(@"C:\FolderB", history.CurrentPath);
+        Assert.True(history.CanGoBack);
+        Assert.False(history.CanGoForward);
+        Assert.Equal(@"C:\FolderA", history.PeekBack());
+    }
+
+    [Fact]
+    public void TwoPhaseNavigation_Success_CommitsProperly()
+    {
+        var history = new NavigationHistory(@"C:\FolderA");
+        history.CommitNavigate(@"C:\FolderB");
+
+        // Target validated successfully -> CommitBack
+        string? newPath = history.CommitBack();
+        Assert.Equal(@"C:\FolderA", newPath);
+        Assert.Equal(@"C:\FolderA", history.CurrentPath);
+        Assert.False(history.CanGoBack);
+        Assert.True(history.CanGoForward);
+        Assert.Equal(@"C:\FolderB", history.PeekForward());
+    }
 }
