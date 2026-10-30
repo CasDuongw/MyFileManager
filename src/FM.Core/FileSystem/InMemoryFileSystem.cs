@@ -75,9 +75,11 @@ public sealed class InMemoryFileSystem : IFileSystem
         return @"C:\";
     }
 
+    private static readonly byte[] DeterministicPattern = Enumerable.Range(0, 256).Select(i => (byte)((i * 31 + 7) & 0xFF)).ToArray();
+
     public static byte GetDeterministicByte(long offset)
     {
-        return (byte)((offset * 31 + 7) & 0xFF);
+        return DeterministicPattern[(int)(offset & 0xFF)];
     }
 
     // -------------------------------------------------------------------------
@@ -551,9 +553,14 @@ public sealed class InMemoryFileSystem : IFileSystem
             }
             else
             {
-                for (int i = 0; i < toRead; i++)
+                int patternOffset = (int)(_position & 0xFF);
+                int written = 0;
+                while (written < toRead)
                 {
-                    buffer[offset + i] = GetDeterministicByte(_position + i);
+                    int chunk = Math.Min(toRead - written, 256 - patternOffset);
+                    Array.Copy(DeterministicPattern, patternOffset, buffer, offset + written, chunk);
+                    written += chunk;
+                    patternOffset = 0;
                 }
             }
 
