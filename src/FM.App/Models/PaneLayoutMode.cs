@@ -20,3 +20,4 @@ public enum PaneLayoutMode
     /// <summary>Four panes arranged in a 2x2 grid.</summary>
     QuadGrid
 }
+
