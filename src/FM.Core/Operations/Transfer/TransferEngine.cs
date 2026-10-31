@@ -71,7 +71,7 @@ public sealed class TransferEngine : ITransferEngine
                     DateTime.UtcNow,
                     plan.Request.Kind,
                     Array.Empty<JournalItemEntry>());
-                await _journal.AppendPendingEntryAsync(pendingEntry, ct).ConfigureAwait(false);
+                await _journal.AppendPendingEntryAsync(pendingEntry, CancellationToken.None).ConfigureAwait(false);
             }
             catch
             {
@@ -80,12 +80,65 @@ public sealed class TransferEngine : ITransferEngine
         }
 
         // 3. Execute plan
-        if (request.Kind == TransferKind.Move && !plan.IsCrossVolume)
+        var executedResults = new List<TransferItemResult>();
+        TransferResult result;
+        try
         {
-            return await ExecuteSameVolumeMoveAsync(plan, progress, gate, ct).ConfigureAwait(false);
+            if (request.Kind == TransferKind.Move && !plan.IsCrossVolume)
+            {
+                result = await ExecuteSameVolumeMoveAsync(plan, executedResults, progress, gate, ct).ConfigureAwait(false);
+            }
+            else
+            {
+                result = await ExecuteCopyOrCrossVolumeMoveAsync(plan, executedResults, progress, gate, ct).ConfigureAwait(false);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            result = new TransferResult(TransferState.Cancelled, executedResults);
+        }
+        catch (Exception ex)
+        {
+            var failedItem = new TransferItemResult(
+                string.Empty,
+                plan.Request.DestinationDirectory,
+                false,
+                ItemOutcome.Failed,
+                0,
+                null,
+                ex.Message);
+            executedResults.Add(failedItem);
+            result = new TransferResult(TransferState.Failed, executedResults);
+        }
+        finally
+        {
+            if (_journal != null)
+            {
+                try
+                {
+                    bool hasUndoableItem = executedResults.Any(r =>
+                        r.Outcome == ItemOutcome.Copied ||
+                        r.Outcome == ItemOutcome.Moved ||
+                        r.Outcome == ItemOutcome.KeptBoth ||
+                        r.Outcome == ItemOutcome.Replaced);
+
+                    if (hasUndoableItem)
+                    {
+                        await _journal.CommitEntryAsync(plan.Request.OperationId, CancellationToken.None).ConfigureAwait(false);
+                    }
+                    else
+                    {
+                        await _journal.AbandonEntryAsync(plan.Request.OperationId, CancellationToken.None).ConfigureAwait(false);
+                    }
+                }
+                catch
+                {
+                    // Journal failures handled non-fatally
+                }
+            }
         }
 
-        return await ExecuteCopyOrCrossVolumeMoveAsync(plan, progress, gate, ct).ConfigureAwait(false);
+        return result;
     }
 
     // -------------------------------------------------------------------------
@@ -94,21 +147,32 @@ public sealed class TransferEngine : ITransferEngine
 
     private async Task<TransferResult> ExecuteSameVolumeMoveAsync(
         TransferPlan plan,
+        List<TransferItemResult> results,
         IProgress<TransferProgress>? progress,
         PauseGate? gate,
         CancellationToken ct)
     {
-        var results = new List<TransferItemResult>();
         ConflictDecision? rememberedConflict = null;
         int itemsDone = 0;
         int totalItems = plan.Request.Sources.Count;
 
         foreach (var source in plan.Request.Sources)
         {
-            ct.ThrowIfCancellationRequested();
+            if (ct.IsCancellationRequested)
+            {
+                return new TransferResult(TransferState.Cancelled, results);
+            }
+
             if (gate != null)
             {
-                await gate.WaitIfPausedAsync(ct).ConfigureAwait(false);
+                try
+                {
+                    await gate.WaitIfPausedAsync(ct).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException)
+                {
+                    return new TransferResult(TransferState.Cancelled, results);
+                }
             }
 
             var info = _fs.GetInfo(source);
@@ -118,15 +182,23 @@ public sealed class TransferEngine : ITransferEngine
             string destinationPath = Path.Combine(plan.Request.DestinationDirectory, name);
 
             // Check conflict
-            var conflictResult = await ResolveConflictAsync(
-                source,
-                destinationPath,
-                info.Size,
-                info.Modified,
-                info.IsDirectory,
-                plan.Request,
-                rememberedConflict,
-                ct).ConfigureAwait(false);
+            ConflictResolutionResult conflictResult;
+            try
+            {
+                conflictResult = await ResolveConflictAsync(
+                    source,
+                    destinationPath,
+                    info.Size,
+                    info.Modified,
+                    info.IsDirectory,
+                    plan.Request,
+                    rememberedConflict,
+                    ct).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                return new TransferResult(TransferState.Cancelled, results);
+            }
 
             rememberedConflict = conflictResult.RememberedDecision;
 
@@ -165,7 +237,7 @@ public sealed class TransferEngine : ITransferEngine
                         {
                             if (backupPath != null)
                             {
-                                try { await _stager.RestoreAsync(backupPath, finalDst, ct).ConfigureAwait(false); } catch { }
+                                try { await _stager.RestoreAsync(backupPath, finalDst, CancellationToken.None).ConfigureAwait(false); } catch { }
                             }
                             throw;
                         }
@@ -197,10 +269,14 @@ public sealed class TransferEngine : ITransferEngine
                                 outcome,
                                 info.IsDirectory,
                                 backupPath),
-                            ct).ConfigureAwait(false);
+                            CancellationToken.None).ConfigureAwait(false);
                     }
                     catch { }
                 }
+            }
+            catch (OperationCanceledException)
+            {
+                return new TransferResult(TransferState.Cancelled, results);
             }
             catch (Exception ex)
             {
@@ -209,28 +285,6 @@ public sealed class TransferEngine : ITransferEngine
 
             itemsDone++;
             ReportItemProgress(progress, source, itemsDone, totalItems);
-        }
-
-        if (_journal != null)
-        {
-            try
-            {
-                bool hasUndoableItem = results.Any(r =>
-                    r.Outcome == ItemOutcome.Copied ||
-                    r.Outcome == ItemOutcome.Moved ||
-                    r.Outcome == ItemOutcome.KeptBoth ||
-                    r.Outcome == ItemOutcome.Replaced);
-
-                if (hasUndoableItem)
-                {
-                    await _journal.CommitEntryAsync(plan.Request.OperationId, ct).ConfigureAwait(false);
-                }
-                else
-                {
-                    await _journal.AbandonEntryAsync(plan.Request.OperationId, ct).ConfigureAwait(false);
-                }
-            }
-            catch { }
         }
 
         bool hasErrors = results.Any(r => r.Outcome == ItemOutcome.Failed);
@@ -243,11 +297,11 @@ public sealed class TransferEngine : ITransferEngine
 
     private async Task<TransferResult> ExecuteCopyOrCrossVolumeMoveAsync(
         TransferPlan plan,
+        List<TransferItemResult> results,
         IProgress<TransferProgress>? progress,
         PauseGate? gate,
         CancellationToken ct)
     {
-        var results = new List<TransferItemResult>();
         ConflictDecision? rememberedConflict = null;
         FailureDecision? rememberedFailure = null;
 
@@ -258,7 +312,11 @@ public sealed class TransferEngine : ITransferEngine
         // 1. Create directory structures first
         foreach (var item in plan.Items.Where(i => i.IsDirectory))
         {
-            ct.ThrowIfCancellationRequested();
+            if (ct.IsCancellationRequested)
+            {
+                return new TransferResult(TransferState.Cancelled, results);
+            }
+
             string targetDir = Path.Combine(plan.Request.DestinationDirectory, item.RelativeDestinationPath);
             try
             {
@@ -279,21 +337,32 @@ public sealed class TransferEngine : ITransferEngine
 
         foreach (var item in plan.Items.Where(i => !i.IsDirectory))
         {
-            ct.ThrowIfCancellationRequested();
+            if (ct.IsCancellationRequested)
+            {
+                return new TransferResult(TransferState.Cancelled, results);
+            }
 
             string finalDestinationPath = Path.Combine(plan.Request.DestinationDirectory, item.RelativeDestinationPath);
             string destDir = Path.GetDirectoryName(finalDestinationPath) ?? plan.Request.DestinationDirectory;
 
             // Resolve conflicts
-            var conflictResult = await ResolveConflictAsync(
-                item.SourcePath,
-                finalDestinationPath,
-                item.Size,
-                item.Modified,
-                false,
-                plan.Request,
-                rememberedConflict,
-                ct).ConfigureAwait(false);
+            ConflictResolutionResult conflictResult;
+            try
+            {
+                conflictResult = await ResolveConflictAsync(
+                    item.SourcePath,
+                    finalDestinationPath,
+                    item.Size,
+                    item.Modified,
+                    false,
+                    plan.Request,
+                    rememberedConflict,
+                    ct).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                return new TransferResult(TransferState.Cancelled, results);
+            }
 
             rememberedConflict = conflictResult.RememberedDecision;
 
@@ -324,7 +393,10 @@ public sealed class TransferEngine : ITransferEngine
             while (!transferSuccess)
             {
                 attempt++;
-                ct.ThrowIfCancellationRequested();
+                if (ct.IsCancellationRequested)
+                {
+                    return new TransferResult(TransferState.Cancelled, results);
+                }
 
                 string tempPath = Path.Combine(destDir, $"{Path.GetFileName(finalDestinationPath)}.fmpart");
 
@@ -381,8 +453,16 @@ public sealed class TransferEngine : ITransferEngine
 
                     if (plan.Request.Interaction != null)
                     {
-                        var failureDecision = await plan.Request.Interaction.OnFailureAsync(
-                            new FailureInfo(item.SourcePath, ex, attempt), ct).ConfigureAwait(false);
+                        FailureDecision failureDecision;
+                        try
+                        {
+                            failureDecision = await plan.Request.Interaction.OnFailureAsync(
+                                new FailureInfo(item.SourcePath, ex, attempt), ct).ConfigureAwait(false);
+                        }
+                        catch (OperationCanceledException)
+                        {
+                            return new TransferResult(TransferState.Cancelled, results);
+                        }
 
                         if (failureDecision.ApplyToAll)
                         {
@@ -450,7 +530,7 @@ public sealed class TransferEngine : ITransferEngine
                                 outcome,
                                 false,
                                 backupPath),
-                            ct).ConfigureAwait(false);
+                            CancellationToken.None).ConfigureAwait(false);
                     }
                     catch { }
                 }
@@ -477,6 +557,11 @@ public sealed class TransferEngine : ITransferEngine
 
             foreach (var dir in sourceDirsBottomUp)
             {
+                if (ct.IsCancellationRequested)
+                {
+                    return new TransferResult(TransferState.Cancelled, results);
+                }
+
                 try
                 {
                     if (_fs.IsDirectoryEmpty(dir.SourcePath))
@@ -489,28 +574,6 @@ public sealed class TransferEngine : ITransferEngine
                     // Best effort cleanup of empty directories
                 }
             }
-        }
-
-        if (_journal != null)
-        {
-            try
-            {
-                bool hasUndoableItem = results.Any(r =>
-                    r.Outcome == ItemOutcome.Copied ||
-                    r.Outcome == ItemOutcome.Moved ||
-                    r.Outcome == ItemOutcome.KeptBoth ||
-                    r.Outcome == ItemOutcome.Replaced);
-
-                if (hasUndoableItem)
-                {
-                    await _journal.CommitEntryAsync(plan.Request.OperationId, ct).ConfigureAwait(false);
-                }
-                else
-                {
-                    await _journal.AbandonEntryAsync(plan.Request.OperationId, ct).ConfigureAwait(false);
-                }
-            }
-            catch { }
         }
 
         bool anyErrors = results.Any(r => r.Outcome == ItemOutcome.Failed);

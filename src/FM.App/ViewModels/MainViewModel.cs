@@ -166,13 +166,13 @@ public partial class MainViewModel : ObservableObject
             new TransferOptions(DefaultConflict: ConflictAction.KeepBoth),
             interaction);
 
-        var job = _transferQueue.Enqueue(request);
-
         lock (_transferStatusLock)
         {
             _activeTransfersCount++;
             ownerPane.SetStatusText(_activeTransfersCount == 1 ? "1 transfer running..." : $"{_activeTransfersCount} transfers running...");
         }
+
+        var job = _transferQueue.Enqueue(request);
 
         var completionTask = HandleJobCompletionAsync(job, kind, ownerPane);
         _completionTasks[job.Id] = completionTask;
@@ -217,7 +217,9 @@ public partial class MainViewModel : ObservableObject
                 string summary;
                 if (result.FinalState == TransferState.Cancelled)
                 {
-                    summary = "Transfer cancelled.";
+                    summary = transferred > 0
+                        ? $"Transfer cancelled. {transferred} item(s) transferred."
+                        : "Transfer cancelled.";
                 }
                 else if (failed > 0 || skipped > 0)
                 {

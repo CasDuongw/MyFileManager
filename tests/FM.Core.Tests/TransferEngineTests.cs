@@ -23,6 +23,13 @@ public class TransferEngineTests
         }
     }
 
+    private class SyncProgress<T> : IProgress<T>
+    {
+        private readonly Action<T> _handler;
+        public SyncProgress(Action<T> handler) => _handler = handler;
+        public void Report(T value) => _handler(value);
+    }
+
     [Fact]
     public async Task Copy_5GBVirtualFile_MonotonicProgressAndZeroDisk()
     {
@@ -94,6 +101,121 @@ public class TransferEngineTests
         // Ensure .fmpart temp file is deleted
         Assert.False(fs.FileExists(@"D:\dest\file.bin.fmpart"));
         Assert.False(fs.FileExists(@"D:\dest\file.bin"));
+    }
+
+    [Fact]
+    public async Task Copy_CancelBetweenFiles_ReturnsCancelledWithCompletedItemsAndCommitsJournal()
+    {
+        var fs = new InMemoryFileSystem();
+        fs.CreateVirtualFile(@"C:\source\file1.bin", 100);
+        fs.CreateVirtualFile(@"C:\source\file2.bin", 100);
+        fs.CreateDirectory(@"D:\dest");
+        fs.CreateDirectory(@"C:\journal");
+
+        var journal = new FileUndoJournalStore(fs, @"C:\journal");
+        using var cts = new CancellationTokenSource();
+        var engine = new TransferEngine(fs, journal: journal);
+
+        var progress = new SyncProgress<TransferProgress>(p =>
+        {
+            if (p.FilesDone == 1)
+            {
+                cts.Cancel();
+            }
+        });
+
+        var request = new TransferRequest(
+            TransferKind.Copy,
+            new[] { @"C:\source\file1.bin", @"C:\source\file2.bin" },
+            @"D:\dest",
+            new TransferOptions(BufferSize: 1024));
+
+        var result = await engine.RunAsync(request, progress, ct: cts.Token);
+
+        Assert.Equal(TransferState.Cancelled, result.FinalState);
+        Assert.Single(result.Items);
+        Assert.Equal(ItemOutcome.Copied, result.Items[0].Outcome);
+
+        // Verify journal was committed, not left pending
+        var entries = await journal.LoadEntriesAsync();
+        var committed = Assert.Single(entries);
+        Assert.Equal(request.OperationId, committed.OperationId);
+        Assert.Equal(JournalState.Committed, committed.State);
+        Assert.Single(committed.Items);
+    }
+
+    [Fact]
+    public async Task Move_SameVolume_CancelBetweenFiles_ReturnsCancelledWithCompletedItemsAndCommitsJournal()
+    {
+        var fs = new InMemoryFileSystem();
+        fs.CreateVirtualFile(@"C:\source\file1.bin", 100);
+        fs.CreateVirtualFile(@"C:\source\file2.bin", 100);
+        fs.CreateDirectory(@"C:\dest");
+        fs.CreateDirectory(@"C:\journal");
+
+        var journal = new FileUndoJournalStore(fs, @"C:\journal");
+        using var cts = new CancellationTokenSource();
+        var engine = new TransferEngine(fs, journal: journal);
+
+        var progress = new SyncProgress<TransferProgress>(p =>
+        {
+            if (p.FilesDone == 1)
+            {
+                cts.Cancel();
+            }
+        });
+
+        var request = new TransferRequest(
+            TransferKind.Move,
+            new[] { @"C:\source\file1.bin", @"C:\source\file2.bin" },
+            @"C:\dest",
+            new TransferOptions());
+
+        var result = await engine.RunAsync(request, progress, ct: cts.Token);
+
+        Assert.Equal(TransferState.Cancelled, result.FinalState);
+        Assert.Single(result.Items);
+        Assert.Equal(ItemOutcome.Moved, result.Items[0].Outcome);
+
+        var entries = await journal.LoadEntriesAsync();
+        var committed = Assert.Single(entries);
+        Assert.Equal(request.OperationId, committed.OperationId);
+        Assert.Equal(JournalState.Committed, committed.State);
+        Assert.Single(committed.Items);
+    }
+
+    [Fact]
+    public async Task Copy_CancelWhilePaused_ReturnsCancelledAndAbandonsJournal()
+    {
+        var fs = new InMemoryFileSystem();
+        fs.CreateVirtualFile(@"C:\source\file1.bin", 100);
+        fs.CreateDirectory(@"D:\dest");
+        fs.CreateDirectory(@"C:\journal");
+
+        var journal = new FileUndoJournalStore(fs, @"C:\journal");
+        using var cts = new CancellationTokenSource();
+        var gate = new PauseGate();
+        gate.Pause();
+
+        var engine = new TransferEngine(fs, journal: journal);
+
+        var request = new TransferRequest(
+            TransferKind.Copy,
+            new[] { @"C:\source\file1.bin" },
+            @"D:\dest",
+            new TransferOptions());
+
+        var runTask = engine.RunAsync(request, gate: gate, ct: cts.Token);
+        await Task.Yield();
+        cts.Cancel();
+
+        var result = await runTask;
+        Assert.Equal(TransferState.Cancelled, result.FinalState);
+        Assert.Empty(result.Items);
+
+        // Journal should be abandoned, so no committed entries exist
+        var entries = await journal.LoadEntriesAsync();
+        Assert.Empty(entries);
     }
 
     [Fact]
@@ -281,7 +403,9 @@ public class TransferEngineTests
         await Task.Yield();
         cts.Cancel();
 
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => runTask2);
+        var result2 = await runTask2;
+        Assert.Equal(TransferState.Cancelled, result2.FinalState);
+        Assert.Empty(result2.Items);
         Assert.False(fs.FileExists(@"C:\Destination\doc3.txt"));
     }
 }
