@@ -14,6 +14,23 @@
             <Setter Property="FontSize" Value="12" />
         </Style>
 
+        <!-- Modern Windows 11 Fluent: remove dashed focus cues -->
+        <Style TargetType="ListView">
+            <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+        </Style>
+        <Style TargetType="ListViewItem">
+            <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+        </Style>
+        <Style TargetType="ListBox">
+            <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+        </Style>
+        <Style TargetType="ListBoxItem">
+            <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+        </Style>
+        <Style TargetType="ScrollViewer">
+            <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+        </Style>
+
         <!-- Clean Subtle Toolbar Button Style -->
         <Style x:Key="SubtleToolButton" TargetType="Button">
             <Setter Property="Background" Value="Transparent" />
