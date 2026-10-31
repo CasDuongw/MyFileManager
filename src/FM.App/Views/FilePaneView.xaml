@@ -1112,7 +1112,8 @@
                     BorderThickness="2"
                     CornerRadius="8"
                     Margin="3"
-                    IsHitTestVisible="False"
+                    IsHitTestVisible="False"
+                    AllowDrop="False"
                     Visibility="Collapsed">
                 <Border.Effect>
                     <DropShadowEffect Color="#D92662" BlurRadius="16" ShadowDepth="0" Opacity="0.35" />
