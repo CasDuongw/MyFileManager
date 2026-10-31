@@ -18,6 +18,12 @@ public record JournalItemEntry(
     bool IsDirectory = false,
     string? BackupPath = null);
 
+public record JournalIntentEntry(
+    string SourcePath,
+    string? DestinationPath,
+    string? PlannedBackupPath = null,
+    string? TempPath = null);
+
 public record PersistentUndoEntry(
     Guid OperationId,
     int SchemaVersion,
@@ -25,7 +31,8 @@ public record PersistentUndoEntry(
     DateTime Timestamp,
     TransferKind Kind,
     IReadOnlyList<JournalItemEntry> Items,
-    string? OwnerPane = null);
+    string? OwnerPane = null,
+    IReadOnlyList<JournalIntentEntry>? Intents = null);
 
 /// <summary>
 /// Persistent write-ahead undo journal contract enabling crash-resilient multi-session Undo.
@@ -33,6 +40,7 @@ public record PersistentUndoEntry(
 public interface IUndoJournalStore
 {
     Task AppendPendingEntryAsync(PersistentUndoEntry entry, CancellationToken ct = default);
+    Task AppendIntentAsync(Guid operationId, JournalIntentEntry intent, CancellationToken ct = default);
     Task AppendItemAsync(Guid operationId, JournalItemEntry item, CancellationToken ct = default);
     Task CommitEntryAsync(Guid operationId, CancellationToken ct = default);
     Task MarkUndoneAsync(Guid operationId, CancellationToken ct = default);

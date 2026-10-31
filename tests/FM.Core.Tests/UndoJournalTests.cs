@@ -225,5 +225,57 @@ public class UndoJournalTests
         var item = Assert.Single(op.Items);
         Assert.Equal(@"C:\Src\data.bin", item.SourcePath);
     }
+
+    [Fact]
+    public async Task CrashRecovery_IntentWithTempFile_CleansUpLeftoverFmpart()
+    {
+        var opId = Guid.NewGuid();
+        string tempFile = @"D:\Dst\data.bin.fmpart";
+        _fs.CreateDirectory(@"D:\Dst");
+        _fs.CreateVirtualFile(tempFile, 100);
+
+        await _store.AppendPendingEntryAsync(new PersistentUndoEntry(opId, 1, JournalState.Pending, DateTime.UtcNow, TransferKind.Copy, Array.Empty<JournalItemEntry>()));
+        await _store.AppendIntentAsync(opId, new JournalIntentEntry(@"C:\Src\data.bin", @"D:\Dst\data.bin", null, tempFile));
+
+        Assert.True(_fs.FileExists(tempFile));
+
+        int recovered = await _store.RecoverPendingEntriesAsync(_fs, null);
+
+        // Temp file must be cleaned up
+        Assert.False(_fs.FileExists(tempFile));
+        Assert.Equal(0, recovered);
+
+        var loaded = await _store.LoadEntriesAsync();
+        Assert.Empty(loaded);
+    }
+
+    [Fact]
+    public async Task CrashRecovery_IntentWithStagedBackup_DestMissing_RestoresBackupAndAbandons()
+    {
+        var opId = Guid.NewGuid();
+        string stagingRoot = @"C:\staging";
+        _fs.CreateDirectory(stagingRoot);
+        var stager = new StagingBackupStore(_fs, stagingRoot);
+
+        string backupFile = Path.Combine(stagingRoot, opId.ToString("D"), "0_file.txt");
+        _fs.CreateVirtualFile(backupFile, 250);
+        string destFile = @"D:\Dest\file.txt";
+        _fs.CreateDirectory(@"D:\Dest");
+
+        await _store.AppendPendingEntryAsync(new PersistentUndoEntry(opId, 1, JournalState.Pending, DateTime.UtcNow, TransferKind.Copy, Array.Empty<JournalItemEntry>()));
+        await _store.AppendIntentAsync(opId, new JournalIntentEntry(@"C:\Source\file.txt", destFile, backupFile, null));
+
+        Assert.False(_fs.FileExists(destFile));
+
+        int recovered = await _store.RecoverPendingEntriesAsync(_fs, stager);
+
+        // Destination should be restored from backup
+        Assert.True(_fs.FileExists(destFile));
+        Assert.Equal(250, _fs.GetInfo(destFile)!.Size);
+        Assert.Equal(0, recovered);
+
+        var loaded = await _store.LoadEntriesAsync();
+        Assert.Empty(loaded);
+    }
 }
 

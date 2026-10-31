@@ -19,6 +19,7 @@ public record StagingPolicy(
 /// </summary>
 public interface IStagingBackupStore
 {
+    string GetPlannedBackupPath(string sourcePath, Guid operationId, int itemIndex);
     Task<StagedBackup> StageAsync(string sourcePath, Guid operationId, int itemIndex, CancellationToken ct = default);
     Task RestoreAsync(string backupPath, string targetPath, CancellationToken ct = default);
     Task DiscardAsync(Guid operationId, CancellationToken ct = default);

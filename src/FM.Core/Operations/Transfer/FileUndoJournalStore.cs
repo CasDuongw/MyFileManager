@@ -52,6 +52,31 @@ public sealed class FileUndoJournalStore : IUndoJournalStore
         return Task.CompletedTask;
     }
 
+    public Task AppendIntentAsync(Guid operationId, JournalIntentEntry intent, CancellationToken ct = default)
+    {
+        ct.ThrowIfCancellationRequested();
+
+        var intentDto = new JournalIntentDto(
+            intent.SourcePath,
+            intent.DestinationPath,
+            intent.PlannedBackupPath,
+            intent.TempPath);
+
+        var record = new JournalRecordDto(
+            Version: JournalCodec.CurrentSchemaVersion,
+            Type: "intent",
+            OperationId: operationId,
+            Intent: intentDto);
+
+        lock (_lock)
+        {
+            // True write-ahead intent must flush immediately
+            WriteRecord_Locked(record, flush: true);
+        }
+
+        return Task.CompletedTask;
+    }
+
     public Task AppendItemAsync(Guid operationId, JournalItemEntry item, CancellationToken ct = default)
     {
         ct.ThrowIfCancellationRequested();
@@ -249,8 +274,45 @@ public sealed class FileUndoJournalStore : IUndoJournalStore
         {
             ct.ThrowIfCancellationRequested();
 
+            // 1. Recover unfulfilled InProgress / Intent records
+            if (entry.Intents != null)
+            {
+                foreach (var intent in entry.Intents)
+                {
+                    // Clean up leftover .fmpart temp file
+                    if (!string.IsNullOrEmpty(intent.TempPath))
+                    {
+                        try
+                        {
+                            if (fs.FileExists(intent.TempPath))
+                            {
+                                fs.Delete(intent.TempPath);
+                            }
+                        }
+                        catch { }
+                    }
+
+                    // Restore backup if destination missing
+                    if (!string.IsNullOrEmpty(intent.PlannedBackupPath) && fs.FileExists(intent.PlannedBackupPath))
+                    {
+                        if (!string.IsNullOrEmpty(intent.DestinationPath) && !fs.Exists(intent.DestinationPath))
+                        {
+                            if (stager != null)
+                            {
+                                try
+                                {
+                                    await stager.RestoreAsync(intent.PlannedBackupPath, intent.DestinationPath, ct).ConfigureAwait(false);
+                                }
+                                catch { }
+                            }
+                        }
+                    }
+                }
+            }
+
             bool hasRecoverableItem = false;
 
+            // 2. Recover completed items with backups where destination is missing
             foreach (var item in entry.Items)
             {
                 if (item.BackupPath != null && fs.FileExists(item.BackupPath))

@@ -220,6 +220,22 @@ public sealed class TransferEngine : ITransferEngine
             string finalDst = conflictResult.FinalDestinationPath;
             ItemOutcome outcome = conflictResult.Outcome;
 
+            string? plannedBackup = (outcome == ItemOutcome.Replaced && _stager != null)
+                ? _stager.GetPlannedBackupPath(finalDst, plan.Request.OperationId, itemsDone)
+                : null;
+
+            if (_journal != null)
+            {
+                try
+                {
+                    await _journal.AppendIntentAsync(
+                        plan.Request.OperationId,
+                        new JournalIntentEntry(source, finalDst, plannedBackup, null),
+                        CancellationToken.None).ConfigureAwait(false);
+                }
+                catch { }
+            }
+
             string? backupPath = null;
             try
             {
@@ -399,6 +415,22 @@ public sealed class TransferEngine : ITransferEngine
                 }
 
                 string tempPath = Path.Combine(destDir, $"{Path.GetFileName(finalDestinationPath)}.fmpart");
+
+                string? plannedBackup = (outcome == ItemOutcome.Replaced && _stager != null)
+                    ? _stager.GetPlannedBackupPath(finalDestinationPath, plan.Request.OperationId, filesDone)
+                    : null;
+
+                if (_journal != null)
+                {
+                    try
+                    {
+                        await _journal.AppendIntentAsync(
+                            plan.Request.OperationId,
+                            new JournalIntentEntry(item.SourcePath, finalDestinationPath, plannedBackup, tempPath),
+                            CancellationToken.None).ConfigureAwait(false);
+                    }
+                    catch { }
+                }
 
                 try
                 {

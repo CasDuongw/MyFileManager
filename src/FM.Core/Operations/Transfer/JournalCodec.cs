@@ -11,7 +11,14 @@ public record JournalRecordDto(
     [property: JsonPropertyName("kind")] TransferKind? Kind = null,
     [property: JsonPropertyName("ts")] DateTime? Timestamp = null,
     [property: JsonPropertyName("owner")] string? OwnerPane = null,
-    [property: JsonPropertyName("item")] JournalItemDto? Item = null);
+    [property: JsonPropertyName("item")] JournalItemDto? Item = null,
+    [property: JsonPropertyName("intent")] JournalIntentDto? Intent = null);
+
+public record JournalIntentDto(
+    [property: JsonPropertyName("src")] string SourcePath,
+    [property: JsonPropertyName("dst")] string? DestinationPath,
+    [property: JsonPropertyName("backup")] string? PlannedBackupPath,
+    [property: JsonPropertyName("temp")] string? TempPath);
 
 public record JournalItemDto(
     [property: JsonPropertyName("kind")] TransferKind Kind,
@@ -36,7 +43,7 @@ public static class JournalCodec
     public static Dictionary<Guid, PersistentUndoEntry> Replay(TextReader reader, out List<string> corruptedLines)
     {
         corruptedLines = new List<string>();
-        var entries = new Dictionary<Guid, (PersistentUndoEntry Entry, List<JournalItemEntry> Items)>();
+        var entries = new Dictionary<Guid, (PersistentUndoEntry Entry, List<JournalItemEntry> Items, List<JournalIntentEntry> Intents)>();
 
         string? line;
         while ((line = reader.ReadLine()) != null)
@@ -79,8 +86,22 @@ public static class JournalCodec
                             record.Timestamp ?? DateTime.UtcNow,
                             record.Kind ?? TransferKind.Copy,
                             Array.Empty<JournalItemEntry>(),
-                            record.OwnerPane),
-                        new List<JournalItemEntry>());
+                            record.OwnerPane,
+                            Array.Empty<JournalIntentEntry>()),
+                        new List<JournalItemEntry>(),
+                        new List<JournalIntentEntry>());
+                    break;
+
+                case "intent":
+                case "inprogress":
+                    if (entries.TryGetValue(record.OperationId, out var intentTarget) && record.Intent != null)
+                    {
+                        intentTarget.Intents.Add(new JournalIntentEntry(
+                            record.Intent.SourcePath,
+                            record.Intent.DestinationPath,
+                            record.Intent.PlannedBackupPath,
+                            record.Intent.TempPath));
+                    }
                     break;
 
                 case "item":
@@ -96,33 +117,44 @@ public static class JournalCodec
                             itemDto.Outcome,
                             itemDto.IsDirectory,
                             itemDto.BackupPath));
+
+                        // Fulfill / resolve matching intent if present
+                        existing.Intents.RemoveAll(i =>
+                            string.Equals(i.SourcePath, itemDto.SourcePath, StringComparison.OrdinalIgnoreCase) &&
+                            string.Equals(i.DestinationPath, itemDto.DestinationPath, StringComparison.OrdinalIgnoreCase));
                     }
                     break;
 
                 case "commit":
                     if (entries.TryGetValue(record.OperationId, out var commitTarget))
                     {
+                        commitTarget.Intents.Clear();
                         entries[record.OperationId] = (
                             commitTarget.Entry with { State = JournalState.Committed },
-                            commitTarget.Items);
+                            commitTarget.Items,
+                            commitTarget.Intents);
                     }
                     break;
 
                 case "undone":
                     if (entries.TryGetValue(record.OperationId, out var undoneTarget))
                     {
+                        undoneTarget.Intents.Clear();
                         entries[record.OperationId] = (
                             undoneTarget.Entry with { State = JournalState.Undone },
-                            undoneTarget.Items);
+                            undoneTarget.Items,
+                            undoneTarget.Intents);
                     }
                     break;
 
                 case "abandon":
                     if (entries.TryGetValue(record.OperationId, out var abandonTarget))
                     {
+                        abandonTarget.Intents.Clear();
                         entries[record.OperationId] = (
                             abandonTarget.Entry with { State = JournalState.Abandoned },
-                            abandonTarget.Items);
+                            abandonTarget.Items,
+                            abandonTarget.Intents);
                     }
                     break;
 
@@ -135,7 +167,11 @@ public static class JournalCodec
         var result = new Dictionary<Guid, PersistentUndoEntry>();
         foreach (var kvp in entries)
         {
-            result[kvp.Key] = kvp.Value.Entry with { Items = kvp.Value.Items };
+            result[kvp.Key] = kvp.Value.Entry with
+            {
+                Items = kvp.Value.Items,
+                Intents = kvp.Value.Intents
+            };
         }
         return result;
     }

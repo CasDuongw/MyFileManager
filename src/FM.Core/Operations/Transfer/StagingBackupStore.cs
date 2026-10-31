@@ -23,6 +23,20 @@ public sealed class StagingBackupStore : IStagingBackupStore
         _timeProvider = timeProvider ?? TimeProvider.System;
     }
 
+    public string GetPlannedBackupPath(string sourcePath, Guid operationId, int itemIndex)
+    {
+        string opDir = Path.Combine(_rootDirectory, operationId.ToString("D"));
+        string originalName = Path.GetFileName(sourcePath);
+        string ext = Path.GetExtension(originalName);
+        string nameWithoutExt = Path.GetFileNameWithoutExtension(originalName);
+        if (nameWithoutExt.Length > 80)
+        {
+            nameWithoutExt = nameWithoutExt.Substring(0, 80);
+        }
+        string backupFileName = $"{itemIndex}_{nameWithoutExt}{ext}";
+        return Path.Combine(opDir, backupFileName);
+    }
+
     public async Task<StagedBackup> StageAsync(string sourcePath, Guid operationId, int itemIndex, CancellationToken ct = default)
     {
         ct.ThrowIfCancellationRequested();
@@ -49,15 +63,7 @@ public sealed class StagingBackupStore : IStagingBackupStore
             _fs.CreateDirectory(opDir);
         }
 
-        string originalName = Path.GetFileName(sourcePath);
-        string ext = Path.GetExtension(originalName);
-        string nameWithoutExt = Path.GetFileNameWithoutExtension(originalName);
-        if (nameWithoutExt.Length > 80)
-        {
-            nameWithoutExt = nameWithoutExt.Substring(0, 80);
-        }
-        string backupFileName = $"{itemIndex}_{nameWithoutExt}{ext}";
-        string backupPath = Path.Combine(opDir, backupFileName);
+        string backupPath = GetPlannedBackupPath(sourcePath, operationId, itemIndex);
 
         bool sameVolume = string.Equals(
             _fs.GetVolumeId(sourcePath),
