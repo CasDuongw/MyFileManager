@@ -181,6 +181,30 @@ public sealed class TransferEngine : ITransferEngine
             string name = Path.GetFileName(source);
             string destinationPath = Path.Combine(plan.Request.DestinationDirectory, name);
 
+            if (info.IsDirectory && _fs.DirectoryExists(destinationPath))
+            {
+                bool mergeSuccess = await MergeDirectorySameVolumeAsync(
+                    source,
+                    destinationPath,
+                    plan,
+                    results,
+                    rememberedConflict,
+                    progress,
+                    itemsDone,
+                    totalItems,
+                    gate,
+                    ct).ConfigureAwait(false);
+
+                if (!mergeSuccess && ct.IsCancellationRequested)
+                {
+                    return new TransferResult(TransferState.Cancelled, results);
+                }
+
+                itemsDone++;
+                ReportItemProgress(progress, source, itemsDone, totalItems);
+                continue;
+            }
+
             // Check conflict
             ConflictResolutionResult conflictResult;
             try
@@ -305,6 +329,189 @@ public sealed class TransferEngine : ITransferEngine
 
         bool hasErrors = results.Any(r => r.Outcome == ItemOutcome.Failed);
         return new TransferResult(hasErrors ? TransferState.CompletedWithErrors : TransferState.Completed, results);
+    }
+
+    private async Task<bool> MergeDirectorySameVolumeAsync(
+        string sourceDir,
+        string targetDir,
+        TransferPlan plan,
+        List<TransferItemResult> results,
+        ConflictDecision? rememberedConflict,
+        IProgress<TransferProgress>? progress,
+        int itemsDone,
+        int totalItems,
+        PauseGate? gate,
+        CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        if (gate != null) await gate.WaitIfPausedAsync(ct).ConfigureAwait(false);
+
+        if (!_fs.DirectoryExists(targetDir))
+        {
+            _fs.CreateDirectory(targetDir);
+        }
+
+        var entries = _fs.EnumerateEntries(sourceDir).ToList();
+        foreach (var entry in entries)
+        {
+            ct.ThrowIfCancellationRequested();
+            if (gate != null) await gate.WaitIfPausedAsync(ct).ConfigureAwait(false);
+
+            var entryInfo = _fs.GetInfo(entry);
+            if (entryInfo == null || !entryInfo.Exists) continue;
+
+            string childName = Path.GetFileName(entry);
+            string childTarget = Path.Combine(targetDir, childName);
+
+            if (entryInfo.IsDirectory)
+            {
+                if (_fs.DirectoryExists(childTarget))
+                {
+                    await MergeDirectorySameVolumeAsync(entry, childTarget, plan, results, rememberedConflict, progress, itemsDone, totalItems, gate, ct).ConfigureAwait(false);
+                }
+                else if (_fs.FileExists(childTarget))
+                {
+                    results.Add(new TransferItemResult(entry, childTarget, true, ItemOutcome.Failed, 0, null, "Cannot replace a file with a directory."));
+                }
+                else
+                {
+                    _fs.Move(entry, childTarget, overwrite: false);
+                    results.Add(new TransferItemResult(entry, childTarget, true, ItemOutcome.Moved, 0, entryInfo.Modified, null));
+                    if (_journal != null)
+                    {
+                        try
+                        {
+                            await _journal.AppendItemAsync(
+                                plan.Request.OperationId,
+                                new JournalItemEntry(plan.Request.Kind, entry, childTarget, 0, entryInfo.Modified, ItemOutcome.Moved, true),
+                                CancellationToken.None).ConfigureAwait(false);
+                        }
+                        catch { }
+                    }
+                }
+            }
+            else
+            {
+                // File move
+                var conflictResult = await ResolveConflictAsync(
+                    entry,
+                    childTarget,
+                    entryInfo.Size,
+                    entryInfo.Modified,
+                    false,
+                    plan.Request,
+                    rememberedConflict,
+                    ct).ConfigureAwait(false);
+
+                rememberedConflict = conflictResult.RememberedDecision;
+
+                if (conflictResult.Action == ConflictAction.Cancel)
+                {
+                    return false;
+                }
+                if (conflictResult.Action == ConflictAction.Skip)
+                {
+                    var skipOutcome = conflictResult.Outcome == ItemOutcome.Failed ? ItemOutcome.Failed : ItemOutcome.Skipped;
+                    string? skipErr = conflictResult.Outcome == ItemOutcome.Failed ? "Cannot replace a directory with a file or vice-versa." : null;
+                    results.Add(new TransferItemResult(entry, childTarget, false, skipOutcome, entryInfo.Size, null, skipErr));
+                    continue;
+                }
+
+                string finalDst = conflictResult.FinalDestinationPath;
+                ItemOutcome outcome = conflictResult.Outcome;
+
+                string? plannedBackup = (outcome == ItemOutcome.Replaced && _stager != null)
+                    ? _stager.GetPlannedBackupPath(finalDst, plan.Request.OperationId, itemsDone)
+                    : null;
+
+                if (_journal != null)
+                {
+                    try
+                    {
+                        await _journal.AppendIntentAsync(
+                            plan.Request.OperationId,
+                            new JournalIntentEntry(entry, finalDst, plannedBackup, null),
+                            CancellationToken.None).ConfigureAwait(false);
+                    }
+                    catch { }
+                }
+
+                string? backupPath = null;
+                try
+                {
+                    if (outcome == ItemOutcome.Replaced)
+                    {
+                        if (_stager != null)
+                        {
+                            var staged = await _stager.StageAsync(finalDst, plan.Request.OperationId, itemsDone, ct).ConfigureAwait(false);
+                            backupPath = staged.BackupPath;
+                            try
+                            {
+                                _fs.Move(entry, finalDst, overwrite: false);
+                            }
+                            catch
+                            {
+                                if (backupPath != null)
+                                {
+                                    try { await _stager.RestoreAsync(backupPath, finalDst, CancellationToken.None).ConfigureAwait(false); } catch { }
+                                }
+                                throw;
+                            }
+                        }
+                        else
+                        {
+                            _fs.Move(entry, finalDst, overwrite: true);
+                        }
+                    }
+                    else
+                    {
+                        _fs.Move(entry, finalDst, overwrite: false);
+                    }
+
+                    results.Add(new TransferItemResult(entry, finalDst, false, outcome, entryInfo.Size, entryInfo.Modified, null, backupPath));
+
+                    if (_journal != null)
+                    {
+                        try
+                        {
+                            await _journal.AppendItemAsync(
+                                plan.Request.OperationId,
+                                new JournalItemEntry(plan.Request.Kind, entry, finalDst, entryInfo.Size, entryInfo.Modified, outcome, false, backupPath),
+                                CancellationToken.None).ConfigureAwait(false);
+                        }
+                        catch { }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    results.Add(new TransferItemResult(entry, finalDst, false, ItemOutcome.Failed, entryInfo.Size, null, ex.Message));
+                }
+            }
+        }
+
+        // Delete empty source directory at end
+        try
+        {
+            if (_fs.IsDirectoryEmpty(sourceDir))
+            {
+                _fs.Delete(sourceDir);
+                results.Add(new TransferItemResult(sourceDir, targetDir, true, ItemOutcome.Moved, 0, null, null));
+                if (_journal != null)
+                {
+                    try
+                    {
+                        await _journal.AppendItemAsync(
+                            plan.Request.OperationId,
+                            new JournalItemEntry(plan.Request.Kind, sourceDir, targetDir, 0, null, ItemOutcome.Moved, true),
+                            CancellationToken.None).ConfigureAwait(false);
+                    }
+                    catch { }
+                }
+            }
+        }
+        catch { }
+
+        return true;
     }
 
     // -------------------------------------------------------------------------

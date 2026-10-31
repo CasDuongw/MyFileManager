@@ -247,6 +247,12 @@ public sealed class TransferUndoOperation : IFileOperation
             // Check if original location is free
             if (_fs.Exists(src))
             {
+                if (item.IsDirectory)
+                {
+                    // Original directory already exists (e.g. recreated when child items were moved back)
+                    continue;
+                }
+
                 messages.Add($"Cannot undo: Original location '{src}' is already occupied.");
                 continue;
             }
@@ -272,6 +278,12 @@ public sealed class TransferUndoOperation : IFileOperation
 
             try
             {
+                string? parent = Path.GetDirectoryName(src);
+                if (!string.IsNullOrEmpty(parent) && !_fs.DirectoryExists(parent))
+                {
+                    _fs.CreateDirectory(parent);
+                }
+
                 _fs.Move(dst, src, overwrite: false);
             }
             catch (Exception ex)
@@ -311,6 +323,12 @@ public sealed class TransferUndoOperation : IFileOperation
 
                 try
                 {
+                    string? parent = Path.GetDirectoryName(src);
+                    if (!string.IsNullOrEmpty(parent) && !_fs.DirectoryExists(parent))
+                    {
+                        _fs.CreateDirectory(parent);
+                    }
+
                     _fs.Move(dst, src, overwrite: false);
                 }
                 catch (Exception ex)

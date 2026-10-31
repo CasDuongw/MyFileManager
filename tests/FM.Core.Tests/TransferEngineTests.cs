@@ -330,6 +330,55 @@ public class TransferEngineTests
     }
 
     [Fact]
+    public async Task Move_SameVolume_DirectoryOntoExistingDirectory_MergesContentsRecursively_AndDeletesEmptySource()
+    {
+        var fs = new InMemoryFileSystem();
+        fs.CreateVirtualFile(@"C:\Source\Folder\doc1.txt", 100);
+        fs.CreateVirtualFile(@"C:\Source\Folder\Sub\doc2.txt", 200);
+        fs.CreateVirtualFile(@"C:\Dest\Folder\doc3.txt", 300);
+
+        var engine = new TransferEngine(fs);
+        var request = new TransferRequest(
+            TransferKind.Move,
+            new[] { @"C:\Source\Folder" },
+            @"C:\Dest",
+            new TransferOptions());
+
+        var result = await engine.RunAsync(request);
+
+        Assert.Equal(TransferState.Completed, result.FinalState);
+
+        // All merged under C:\Dest\Folder
+        Assert.True(fs.FileExists(@"C:\Dest\Folder\doc1.txt"));
+        Assert.True(fs.FileExists(@"C:\Dest\Folder\Sub\doc2.txt"));
+        Assert.True(fs.FileExists(@"C:\Dest\Folder\doc3.txt"));
+
+        // Source directory was emptied and deleted
+        Assert.False(fs.DirectoryExists(@"C:\Source\Folder"));
+
+        // Now test Undo
+        var undoOp = new TransferUndoOperation(fs, TransferKind.Move, result, null, request.OperationId);
+        Assert.True(undoOp.CanUndo);
+        var undoResult = await undoOp.UndoAsync();
+
+        Assert.True(undoResult.Success, undoResult.ErrorMessage);
+        Assert.True(fs.FileExists(@"C:\Source\Folder\doc1.txt"));
+        Assert.True(fs.FileExists(@"C:\Source\Folder\Sub\doc2.txt"));
+        Assert.True(fs.FileExists(@"C:\Dest\Folder\doc3.txt"));
+    }
+
+    [Fact]
+    public void Move_DirectoryOverwrite_MustThrow_InInMemoryAndPhysical()
+    {
+        var inMem = new InMemoryFileSystem();
+        inMem.CreateDirectory(@"C:\Dir1");
+        inMem.CreateDirectory(@"C:\Dir2");
+
+        var ex = Assert.Throws<InvalidOperationException>(() => inMem.Move(@"C:\Dir1", @"C:\Dir2", overwrite: true));
+        Assert.Contains("Directory overwrite is not supported", ex.Message);
+    }
+
+    [Fact]
     public async Task Move_CrossVolume_DeletesSourceOnlyAfterVerification()
     {
         var fs = new InMemoryFileSystem();

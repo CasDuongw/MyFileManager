@@ -198,9 +198,9 @@ public sealed class PhysicalFileSystem : IFileSystem
 
         if (Directory.Exists(src))
         {
-            if (overwrite && Directory.Exists(dst))
+            if (overwrite)
             {
-                Directory.Delete(dst, true);
+                throw new InvalidOperationException("Directory overwrite is not supported. Use merge instead.");
             }
             Directory.Move(src, dst);
         }

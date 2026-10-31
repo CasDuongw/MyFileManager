@@ -387,10 +387,14 @@ public sealed class InMemoryFileSystem : IFileSystem
 
             if (_directories.TryGetValue(src, out var dirData))
             {
+                if (overwrite)
+                {
+                    throw new InvalidOperationException("Directory overwrite is not supported. Use merge instead.");
+                }
+
                 if (_directories.ContainsKey(dst))
                 {
-                    if (!overwrite) throw new IOException($"Destination already exists: '{destinationPath}'");
-                    DeleteDirectory(dst, recursive: true);
+                    throw new IOException($"Destination already exists: '{destinationPath}'");
                 }
                 if (_files.ContainsKey(dst))
                 {
