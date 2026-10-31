@@ -5,6 +5,7 @@ using System.Windows.Input;
 using System.Windows.Media;
 using FM.App.Helpers;
 using FM.App.ViewModels;
+using FM.App.Models;
 
 namespace FM.App.Views;
 
@@ -23,7 +24,7 @@ public partial class FilePaneView : UserControl
     private Brush? _lastHoverOriginalBackground;
     internal static bool LastDropWasInternal { get; set; }
 
-    private static readonly Brush HighlightBrush = CreateFrozenBrush(Color.FromRgb(0x00, 0x78, 0xD4));
+    private static readonly Brush HighlightBrush = CreateFrozenBrush(Color.FromRgb(0xD9, 0x26, 0x62));
     private static readonly Brush ItemHoverHighlightBrush = CreateFrozenBrush(Color.FromArgb(0x40, 0x00, 0x78, 0xD4));
     private static readonly Brush InactivePaneBorderBrush = CreateFrozenBrush(Color.FromRgb(0xE5, 0xE7, 0xEB));
 
@@ -506,4 +507,202 @@ public partial class FilePaneView : UserControl
             ? HighlightBrush
             : InactivePaneBorderBrush;
     }
+
+    #region Tab Dragging and Edge Docking
+
+    private Point? _tabDragStartPoint;
+    private bool _isTabDragging;
+    private DockEdge _currentDockEdge = DockEdge.None;
+
+    private void OnTabPreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        if (e.OriginalSource is DependencyObject dep && dep.FindVisualAncestor<Button>() != null)
+        {
+            return;
+        }
+        _tabDragStartPoint = e.GetPosition(this);
+    }
+
+    private void OnTabPreviewMouseMove(object sender, MouseEventArgs e)
+    {
+        if (_isTabDragging || _tabDragStartPoint == null || e.LeftButton != MouseButtonState.Pressed)
+        {
+            return;
+        }
+
+        Point currentPoint = e.GetPosition(this);
+        Vector diff = _tabDragStartPoint.Value - currentPoint;
+
+        if (Math.Abs(diff.X) > SystemParameters.MinimumHorizontalDragDistance ||
+            Math.Abs(diff.Y) > SystemParameters.MinimumVerticalDragDistance)
+        {
+            StartTabDrag();
+        }
+    }
+
+    private void OnTabPreviewMouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+    {
+        _tabDragStartPoint = null;
+    }
+
+    private void StartTabDrag()
+    {
+        if (ViewModel == null) return;
+        _isTabDragging = true;
+        try
+        {
+            var data = new DataObject();
+            data.SetData("FM.App.TabDrag", ViewModel);
+            DragDrop.DoDragDrop(TabCapsuleBorder, data, DragDropEffects.Move);
+        }
+        finally
+        {
+            _isTabDragging = false;
+            _tabDragStartPoint = null;
+        }
+    }
+
+    private void OnPaneDragEnter(object sender, DragEventArgs e)
+    {
+        if (e.Data.GetDataPresent("FM.App.TabDrag"))
+        {
+            UpdateDockEdge(e);
+            e.Effects = DragDropEffects.Move;
+            e.Handled = true;
+        }
+    }
+
+    private void OnPaneDragOver(object sender, DragEventArgs e)
+    {
+        if (e.Data.GetDataPresent("FM.App.TabDrag"))
+        {
+            UpdateDockEdge(e);
+            e.Effects = DragDropEffects.Move;
+            e.Handled = true;
+        }
+    }
+
+    private void UpdateDockEdge(DragEventArgs e)
+    {
+        var draggedVm = e.Data.GetData("FM.App.TabDrag") as FilePaneViewModel;
+        if (draggedVm != null && draggedVm != ViewModel)
+        {
+            var pos = e.GetPosition(this);
+            double w = Math.Max(1, ActualWidth);
+            double h = Math.Max(1, ActualHeight);
+            double relX = pos.X / w;
+            double relY = pos.Y / h;
+
+            double distLeft = relX;
+            double distRight = 1.0 - relX;
+            double distTop = relY;
+            double distBottom = 1.0 - relY;
+
+            double minDist = Math.Min(Math.Min(distLeft, distRight), Math.Min(distTop, distBottom));
+
+            if (minDist == distRight && relX >= 0.45)
+            {
+                _currentDockEdge = DockEdge.Right;
+                ShowDockPreview(DockEdge.Right);
+            }
+            else if (minDist == distBottom && relY >= 0.45)
+            {
+                _currentDockEdge = DockEdge.Bottom;
+                ShowDockPreview(DockEdge.Bottom);
+            }
+            else if (minDist == distLeft && relX <= 0.55)
+            {
+                _currentDockEdge = DockEdge.Left;
+                ShowDockPreview(DockEdge.Left);
+            }
+            else if (minDist == distTop && relY <= 0.55)
+            {
+                _currentDockEdge = DockEdge.Top;
+                ShowDockPreview(DockEdge.Top);
+            }
+            else
+            {
+                HideDockPreview();
+            }
+        }
+        else
+        {
+            HideDockPreview();
+        }
+    }
+
+    private void ShowDockPreview(DockEdge edge)
+    {
+        DockPreviewOverlay.Visibility = Visibility.Visible;
+        double halfW = ActualWidth * 0.5;
+        double halfH = ActualHeight * 0.5;
+
+        switch (edge)
+        {
+            case DockEdge.Right:
+                DockPreviewOverlay.HorizontalAlignment = HorizontalAlignment.Right;
+                DockPreviewOverlay.VerticalAlignment = VerticalAlignment.Stretch;
+                DockPreviewOverlay.Width = halfW;
+                DockPreviewOverlay.Height = double.NaN;
+                break;
+            case DockEdge.Bottom:
+                DockPreviewOverlay.HorizontalAlignment = HorizontalAlignment.Stretch;
+                DockPreviewOverlay.VerticalAlignment = VerticalAlignment.Bottom;
+                DockPreviewOverlay.Height = halfH;
+                DockPreviewOverlay.Width = double.NaN;
+                break;
+            case DockEdge.Left:
+                DockPreviewOverlay.HorizontalAlignment = HorizontalAlignment.Left;
+                DockPreviewOverlay.VerticalAlignment = VerticalAlignment.Stretch;
+                DockPreviewOverlay.Width = halfW;
+                DockPreviewOverlay.Height = double.NaN;
+                break;
+            case DockEdge.Top:
+                DockPreviewOverlay.HorizontalAlignment = HorizontalAlignment.Stretch;
+                DockPreviewOverlay.VerticalAlignment = VerticalAlignment.Top;
+                DockPreviewOverlay.Height = halfH;
+                DockPreviewOverlay.Width = double.NaN;
+                break;
+            default:
+                HideDockPreview();
+                break;
+        }
+    }
+
+    private void HideDockPreview()
+    {
+        _currentDockEdge = DockEdge.None;
+        DockPreviewOverlay.Visibility = Visibility.Collapsed;
+    }
+
+    private void OnPaneDragLeave(object sender, DragEventArgs e)
+    {
+        if (e.Data.GetDataPresent("FM.App.TabDrag"))
+        {
+            HideDockPreview();
+        }
+    }
+
+    private void OnPaneDrop(object sender, DragEventArgs e)
+    {
+        if (e.Data.GetDataPresent("FM.App.TabDrag"))
+        {
+            var edge = _currentDockEdge;
+            HideDockPreview();
+
+            if (edge != DockEdge.None && ViewModel != null)
+            {
+                var draggedVm = e.Data.GetData("FM.App.TabDrag") as FilePaneViewModel;
+                if (draggedVm != null && draggedVm != ViewModel)
+                {
+                    var mainVm = Window.GetWindow(this)?.DataContext as MainViewModel;
+                    mainVm?.DockPane(draggedVm, ViewModel, edge);
+                    e.Effects = DragDropEffects.Move;
+                    e.Handled = true;
+                }
+            }
+        }
+    }
+
+    #endregion
 }

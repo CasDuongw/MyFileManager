@@ -394,6 +394,7 @@ public partial class MainViewModel : ObservableObject
     [RelayCommand]
     public void SplitVertical(FilePaneViewModel? targetPane = null)
     {
+        if (Panes.Count >= 16) return;
         var source = targetPane ?? ActivePane;
         var newPane = CreatePane(source?.CurrentPath);
         int insertIdx = source != null ? Panes.IndexOf(source) + 1 : Panes.Count;
@@ -412,6 +413,7 @@ public partial class MainViewModel : ObservableObject
     [RelayCommand]
     public void SplitHorizontal(FilePaneViewModel? targetPane = null)
     {
+        if (Panes.Count >= 16) return;
         var source = targetPane ?? ActivePane;
         var newPane = CreatePane(source?.CurrentPath);
         int insertIdx = source != null ? Panes.IndexOf(source) + 1 : Panes.Count;
@@ -425,6 +427,35 @@ public partial class MainViewModel : ObservableObject
         SetActivePane(newPane);
         OnPropertyChanged(nameof(CanClosePanes));
         ClosePaneCommand.NotifyCanExecuteChanged();
+    }
+
+    public void DockPane(FilePaneViewModel sourcePane, FilePaneViewModel targetPane, DockEdge edge)
+    {
+        if (sourcePane == null || targetPane == null || sourcePane == targetPane) return;
+        if (!Panes.Contains(sourcePane) || !Panes.Contains(targetPane)) return;
+
+        Panes.Remove(sourcePane);
+        int targetIdx = Panes.IndexOf(targetPane);
+
+        if (edge == DockEdge.Right || edge == DockEdge.Bottom)
+        {
+            Panes.Insert(targetIdx + 1, sourcePane);
+        }
+        else
+        {
+            Panes.Insert(targetIdx, sourcePane);
+        }
+
+        if (Panes.Count == 2)
+        {
+            if (edge == DockEdge.Bottom || edge == DockEdge.Top)
+                LayoutMode = PaneLayoutMode.DualHorizontal;
+            else
+                LayoutMode = PaneLayoutMode.DualVertical;
+        }
+
+        SetActivePane(sourcePane);
+        OnPropertyChanged(nameof(CanClosePanes));
     }
 
     [RelayCommand(CanExecute = nameof(CanClosePanes))]

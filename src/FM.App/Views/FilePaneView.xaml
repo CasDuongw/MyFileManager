@@ -59,6 +59,11 @@
             BorderThickness="1"
             CornerRadius="8"
             Margin="2"
+            AllowDrop="True"
+            PreviewDragEnter="OnPaneDragEnter"
+            PreviewDragOver="OnPaneDragOver"
+            PreviewDragLeave="OnPaneDragLeave"
+            PreviewDrop="OnPaneDrop"
             SnapsToDevicePixels="True">
         <Border.Style>
             <Style TargetType="Border">
@@ -95,13 +100,19 @@
                         <ColumnDefinition Width="Auto" /> <!-- View Modes & Splits -->
                     </Grid.ColumnDefinitions>
 
-                    <!-- Tab Capsule for Current Folder -->
-                    <Border Grid.Column="0"
+                    <!-- Tab Capsule for Current Folder (Draggable to dock) -->
+                    <Border x:Name="TabCapsuleBorder"
+                            Grid.Column="0"
                             Background="#FFFFFF"
                             BorderBrush="#E5E7EB"
                             BorderThickness="1"
                             CornerRadius="5"
-                            Padding="8,3">
+                            Padding="8,3"
+                            Cursor="SizeAll"
+                            ToolTip="Drag tab to an edge of any pane to dock it"
+                            PreviewMouseLeftButtonDown="OnTabPreviewMouseLeftButtonDown"
+                            PreviewMouseMove="OnTabPreviewMouseMove"
+                            PreviewMouseLeftButtonUp="OnTabPreviewMouseLeftButtonUp">
                         <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                             <!-- Rose folder icon -->
                             <TextBlock Text="📁" FontSize="11" Foreground="#D92662" VerticalAlignment="Center" Margin="0,0,6,0" />
@@ -772,6 +783,16 @@
                                FontSize="10" Foreground="#9CA3AF" VerticalAlignment="Center" />
                 </Grid>
             </Border>
+
+            <!-- Dock Preview Overlay (Visible during Tab Drag-to-Dock) -->
+            <Border x:Name="DockPreviewOverlay"
+                    Grid.Row="0" Grid.RowSpan="6"
+                    Background="#33D92662"
+                    BorderBrush="#D92662"
+                    BorderThickness="2"
+                    CornerRadius="8"
+                    IsHitTestVisible="False"
+                    Visibility="Collapsed" />
         </Grid>
     </Border>
 </UserControl>

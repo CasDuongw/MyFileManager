@@ -230,4 +230,49 @@ public class MultiPaneWorkspaceTests
         pane.StopEditingAddress();
         Assert.False(pane.IsEditingAddress);
     }
+
+    [Fact]
+    public void DockPane_MovesPaneToTargetEdge_ActivatesDraggedPane()
+    {
+        var vm = new MainViewModel(_dirService, _iconService, _settingsService, _fs);
+        vm.SetLayoutCommand.Execute("QuadGrid");
+        Assert.Equal(4, vm.Panes.Count);
+
+        var pane0 = vm.Panes[0];
+        var pane3 = vm.Panes[3];
+
+        // Dock pane 3 to the right of pane 0
+        vm.DockPane(pane3, pane0, DockEdge.Right);
+
+        Assert.Equal(4, vm.Panes.Count);
+        Assert.Equal(pane0, vm.Panes[0]);
+        Assert.Equal(pane3, vm.Panes[1]);
+        Assert.Same(pane3, vm.ActivePane);
+
+        // Dock pane 3 to the left of pane 0
+        vm.DockPane(pane3, pane0, DockEdge.Left);
+        Assert.Equal(pane3, vm.Panes[0]);
+        Assert.Equal(pane0, vm.Panes[1]);
+    }
+
+    [Fact]
+    public void SplitPanes_SupportsUpTo16Panes()
+    {
+        var vm = new MainViewModel(_dirService, _iconService, _settingsService, _fs);
+
+        // Split up to 16 panes
+        for (int i = vm.Panes.Count; i < 16; i++)
+        {
+            vm.SplitVerticalCommand.Execute(null);
+        }
+
+        Assert.Equal(16, vm.Panes.Count);
+
+        // Splitting again when at 16 does nothing
+        vm.SplitVerticalCommand.Execute(null);
+        Assert.Equal(16, vm.Panes.Count);
+
+        vm.SplitHorizontalCommand.Execute(null);
+        Assert.Equal(16, vm.Panes.Count);
+    }
 }

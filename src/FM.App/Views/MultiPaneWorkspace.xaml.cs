@@ -119,7 +119,14 @@ public partial class MultiPaneWorkspace : UserControl
                 BuildTripleLeftLayout(vm);
                 break;
             case PaneLayoutMode.QuadGrid:
-                BuildQuadGridLayout(vm);
+                if (vm.Panes.Count > 4)
+                {
+                    BuildDynamicGridLayout(vm);
+                }
+                else
+                {
+                    BuildQuadGridLayout(vm);
+                }
                 break;
             default:
                 BuildDualVerticalLayout(vm);
@@ -317,6 +324,157 @@ public partial class MultiPaneWorkspace : UserControl
         Grid.SetColumn(hSplitter, 0);
         Grid.SetColumnSpan(hSplitter, 3);
         RootGrid.Children.Add(hSplitter);
+    }
+
+
+    private void BuildDynamicGridLayout(MainViewModel vm)
+    {
+        int count = vm.Panes.Count;
+        if (count == 5)
+        {
+            BuildFivePanesLayout(vm);
+            return;
+        }
+
+        int cols = (count <= 6) ? 3 : 4;
+        int rows = (int)Math.Ceiling((double)count / cols);
+
+        // Columns and splitters
+        for (int i = 0; i < cols; i++)
+        {
+            RootGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star), MinWidth = 120 });
+            if (i < cols - 1)
+            {
+                RootGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(6, GridUnitType.Pixel) });
+            }
+        }
+
+        // Rows and splitters
+        for (int i = 0; i < rows; i++)
+        {
+            RootGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star), MinHeight = 90 });
+            if (i < rows - 1)
+            {
+                RootGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(6, GridUnitType.Pixel) });
+            }
+        }
+
+        // Panes
+        for (int i = 0; i < count; i++)
+        {
+            int r = i / cols;
+            int col = i % cols;
+            int gridRow = r * 2;
+            int gridCol = col * 2;
+
+            var view = _paneViews[vm.Panes[i]];
+            Grid.SetRow(view, gridRow);
+            Grid.SetColumn(view, gridCol);
+            Grid.SetRowSpan(view, 1);
+            Grid.SetColumnSpan(view, 1);
+            RootGrid.Children.Add(view);
+        }
+
+        // Vertical splitters
+        int totalGridRows = rows * 2 - 1;
+        for (int i = 0; i < cols - 1; i++)
+        {
+            var vSplitter = CreateSplitter(isVertical: true);
+            Grid.SetRow(vSplitter, 0);
+            Grid.SetColumn(vSplitter, i * 2 + 1);
+            Grid.SetRowSpan(vSplitter, totalGridRows);
+            RootGrid.Children.Add(vSplitter);
+        }
+
+        // Horizontal splitters
+        int totalGridCols = cols * 2 - 1;
+        for (int i = 0; i < rows - 1; i++)
+        {
+            var hSplitter = CreateSplitter(isVertical: false);
+            Grid.SetRow(hSplitter, i * 2 + 1);
+            Grid.SetColumn(hSplitter, 0);
+            Grid.SetColumnSpan(hSplitter, totalGridCols);
+            RootGrid.Children.Add(hSplitter);
+        }
+    }
+
+    private void BuildFivePanesLayout(MainViewModel vm)
+    {
+        // 3 columns: Col 0 (1 large pane), Col 1 (2 stacked), Col 2 (2 stacked)
+        // Matching exact 5-pane layout in user demonstration
+        RootGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1.1, GridUnitType.Star), MinWidth = 140 });
+        RootGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(6, GridUnitType.Pixel) });
+        RootGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star), MinWidth = 140 });
+        RootGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(6, GridUnitType.Pixel) });
+        RootGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star), MinWidth = 140 });
+
+        RootGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star), MinHeight = 100 });
+        RootGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(6, GridUnitType.Pixel) });
+        RootGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star), MinHeight = 100 });
+
+        // Left Col 0: Pane 0 full height (spans Row 0 to 2)
+        var v0 = _paneViews[vm.Panes[0]];
+        Grid.SetRow(v0, 0);
+        Grid.SetColumn(v0, 0);
+        Grid.SetRowSpan(v0, 3);
+        Grid.SetColumnSpan(v0, 1);
+        RootGrid.Children.Add(v0);
+
+        // Col 2 Top: Pane 1
+        var v1 = _paneViews[vm.Panes[1]];
+        Grid.SetRow(v1, 0);
+        Grid.SetColumn(v1, 2);
+        Grid.SetRowSpan(v1, 1);
+        Grid.SetColumnSpan(v1, 1);
+        RootGrid.Children.Add(v1);
+
+        // Col 2 Bottom: Pane 2
+        var v2 = _paneViews[vm.Panes[2]];
+        Grid.SetRow(v2, 2);
+        Grid.SetColumn(v2, 2);
+        Grid.SetRowSpan(v2, 1);
+        Grid.SetColumnSpan(v2, 1);
+        RootGrid.Children.Add(v2);
+
+        // Col 4 Top: Pane 3
+        var v3 = _paneViews[vm.Panes[3]];
+        Grid.SetRow(v3, 0);
+        Grid.SetColumn(v3, 4);
+        Grid.SetRowSpan(v3, 1);
+        Grid.SetColumnSpan(v3, 1);
+        RootGrid.Children.Add(v3);
+
+        // Col 4 Bottom: Pane 4
+        var v4 = _paneViews[vm.Panes[4]];
+        Grid.SetRow(v4, 2);
+        Grid.SetColumn(v4, 4);
+        Grid.SetRowSpan(v4, 1);
+        Grid.SetColumnSpan(v4, 1);
+        RootGrid.Children.Add(v4);
+
+        // Vertical splitters
+        var vs1 = CreateSplitter(isVertical: true);
+        Grid.SetRow(vs1, 0);
+        Grid.SetColumn(vs1, 1);
+        Grid.SetRowSpan(vs1, 3);
+        RootGrid.Children.Add(vs1);
+
+        var vs2 = CreateSplitter(isVertical: true);
+        Grid.SetRow(vs2, 0);
+        Grid.SetColumn(vs2, 3);
+        Grid.SetRowSpan(vs2, 3);
+        RootGrid.Children.Add(vs2);
+
+        // Horizontal splitters for middle and right columns
+        var hs1 = CreateSplitter(isVertical: false);
+        Grid.SetRow(hs1, 1);
+        Grid.SetColumn(hs1, 2);
+        RootGrid.Children.Add(hs1);
+
+        var hs2 = CreateSplitter(isVertical: false);
+        Grid.SetRow(hs2, 1);
+        Grid.SetColumn(hs2, 4);
+        RootGrid.Children.Add(hs2);
     }
 
     private static GridSplitter CreateSplitter(bool isVertical)
