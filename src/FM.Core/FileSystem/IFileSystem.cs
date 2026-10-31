@@ -39,5 +39,7 @@ public interface IFileSystem
     void Delete(string path);
     void Move(string sourcePath, string destinationPath, bool overwrite = false);
     string GetVolumeId(string path);
+    string GetVolumeRoot(string path);
     long GetFreeSpace(string path);
+    void SetHidden(string path);
 }

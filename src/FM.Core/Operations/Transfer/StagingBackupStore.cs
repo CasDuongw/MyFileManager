@@ -12,20 +12,112 @@ public sealed class StagingBackupStore : IStagingBackupStore
 {
     private readonly IFileSystem _fs;
     private readonly string _rootDirectory;
+    private readonly IUndoJournalStore? _journal;
     private readonly TimeProvider _timeProvider;
+    private readonly HashSet<string> _knownRoots = new(StringComparer.OrdinalIgnoreCase);
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<Guid, string> _opStagingDirs = new();
 
-    public StagingBackupStore(IFileSystem fs, string rootDirectory, TimeProvider? timeProvider = null)
+    public Action<string>? WarningHandler { get; set; }
+
+    public StagingBackupStore(
+        IFileSystem fs,
+        string rootDirectory,
+        IUndoJournalStore? journal = null,
+        TimeProvider? timeProvider = null)
     {
         _fs = fs ?? throw new ArgumentNullException(nameof(fs));
         _rootDirectory = string.IsNullOrWhiteSpace(rootDirectory)
             ? throw new ArgumentException("Staging root directory cannot be empty.", nameof(rootDirectory))
             : rootDirectory;
+        _journal = journal;
         _timeProvider = timeProvider ?? TimeProvider.System;
+
+        lock (_knownRoots)
+        {
+            _knownRoots.Add(_rootDirectory);
+        }
+    }
+
+    public string ResolveStagingDirectory(string targetFilePath, Guid operationId)
+    {
+        return _opStagingDirs.GetOrAdd(operationId, _ =>
+        {
+            string volumeRoot = _fs.GetVolumeRoot(targetFilePath);
+
+            // 1. Preferred: <volume root>\.fm-staging\<operationId>\
+            try
+            {
+                string opt1Root = Path.Combine(volumeRoot, ".fm-staging");
+                if (!_fs.DirectoryExists(opt1Root))
+                {
+                    _fs.CreateDirectory(opt1Root);
+                }
+                _fs.SetHidden(opt1Root);
+
+                string opDir = Path.Combine(opt1Root, operationId.ToString("D"));
+                if (!_fs.DirectoryExists(opDir))
+                {
+                    _fs.CreateDirectory(opDir);
+                }
+
+                lock (_knownRoots) { _knownRoots.Add(opt1Root); }
+                _journal?.RegisterStagingRootAsync(operationId, opt1Root, CancellationToken.None);
+                return opDir;
+            }
+            catch
+            {
+                // Volume root failed (e.g. permission denied)
+            }
+
+            // 2. Fallback: <destination dir>\.fm-staging\<operationId>\
+            try
+            {
+                string destDir = Path.GetDirectoryName(targetFilePath) ?? volumeRoot;
+                string opt2Root = Path.Combine(destDir, ".fm-staging");
+                if (!_fs.DirectoryExists(opt2Root))
+                {
+                    _fs.CreateDirectory(opt2Root);
+                }
+                _fs.SetHidden(opt2Root);
+
+                string opDir = Path.Combine(opt2Root, operationId.ToString("D"));
+                if (!_fs.DirectoryExists(opDir))
+                {
+                    _fs.CreateDirectory(opDir);
+                }
+
+                lock (_knownRoots) { _knownRoots.Add(opt2Root); }
+                _journal?.RegisterStagingRootAsync(operationId, opt2Root, CancellationToken.None);
+                return opDir;
+            }
+            catch
+            {
+                // Fallback to local app data
+            }
+
+            // 3. Last resort: LocalAppData staging root with free space check + warning
+            string fallbackRoot = _rootDirectory;
+            if (!_fs.DirectoryExists(fallbackRoot))
+            {
+                _fs.CreateDirectory(fallbackRoot);
+            }
+            string fallbackOpDir = Path.Combine(fallbackRoot, operationId.ToString("D"));
+            if (!_fs.DirectoryExists(fallbackOpDir))
+            {
+                _fs.CreateDirectory(fallbackOpDir);
+            }
+
+            lock (_knownRoots) { _knownRoots.Add(fallbackRoot); }
+            _journal?.RegisterStagingRootAsync(operationId, fallbackRoot, CancellationToken.None);
+
+            WarningHandler?.Invoke($"Staging on volume '{volumeRoot}' failed; falling back to local app data staging.");
+            return fallbackOpDir;
+        });
     }
 
     public string GetPlannedBackupPath(string sourcePath, Guid operationId, int itemIndex)
     {
-        string opDir = Path.Combine(_rootDirectory, operationId.ToString("D"));
+        string opDir = ResolveStagingDirectory(sourcePath, operationId);
         string originalName = Path.GetFileName(sourcePath);
         string ext = Path.GetExtension(originalName);
         string nameWithoutExt = Path.GetFileNameWithoutExtension(originalName);
@@ -57,12 +149,7 @@ public sealed class StagingBackupStore : IStagingBackupStore
             throw new FileNotFoundException($"File to stage does not exist: '{sourcePath}'.", sourcePath);
         }
 
-        string opDir = Path.Combine(_rootDirectory, operationId.ToString("D"));
-        if (!_fs.DirectoryExists(opDir))
-        {
-            _fs.CreateDirectory(opDir);
-        }
-
+        string opDir = ResolveStagingDirectory(sourcePath, operationId);
         string backupPath = GetPlannedBackupPath(sourcePath, operationId, itemIndex);
 
         bool sameVolume = string.Equals(
@@ -149,17 +236,38 @@ public sealed class StagingBackupStore : IStagingBackupStore
     {
         ct.ThrowIfCancellationRequested();
 
-        string opDir = Path.Combine(_rootDirectory, operationId.ToString("D"));
-        try
+        var rootsToInspect = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { _rootDirectory };
+        lock (_knownRoots)
         {
-            if (_fs.DirectoryExists(opDir))
-            {
-                _fs.DeleteDirectory(opDir, recursive: true);
-            }
+            foreach (var r in _knownRoots) rootsToInspect.Add(r);
         }
-        catch
+
+        if (_opStagingDirs.TryGetValue(operationId, out var directOpDir))
         {
-            // Best effort discard
+            try
+            {
+                if (_fs.DirectoryExists(directOpDir))
+                {
+                    _fs.DeleteDirectory(directOpDir, recursive: true);
+                }
+            }
+            catch { }
+        }
+
+        foreach (var root in rootsToInspect)
+        {
+            string opDir = Path.Combine(root, operationId.ToString("D"));
+            try
+            {
+                if (_fs.DirectoryExists(opDir))
+                {
+                    _fs.DeleteDirectory(opDir, recursive: true);
+                }
+            }
+            catch
+            {
+                // Best effort discard
+            }
         }
 
         return Task.CompletedTask;
@@ -169,70 +277,104 @@ public sealed class StagingBackupStore : IStagingBackupStore
     {
         ct.ThrowIfCancellationRequested();
 
-        if (!_fs.DirectoryExists(_rootDirectory))
-        {
-            return Task.CompletedTask;
-        }
-
         DateTime now = _timeProvider.GetUtcNow().UtcDateTime;
         var opDirs = new List<(string Path, Guid Id, DateTime Modified, long Size)>();
 
-        foreach (var entry in _fs.EnumerateEntries(_rootDirectory))
+        var rootsToInspect = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { _rootDirectory };
+        lock (_knownRoots)
+        {
+            foreach (var r in _knownRoots) rootsToInspect.Add(r);
+        }
+        if (_journal != null)
+        {
+            foreach (var r in _journal.GetAllStagingRoots()) rootsToInspect.Add(r);
+        }
+
+        foreach (var vol in new[] { @"C:\", @"D:\" })
+        {
+            string volStaging = Path.Combine(vol, ".fm-staging");
+            if (_fs.DirectoryExists(volStaging))
+            {
+                rootsToInspect.Add(volStaging);
+            }
+        }
+
+        foreach (var root in rootsToInspect)
         {
             ct.ThrowIfCancellationRequested();
+            if (!_fs.DirectoryExists(root)) continue;
 
-            if (!_fs.DirectoryExists(entry)) continue;
-
-            string dirName = Path.GetFileName(entry);
-            if (!Guid.TryParse(dirName, out var opId)) continue;
-
-            if (liveOperationIds != null && liveOperationIds.Contains(opId))
+            foreach (var entry in _fs.EnumerateEntries(root))
             {
-                continue;
-            }
+                ct.ThrowIfCancellationRequested();
+                if (!_fs.DirectoryExists(entry)) continue;
 
-            var dirInfo = _fs.GetInfo(entry);
-            DateTime modified = dirInfo?.Modified ?? now;
-            long dirSize = 0;
+                string dirName = Path.GetFileName(entry);
+                if (!Guid.TryParse(dirName, out var opId)) continue;
 
-            try
-            {
-                foreach (var file in _fs.EnumerateEntries(entry))
+                // Live undoable operations must always be preserved
+                if (liveOperationIds != null && liveOperationIds.Contains(opId))
                 {
-                    if (_fs.FileExists(file))
+                    continue;
+                }
+
+                var dirInfo = _fs.GetInfo(entry);
+                DateTime modified = dirInfo?.Modified ?? now;
+                long dirSize = 0;
+
+                try
+                {
+                    foreach (var file in _fs.EnumerateEntries(entry))
                     {
-                        var fi = _fs.GetInfo(file);
-                        if (fi != null)
+                        if (_fs.FileExists(file))
                         {
-                            dirSize += fi.Size;
-                            if (fi.Modified > modified) modified = fi.Modified;
+                            var fi = _fs.GetInfo(file);
+                            if (fi != null)
+                            {
+                                dirSize += fi.Size;
+                                if (fi.Modified > modified) modified = fi.Modified;
+                            }
                         }
                     }
                 }
-            }
-            catch
-            {
-                // Best effort size query
-            }
-
-            // 1. Purge by age
-            if (now - modified > policy.MaxAge)
-            {
-                try
-                {
-                    _fs.DeleteDirectory(entry, recursive: true);
-                }
                 catch
                 {
-                    // Best effort
+                    // Best effort size query
                 }
-                continue;
-            }
 
-            opDirs.Add((entry, opId, modified, dirSize));
+                // 1. Purge orphaned staging older than 24 hours
+                if (now - modified > TimeSpan.FromHours(24))
+                {
+                    try
+                    {
+                        _fs.DeleteDirectory(entry, recursive: true);
+                    }
+                    catch
+                    {
+                        // Best effort
+                    }
+                    continue;
+                }
+
+                // 2. Purge by age (7 days)
+                if (now - modified > policy.MaxAge)
+                {
+                    try
+                    {
+                        _fs.DeleteDirectory(entry, recursive: true);
+                    }
+                    catch
+                    {
+                        // Best effort
+                    }
+                    continue;
+                }
+
+                opDirs.Add((entry, opId, modified, dirSize));
+            }
         }
 
-        // 2. Purge by quota (oldest first)
+        // 3. Purge by quota (oldest first)
         long totalBytes = opDirs.Sum(d => d.Size);
         if (totalBytes > policy.MaxTotalBytes)
         {

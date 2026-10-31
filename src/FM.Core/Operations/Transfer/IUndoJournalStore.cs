@@ -32,7 +32,8 @@ public record PersistentUndoEntry(
     TransferKind Kind,
     IReadOnlyList<JournalItemEntry> Items,
     string? OwnerPane = null,
-    IReadOnlyList<JournalIntentEntry>? Intents = null);
+    IReadOnlyList<JournalIntentEntry>? Intents = null,
+    IReadOnlyList<string>? StagingRoots = null);
 
 /// <summary>
 /// Persistent write-ahead undo journal contract enabling crash-resilient multi-session Undo.
@@ -42,6 +43,8 @@ public interface IUndoJournalStore
     Task AppendPendingEntryAsync(PersistentUndoEntry entry, CancellationToken ct = default);
     Task AppendIntentAsync(Guid operationId, JournalIntentEntry intent, CancellationToken ct = default);
     Task AppendItemAsync(Guid operationId, JournalItemEntry item, CancellationToken ct = default);
+    Task RegisterStagingRootAsync(Guid operationId, string stagingRoot, CancellationToken ct = default);
+    IReadOnlyList<string> GetAllStagingRoots();
     Task CommitEntryAsync(Guid operationId, CancellationToken ct = default);
     Task MarkUndoneAsync(Guid operationId, CancellationToken ct = default);
     Task AbandonEntryAsync(Guid operationId, CancellationToken ct = default);

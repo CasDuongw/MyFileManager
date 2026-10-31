@@ -171,6 +171,10 @@ public class StagingBackupTests
         _fs.CreateVirtualFile(@"C:\Source\doc.txt", length: 100);
         _fs.CreateVirtualFile(@"D:\Dest\doc.txt", length: 500);
 
+        // Block same-volume staging to test cross-volume staging failure
+        _fs.CreateVirtualFile(@"D:\.fm-staging", 0);
+        _fs.CreateVirtualFile(@"D:\Dest\.fm-staging", 0);
+
         // Inject failure on staging read/write
         _fs.InjectFailure(@"D:\Dest\doc.txt", 0, new IOException("Locked file"), count: 5);
 
@@ -282,5 +286,77 @@ public class StagingBackupTests
 
         Assert.False(_fs.DirectoryExists(Path.Combine(_stagingRoot, op1.ToString("D"))));
         Assert.True(_fs.DirectoryExists(Path.Combine(_stagingRoot, op2.ToString("D"))));
+    }
+
+    [Fact]
+    public async Task Staging_SameVolume_UsesVolumeRootStaging_AndMarksHidden()
+    {
+        var opId = Guid.NewGuid();
+        _fs.CreateVirtualFile(@"D:\Folder\file.txt", 100);
+
+        var staged = await _stager.StageAsync(@"D:\Folder\file.txt", opId, 0);
+
+        // Should stage under D:\.fm-staging\<opId>\
+        Assert.StartsWith(@"D:\.fm-staging\", staged.BackupPath, StringComparison.OrdinalIgnoreCase);
+        Assert.True(_fs.FileExists(staged.BackupPath));
+
+        var rootInfo = _fs.GetInfo(@"D:\.fm-staging");
+        Assert.NotNull(rootInfo);
+        Assert.True((rootInfo.Attributes & FileAttributes.Hidden) != 0);
+    }
+
+    [Fact]
+    public async Task Staging_FallbackToLocalAppData_WhenVolumeRootsFail_FiresWarning()
+    {
+        string? warningMessage = null;
+        _stager.WarningHandler = msg => warningMessage = msg;
+
+        // Simulate volume root & destination folder failure by creating files at those paths
+        _fs.CreateVirtualFile(@"E:\.fm-staging", 0); // Blocking file preventing dir creation
+        _fs.CreateVirtualFile(@"E:\Dest\.fm-staging", 0);
+        _fs.CreateVirtualFile(@"E:\Dest\file.txt", 50);
+
+        var opId = Guid.NewGuid();
+        var staged = await _stager.StageAsync(@"E:\Dest\file.txt", opId, 0);
+
+        Assert.StartsWith(_stagingRoot, staged.BackupPath, StringComparison.OrdinalIgnoreCase);
+        Assert.NotNull(warningMessage);
+        Assert.Contains("falling back", warningMessage);
+    }
+
+    [Fact]
+    public async Task PurgeAsync_PreservesLiveEntries_AndDeletesOrphanedStagingOlderThan24Hours()
+    {
+        var liveOp = Guid.NewGuid();
+        var orphanedOldOp = Guid.NewGuid();
+        var orphanedRecentOp = Guid.NewGuid();
+
+        // Staging under D:\.fm-staging\
+        string liveDir = Path.Combine(@"D:\.fm-staging", liveOp.ToString("D"));
+        _fs.CreateDirectory(liveDir);
+        _fs.CreateVirtualFile(Path.Combine(liveDir, "0_doc.txt"), 100);
+        _fs.SetModified(liveDir, DateTime.UtcNow.AddDays(-2));
+
+        string oldOrphanDir = Path.Combine(@"D:\.fm-staging", orphanedOldOp.ToString("D"));
+        _fs.CreateDirectory(oldOrphanDir);
+        string oldOrphanFile = Path.Combine(oldOrphanDir, "0_doc.txt");
+        _fs.CreateVirtualFile(oldOrphanFile, 100);
+        _fs.SetModified(oldOrphanFile, DateTime.UtcNow.AddHours(-25));
+        _fs.SetModified(oldOrphanDir, DateTime.UtcNow.AddHours(-25)); // > 24 hours orphaned
+
+        string recentOrphanDir = Path.Combine(@"D:\.fm-staging", orphanedRecentOp.ToString("D"));
+        _fs.CreateDirectory(recentOrphanDir);
+        _fs.CreateVirtualFile(Path.Combine(recentOrphanDir, "0_doc.txt"), 100);
+        _fs.SetModified(recentOrphanDir, DateTime.UtcNow.AddHours(-2)); // < 24 hours
+
+        var liveIds = new HashSet<Guid> { liveOp };
+        await _stager.PurgeAsync(StagingPolicy.Default, liveIds);
+
+        // Live must be preserved
+        Assert.True(_fs.DirectoryExists(liveDir));
+        // Orphaned > 24h must be deleted
+        Assert.False(_fs.DirectoryExists(oldOrphanDir));
+        // Recent orphan (< 24h) preserved for active/recent transactions
+        Assert.True(_fs.DirectoryExists(recentOrphanDir));
     }
 }

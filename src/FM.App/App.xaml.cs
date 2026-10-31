@@ -34,6 +34,30 @@ public partial class App : Application
         // Initialize view model paths asynchronously without blocking UI startup
         var mainViewModel = _serviceProvider.GetRequiredService<MainViewModel>();
         await mainViewModel.InitializeSettingsAsync(settings);
+
+        // Run crash recovery and staging retention purge asynchronously
+        var fs = _serviceProvider.GetRequiredService<FM.Core.FileSystem.IFileSystem>();
+        var stager = _serviceProvider.GetRequiredService<FM.Core.Operations.Transfer.IStagingBackupStore>();
+        var journal = _serviceProvider.GetRequiredService<FM.Core.Operations.Transfer.IUndoJournalStore>();
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                if (journal is FM.Core.Operations.Transfer.FileUndoJournalStore fjs)
+                {
+                    await fjs.RecoverPendingEntriesAsync(fs, stager).ConfigureAwait(false);
+                    await fjs.CompactAsync(TimeSpan.FromDays(7)).ConfigureAwait(false);
+                }
+                var committed = await journal.LoadEntriesAsync().ConfigureAwait(false);
+                var liveIds = new HashSet<Guid>(committed.Select(c => c.OperationId));
+                await stager.PurgeAsync(FM.Core.Operations.Transfer.StagingPolicy.Default, liveIds).ConfigureAwait(false);
+            }
+            catch
+            {
+                // Background maintenance failure handled non-fatally
+            }
+        });
     }
 
     private static void ApplyWindowBounds(Window window, AppSettings settings)
@@ -92,11 +116,14 @@ public partial class App : Application
         string stagingDir = System.IO.Path.Combine(appDataRoot, "staging");
         string journalFile = System.IO.Path.Combine(appDataRoot, "journal", "undo-journal.jsonl");
 
-        services.AddSingleton<FM.Core.Operations.Transfer.IStagingBackupStore>(sp =>
-            new FM.Core.Operations.Transfer.StagingBackupStore(sp.GetRequiredService<FM.Core.FileSystem.IFileSystem>(), stagingDir));
-
         services.AddSingleton<FM.Core.Operations.Transfer.IUndoJournalStore>(sp =>
             new FM.Core.Operations.Transfer.FileUndoJournalStore(sp.GetRequiredService<FM.Core.FileSystem.IFileSystem>(), journalFile));
+
+        services.AddSingleton<FM.Core.Operations.Transfer.IStagingBackupStore>(sp =>
+            new FM.Core.Operations.Transfer.StagingBackupStore(
+                sp.GetRequiredService<FM.Core.FileSystem.IFileSystem>(),
+                stagingDir,
+                sp.GetRequiredService<FM.Core.Operations.Transfer.IUndoJournalStore>()));
 
         services.AddSingleton<FM.Core.Operations.Transfer.ITransferQueue>(sp =>
             new FM.Core.Operations.Transfer.TransferQueue(

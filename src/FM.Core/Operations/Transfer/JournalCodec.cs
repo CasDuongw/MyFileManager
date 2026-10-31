@@ -12,7 +12,8 @@ public record JournalRecordDto(
     [property: JsonPropertyName("ts")] DateTime? Timestamp = null,
     [property: JsonPropertyName("owner")] string? OwnerPane = null,
     [property: JsonPropertyName("item")] JournalItemDto? Item = null,
-    [property: JsonPropertyName("intent")] JournalIntentDto? Intent = null);
+    [property: JsonPropertyName("intent")] JournalIntentDto? Intent = null,
+    [property: JsonPropertyName("stagingRoot")] string? StagingRoot = null);
 
 public record JournalIntentDto(
     [property: JsonPropertyName("src")] string SourcePath,
@@ -43,7 +44,7 @@ public static class JournalCodec
     public static Dictionary<Guid, PersistentUndoEntry> Replay(TextReader reader, out List<string> corruptedLines)
     {
         corruptedLines = new List<string>();
-        var entries = new Dictionary<Guid, (PersistentUndoEntry Entry, List<JournalItemEntry> Items, List<JournalIntentEntry> Intents)>();
+        var entries = new Dictionary<Guid, (PersistentUndoEntry Entry, List<JournalItemEntry> Items, List<JournalIntentEntry> Intents, List<string> StagingRoots)>();
 
         string? line;
         while ((line = reader.ReadLine()) != null)
@@ -87,9 +88,21 @@ public static class JournalCodec
                             record.Kind ?? TransferKind.Copy,
                             Array.Empty<JournalItemEntry>(),
                             record.OwnerPane,
-                            Array.Empty<JournalIntentEntry>()),
+                            Array.Empty<JournalIntentEntry>(),
+                            Array.Empty<string>()),
                         new List<JournalItemEntry>(),
-                        new List<JournalIntentEntry>());
+                        new List<JournalIntentEntry>(),
+                        new List<string>());
+                    break;
+
+                case "staging_root":
+                    if (entries.TryGetValue(record.OperationId, out var stagingTarget) && !string.IsNullOrEmpty(record.StagingRoot))
+                    {
+                        if (!stagingTarget.StagingRoots.Contains(record.StagingRoot, StringComparer.OrdinalIgnoreCase))
+                        {
+                            stagingTarget.StagingRoots.Add(record.StagingRoot);
+                        }
+                    }
                     break;
 
                 case "intent":
@@ -132,7 +145,8 @@ public static class JournalCodec
                         entries[record.OperationId] = (
                             commitTarget.Entry with { State = JournalState.Committed },
                             commitTarget.Items,
-                            commitTarget.Intents);
+                            commitTarget.Intents,
+                            commitTarget.StagingRoots);
                     }
                     break;
 
@@ -143,7 +157,8 @@ public static class JournalCodec
                         entries[record.OperationId] = (
                             undoneTarget.Entry with { State = JournalState.Undone },
                             undoneTarget.Items,
-                            undoneTarget.Intents);
+                            undoneTarget.Intents,
+                            undoneTarget.StagingRoots);
                     }
                     break;
 
@@ -154,7 +169,8 @@ public static class JournalCodec
                         entries[record.OperationId] = (
                             abandonTarget.Entry with { State = JournalState.Abandoned },
                             abandonTarget.Items,
-                            abandonTarget.Intents);
+                            abandonTarget.Intents,
+                            abandonTarget.StagingRoots);
                     }
                     break;
 
@@ -170,7 +186,8 @@ public static class JournalCodec
             result[kvp.Key] = kvp.Value.Entry with
             {
                 Items = kvp.Value.Items,
-                Intents = kvp.Value.Intents
+                Intents = kvp.Value.Intents,
+                StagingRoots = kvp.Value.StagingRoots
             };
         }
         return result;

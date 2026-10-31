@@ -77,6 +77,24 @@ public sealed class InMemoryFileSystem : IFileSystem
 
     private static readonly byte[] DeterministicPattern = Enumerable.Range(0, 256).Select(i => (byte)((i * 31 + 7) & 0xFF)).ToArray();
 
+    string IFileSystem.GetVolumeRoot(string path) => GetVolumeRoot(path);
+
+    public void SetHidden(string path)
+    {
+        lock (_lock)
+        {
+            string norm = Normalize(path);
+            if (_files.TryGetValue(norm, out var file))
+            {
+                file.Attributes |= FileAttributes.Hidden;
+            }
+            else if (_directories.TryGetValue(norm, out var dir))
+            {
+                dir.Attributes |= FileAttributes.Hidden;
+            }
+        }
+    }
+
     public static byte GetDeterministicByte(long offset)
     {
         return DeterministicPattern[(int)(offset & 0xFF)];
@@ -228,8 +246,18 @@ public sealed class InMemoryFileSystem : IFileSystem
         lock (_lock)
         {
             string current = Normalize(path);
+            if (_files.ContainsKey(current))
+            {
+                throw new IOException($"Cannot create directory because a file already exists at '{path}'.");
+            }
+
             while (!string.IsNullOrEmpty(current))
             {
+                if (_files.ContainsKey(current))
+                {
+                    throw new IOException($"Cannot create directory because a file already exists at '{current}'.");
+                }
+
                 if (!_directories.ContainsKey(current))
                 {
                     _directories[current] = new DirectoryData();

@@ -238,6 +238,51 @@ public sealed class PhysicalFileSystem : IFileSystem
         return !string.IsNullOrEmpty(root) ? root.TrimEnd('\\').ToUpperInvariant() : "VOL_DEFAULT";
     }
 
+    public string GetVolumeRoot(string path)
+    {
+        string norm = NormalizePath(path);
+        if (OperatingSystem.IsWindows())
+        {
+            try
+            {
+                var sb = new StringBuilder(260);
+                if (GetVolumePathNameW(norm, sb, (uint)sb.Capacity))
+                {
+                    return sb.ToString();
+                }
+            }
+            catch
+            {
+                // Fall back to drive root if P/Invoke fails
+            }
+        }
+
+        string? root = Path.GetPathRoot(norm);
+        return !string.IsNullOrEmpty(root) ? root : @"C:\";
+    }
+
+    public void SetHidden(string path)
+    {
+        string norm = NormalizePath(path);
+        try
+        {
+            if (File.Exists(norm))
+            {
+                var attr = File.GetAttributes(norm);
+                File.SetAttributes(norm, attr | FileAttributes.Hidden);
+            }
+            else if (Directory.Exists(norm))
+            {
+                var di = new DirectoryInfo(norm);
+                di.Attributes |= FileAttributes.Hidden;
+            }
+        }
+        catch
+        {
+            // Best effort to set hidden attribute
+        }
+    }
+
     public long GetFreeSpace(string path)
     {
         string norm = NormalizePath(path);

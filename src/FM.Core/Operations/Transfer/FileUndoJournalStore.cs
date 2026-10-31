@@ -19,6 +19,7 @@ public sealed class FileUndoJournalStore : IUndoJournalStore
     private bool _isDegraded;
     private bool _hasWarnedDegraded;
     private readonly Dictionary<Guid, (PersistentUndoEntry Entry, List<JournalItemEntry> Items)> _inMemoryEntries = new();
+    private readonly HashSet<string> _stagingRoots = new(StringComparer.OrdinalIgnoreCase);
 
     public Action<string>? WarningHandler { get; set; }
 
@@ -75,6 +76,38 @@ public sealed class FileUndoJournalStore : IUndoJournalStore
         }
 
         return Task.CompletedTask;
+    }
+
+    public Task RegisterStagingRootAsync(Guid operationId, string stagingRoot, CancellationToken ct = default)
+    {
+        ct.ThrowIfCancellationRequested();
+
+        if (string.IsNullOrWhiteSpace(stagingRoot))
+        {
+            return Task.CompletedTask;
+        }
+
+        var record = new JournalRecordDto(
+            Version: JournalCodec.CurrentSchemaVersion,
+            Type: "staging_root",
+            OperationId: operationId,
+            StagingRoot: stagingRoot);
+
+        lock (_lock)
+        {
+            _stagingRoots.Add(stagingRoot);
+            WriteRecord_Locked(record, flush: true);
+        }
+
+        return Task.CompletedTask;
+    }
+
+    public IReadOnlyList<string> GetAllStagingRoots()
+    {
+        lock (_lock)
+        {
+            return _stagingRoots.ToList();
+        }
     }
 
     public Task AppendItemAsync(Guid operationId, JournalItemEntry item, CancellationToken ct = default)
