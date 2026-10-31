@@ -12,11 +12,13 @@ public sealed class TransferUndoOperation : IFileOperation
     private readonly IFileSystem _fs;
     private readonly IStagingBackupStore? _stager;
     private readonly IUndoJournalStore? _journal;
+    private readonly ITransferEngine _engine;
     public Guid OperationId { get; }
     public TransferKind Kind { get; }
     public TransferResult Result { get; }
     public bool CanUndo { get; }
     public string? NonUndoableReason { get; }
+    public IProgress<TransferProgress>? Progress { get; set; }
 
     public string Description =>
         Kind == TransferKind.Copy
@@ -29,11 +31,13 @@ public sealed class TransferUndoOperation : IFileOperation
         TransferResult result,
         IStagingBackupStore? stager = null,
         Guid operationId = default,
-        IUndoJournalStore? journal = null)
+        IUndoJournalStore? journal = null,
+        ITransferEngine? engine = null)
     {
         _fs = fs ?? throw new ArgumentNullException(nameof(fs));
         _stager = stager;
         _journal = journal;
+        _engine = engine ?? new TransferEngine(fs, stager, journal);
         OperationId = operationId;
         Kind = kind;
         Result = result ?? throw new ArgumentNullException(nameof(result));
@@ -67,51 +71,54 @@ public sealed class TransferUndoOperation : IFileOperation
         throw new InvalidOperationException("TransferUndoOperation is created post-execution and cannot be executed with DoAsync.");
     }
 
-    public async Task<OperationResult> UndoAsync(CancellationToken ct = default)
+    public Task<OperationResult> UndoAsync(CancellationToken ct = default)
     {
-        ct.ThrowIfCancellationRequested();
-
-        if (!CanUndo)
+        return Task.Run(async () =>
         {
-            return OperationResult.Fail(NonUndoableReason ?? "Operation is not undoable.");
-        }
+            ct.ThrowIfCancellationRequested();
 
-        // Verify all required backups still exist before proceeding
-        if (_stager != null)
-        {
-            foreach (var item in Result.Items.Where(i => i.Outcome == ItemOutcome.Replaced && i.BackupPath != null))
+            if (!CanUndo)
             {
-                if (!_stager.BackupExists(item.BackupPath!))
-                {
-                    return OperationResult.Fail($"Cannot undo: Staged backup file is missing or was purged: '{item.BackupPath}'.");
-                }
-            }
-        }
-
-        OperationResult undoResult;
-        if (Kind == TransferKind.Copy)
-        {
-            undoResult = await UndoCopyAsync(ct).ConfigureAwait(false);
-        }
-        else
-        {
-            undoResult = await UndoMoveAsync(ct).ConfigureAwait(false);
-        }
-
-        if (undoResult.Success)
-        {
-            if (_journal != null)
-            {
-                try { await _journal.MarkUndoneAsync(OperationId, ct).ConfigureAwait(false); } catch { }
+                return OperationResult.Fail(NonUndoableReason ?? "Operation is not undoable.");
             }
 
+            // Verify all required backups still exist before proceeding
             if (_stager != null)
             {
-                try { await _stager.DiscardAsync(OperationId, ct).ConfigureAwait(false); } catch { }
+                foreach (var item in Result.Items.Where(i => i.Outcome == ItemOutcome.Replaced && i.BackupPath != null))
+                {
+                    if (!_stager.BackupExists(item.BackupPath!))
+                    {
+                        return OperationResult.Fail($"Cannot undo: Staged backup file is missing or was purged: '{item.BackupPath}'.");
+                    }
+                }
             }
-        }
 
-        return undoResult;
+            OperationResult undoResult;
+            if (Kind == TransferKind.Copy)
+            {
+                undoResult = await UndoCopyAsync(ct).ConfigureAwait(false);
+            }
+            else
+            {
+                undoResult = await UndoMoveAsync(ct).ConfigureAwait(false);
+            }
+
+            if (undoResult.Success)
+            {
+                if (_journal != null)
+                {
+                    try { await _journal.MarkUndoneAsync(OperationId, ct).ConfigureAwait(false); } catch { }
+                }
+
+                if (_stager != null)
+                {
+                    try { await _stager.DiscardAsync(OperationId, ct).ConfigureAwait(false); } catch { }
+                }
+            }
+
+            return undoResult;
+        }, ct);
     }
 
     private async Task<OperationResult> UndoCopyAsync(CancellationToken ct)
@@ -284,7 +291,25 @@ public sealed class TransferUndoOperation : IFileOperation
                     _fs.CreateDirectory(parent);
                 }
 
-                _fs.Move(dst, src, overwrite: false);
+                bool isCrossVolume = !string.Equals(_fs.GetVolumeId(dst), _fs.GetVolumeId(src), StringComparison.OrdinalIgnoreCase);
+                if (!isCrossVolume)
+                {
+                    _fs.Move(dst, src, overwrite: false);
+                }
+                else
+                {
+                    var reverseRequest = new TransferRequest(
+                        TransferKind.Move,
+                        new[] { dst },
+                        Path.GetDirectoryName(src) ?? _fs.GetVolumeRoot(src),
+                        new TransferOptions(VerifyAfterCopy: true));
+
+                    var revResult = await _engine.RunAsync(reverseRequest, Progress, gate: null, ct: ct).ConfigureAwait(false);
+                    if (revResult.FinalState != TransferState.Completed)
+                    {
+                        messages.Add($"Failed to reverse-transfer '{dst}' to '{src}'.");
+                    }
+                }
             }
             catch (Exception ex)
             {
@@ -329,7 +354,26 @@ public sealed class TransferUndoOperation : IFileOperation
                         _fs.CreateDirectory(parent);
                     }
 
-                    _fs.Move(dst, src, overwrite: false);
+                    bool isCrossVolume = !string.Equals(_fs.GetVolumeId(dst), _fs.GetVolumeId(src), StringComparison.OrdinalIgnoreCase);
+                    if (!isCrossVolume)
+                    {
+                        _fs.Move(dst, src, overwrite: false);
+                    }
+                    else
+                    {
+                        var reverseRequest = new TransferRequest(
+                            TransferKind.Move,
+                            new[] { dst },
+                            Path.GetDirectoryName(src) ?? _fs.GetVolumeRoot(src),
+                            new TransferOptions(VerifyAfterCopy: true));
+
+                        var revResult = await _engine.RunAsync(reverseRequest, Progress, gate: null, ct: ct).ConfigureAwait(false);
+                        if (revResult.FinalState != TransferState.Completed)
+                        {
+                            messages.Add($"Failed to return '{dst}' to source '{src}'.");
+                            continue;
+                        }
+                    }
                 }
                 catch (Exception ex)
                 {

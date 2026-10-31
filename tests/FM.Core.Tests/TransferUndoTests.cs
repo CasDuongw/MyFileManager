@@ -220,5 +220,53 @@ public class TransferUndoTests
         Assert.False(fs.FileExists(@"C:\dest\hello.txt"));
         Assert.True(fs.FileExists(@"C:\src\hello.txt"));
     }
+
+    [Fact]
+    public async Task UndoMove_CrossVolume_UsesVerifiedReverseTransfer()
+    {
+        var fs = new InMemoryFileSystem();
+        var now = DateTime.UtcNow;
+        fs.CreateDirectory(@"D:\dest");
+        fs.CreateVirtualFile(@"D:\dest\large.iso", 10 * 1024);
+        fs.SetModified(@"D:\dest\large.iso", now);
+
+        var result = new TransferResult(
+            TransferState.Completed,
+            new[]
+            {
+                new TransferItemResult(@"C:\src\nested\large.iso", @"D:\dest\large.iso", IsDirectory: false, ItemOutcome.Moved, 10 * 1024, now, null)
+            });
+
+        // Original source parent folder C:\src\nested does not exist
+        Assert.False(fs.DirectoryExists(@"C:\src\nested"));
+
+        var undoOp = new TransferUndoOperation(fs, TransferKind.Move, result);
+        var undoResult = await undoOp.UndoAsync();
+
+        Assert.True(undoResult.Success, undoResult.ErrorMessage);
+        Assert.True(fs.FileExists(@"C:\src\nested\large.iso"));
+        Assert.False(fs.FileExists(@"D:\dest\large.iso"));
+    }
+
+    [Fact]
+    public async Task Undo_Cancellation_CancelsGracefully()
+    {
+        var fs = new InMemoryFileSystem();
+        fs.CreateDirectory(@"C:\dest");
+        fs.CreateVirtualFile(@"C:\dest\file.txt", 100);
+
+        using var cts = new CancellationTokenSource();
+        cts.Cancel(); // Pre-cancelled
+
+        var result = new TransferResult(
+            TransferState.Completed,
+            new[]
+            {
+                new TransferItemResult(@"C:\src\file.txt", @"C:\dest\file.txt", false, ItemOutcome.Copied, 100, DateTime.UtcNow, null)
+            });
+
+        var undoOp = new TransferUndoOperation(fs, TransferKind.Copy, result);
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => undoOp.UndoAsync(cts.Token));
+    }
 }
 
