@@ -447,6 +447,20 @@ public partial class MainViewModel : ObservableObject
         if (sourcePane == null || targetPane == null || sourcePane == targetPane) return;
         if (!Panes.Contains(sourcePane) || !Panes.Contains(targetPane)) return;
 
+        if (edge == DockEdge.Center)
+        {
+            // Direct Swap of source and target panes
+            int sIdx = Panes.IndexOf(sourcePane);
+            int tIdx = Panes.IndexOf(targetPane);
+            (Panes[sIdx], Panes[tIdx]) = (Panes[tIdx], Panes[sIdx]);
+            SetActivePane(sourcePane);
+            OnPropertyChanged(nameof(CanClosePanes));
+            return;
+        }
+
+        int origSourceIdx = Panes.IndexOf(sourcePane);
+        int origTargetIdx = Panes.IndexOf(targetPane);
+
         Panes.Remove(sourcePane);
         int targetIdx = Panes.IndexOf(targetPane);
 
@@ -457,6 +471,23 @@ public partial class MainViewModel : ObservableObject
         else
         {
             Panes.Insert(targetIdx, sourcePane);
+        }
+
+        // If the resulting index did not change (no-op because source was already at that relative position),
+        // swap them so user drag ALWAYS produces a visible move!
+        int newSourceIdx = Panes.IndexOf(sourcePane);
+        if (newSourceIdx == origSourceIdx && Panes.Count > 1)
+        {
+            Panes.Remove(sourcePane);
+            int swapTargetIdx = Panes.IndexOf(targetPane);
+            if (edge == DockEdge.Right || edge == DockEdge.Bottom)
+            {
+                Panes.Insert(swapTargetIdx, sourcePane);
+            }
+            else
+            {
+                Panes.Insert(swapTargetIdx + 1, sourcePane);
+            }
         }
 
         if (Panes.Count == 2)

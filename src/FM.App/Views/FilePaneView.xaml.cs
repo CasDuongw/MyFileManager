@@ -427,16 +427,20 @@ public partial class FilePaneView : UserControl
 
     private void OnFileListViewDragEnter(object sender, DragEventArgs e)
     {
+        if (e.Data.GetDataPresent("FM.App.TabDrag")) return;
         HandleDragOver(e);
     }
 
     private void OnFileListViewDragOver(object sender, DragEventArgs e)
     {
+        if (e.Data.GetDataPresent("FM.App.TabDrag")) return;
         HandleDragOver(e);
     }
 
     private void HandleDragOver(DragEventArgs e)
     {
+        if (e.Data.GetDataPresent("FM.App.TabDrag")) return;
+
         if (!e.Data.GetDataPresent(DataFormats.FileDrop) || ViewModel == null)
         {
             e.Effects = DragDropEffects.None;
@@ -514,12 +518,15 @@ public partial class FilePaneView : UserControl
 
     private void OnFileListViewDragLeave(object sender, DragEventArgs e)
     {
+        if (e.Data.GetDataPresent("FM.App.TabDrag")) return;
         ClearDropHighlights();
     }
 
     private void OnFileListViewDrop(object sender, DragEventArgs e)
     {
         ClearDropHighlights();
+
+        if (e.Data.GetDataPresent("FM.App.TabDrag")) return;
 
         if (!e.Data.GetDataPresent(DataFormats.FileDrop) || ViewModel == null)
         {
@@ -759,7 +766,7 @@ public partial class FilePaneView : UserControl
         };
 
         var sp = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
-        
+
         // Rose folder icon
         sp.Children.Add(new TextBlock
         {
@@ -931,8 +938,12 @@ public partial class FilePaneView : UserControl
             var pos = e.GetPosition(this);
             double w = Math.Max(1, ActualWidth);
             double h = Math.Max(1, ActualHeight);
-            double relX = pos.X / w;
-            double relY = pos.Y / h;
+            double relX = Math.Clamp(pos.X / w, 0.0, 1.0);
+            double relY = Math.Clamp(pos.Y / h, 0.0, 1.0);
+
+            // Edge docking zone: outer 25% of pane width/height.
+            // Center 50% zone is Swap zone (everywhere inside pane is responsive).
+            const double threshold = 0.25;
 
             double distLeft = relX;
             double distRight = 1.0 - relX;
@@ -941,37 +952,27 @@ public partial class FilePaneView : UserControl
 
             double minDist = Math.Min(Math.Min(distLeft, distRight), Math.Min(distTop, distBottom));
 
-            // Edge docking zone: outer 30% of pane width/height.
-            // Center region (0.30 to 0.70) is neutral zone.
-            DockEdge newEdge = DockEdge.None;
-            if (minDist == distLeft && relX <= 0.30)
+            DockEdge newEdge;
+            if (minDist <= threshold)
             {
-                newEdge = DockEdge.Left;
+                if (minDist == distLeft)
+                    newEdge = DockEdge.Left;
+                else if (minDist == distRight)
+                    newEdge = DockEdge.Right;
+                else if (minDist == distTop)
+                    newEdge = DockEdge.Top;
+                else
+                    newEdge = DockEdge.Bottom;
             }
-            else if (minDist == distRight && relX >= 0.70)
+            else
             {
-                newEdge = DockEdge.Right;
-            }
-            else if (minDist == distTop && relY <= 0.30)
-            {
-                newEdge = DockEdge.Top;
-            }
-            else if (minDist == distBottom && relY >= 0.70)
-            {
-                newEdge = DockEdge.Bottom;
+                newEdge = DockEdge.Center;
             }
 
             if (newEdge != _currentDockEdge)
             {
                 _currentDockEdge = newEdge;
-                if (newEdge != DockEdge.None)
-                {
-                    ShowDockPreview(newEdge);
-                }
-                else
-                {
-                    HideDockPreview();
-                }
+                ShowDockPreview(newEdge);
             }
         }
         else
@@ -995,24 +996,35 @@ public partial class FilePaneView : UserControl
                 DockPreviewOverlay.VerticalAlignment = VerticalAlignment.Stretch;
                 DockPreviewOverlay.Width = halfW;
                 DockPreviewOverlay.Height = double.NaN;
+                DockPreviewBadge.Visibility = Visibility.Collapsed;
                 break;
             case DockEdge.Bottom:
                 DockPreviewOverlay.HorizontalAlignment = HorizontalAlignment.Stretch;
                 DockPreviewOverlay.VerticalAlignment = VerticalAlignment.Bottom;
                 DockPreviewOverlay.Height = halfH;
                 DockPreviewOverlay.Width = double.NaN;
+                DockPreviewBadge.Visibility = Visibility.Collapsed;
                 break;
             case DockEdge.Left:
                 DockPreviewOverlay.HorizontalAlignment = HorizontalAlignment.Left;
                 DockPreviewOverlay.VerticalAlignment = VerticalAlignment.Stretch;
                 DockPreviewOverlay.Width = halfW;
                 DockPreviewOverlay.Height = double.NaN;
+                DockPreviewBadge.Visibility = Visibility.Collapsed;
                 break;
             case DockEdge.Top:
                 DockPreviewOverlay.HorizontalAlignment = HorizontalAlignment.Stretch;
                 DockPreviewOverlay.VerticalAlignment = VerticalAlignment.Top;
                 DockPreviewOverlay.Height = halfH;
                 DockPreviewOverlay.Width = double.NaN;
+                DockPreviewBadge.Visibility = Visibility.Collapsed;
+                break;
+            case DockEdge.Center:
+                DockPreviewOverlay.HorizontalAlignment = HorizontalAlignment.Stretch;
+                DockPreviewOverlay.VerticalAlignment = VerticalAlignment.Stretch;
+                DockPreviewOverlay.Width = double.NaN;
+                DockPreviewOverlay.Height = double.NaN;
+                DockPreviewBadge.Visibility = Visibility.Visible;
                 break;
             default:
                 HideDockPreview();
@@ -1027,6 +1039,7 @@ public partial class FilePaneView : UserControl
     internal void HideDockPreview()
     {
         _currentDockEdge = DockEdge.None;
+        DockPreviewBadge.Visibility = Visibility.Collapsed;
         DockPreviewOverlay.Visibility = Visibility.Collapsed;
     }
 
@@ -1050,11 +1063,17 @@ public partial class FilePaneView : UserControl
             var edge = _currentDockEdge;
             HideDockPreview();
 
-            if (edge != DockEdge.None && ViewModel != null)
+            if (ViewModel != null)
             {
                 var draggedVm = e.Data.GetData("FM.App.TabDrag") as FilePaneViewModel;
                 if (draggedVm != null && draggedVm != ViewModel)
                 {
+                    // Fallback to Center (Swap) if edge was None so dropping ANYWHERE in pane works
+                    if (edge == DockEdge.None)
+                    {
+                        edge = DockEdge.Center;
+                    }
+
                     var mainVm = Window.GetWindow(this)?.DataContext as MainViewModel;
                     mainVm?.DockPane(draggedVm, ViewModel, edge);
                     e.Effects = DragDropEffects.Move;

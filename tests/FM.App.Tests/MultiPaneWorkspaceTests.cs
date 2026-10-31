@@ -301,6 +301,47 @@ public class MultiPaneWorkspaceTests
     }
 
     [Fact]
+    public void DockPane_CenterEdge_SwapsSourceAndTargetPanes()
+    {
+        var vm = new MainViewModel(_dirService, _iconService, _settingsService, _fs);
+        vm.SetLayoutCommand.Execute("TripleLeft");
+        Assert.Equal(3, vm.Panes.Count);
+
+        var p0 = vm.Panes[0];
+        var p1 = vm.Panes[1];
+        var p2 = vm.Panes[2];
+
+        // Drop p1 into center of p0 -> swaps p0 and p1
+        vm.DockPane(p1, p0, DockEdge.Center);
+
+        Assert.Equal(p1, vm.Panes[0]);
+        Assert.Equal(p0, vm.Panes[1]);
+        Assert.Equal(p2, vm.Panes[2]);
+        Assert.Same(p1, vm.ActivePane);
+    }
+
+    [Fact]
+    public void DockPane_EdgeWhenAlreadyAdjacent_SwapsPanesInsteadOfNoOp()
+    {
+        var vm = new MainViewModel(_dirService, _iconService, _settingsService, _fs);
+        vm.SetLayoutCommand.Execute("TripleLeft");
+        Assert.Equal(3, vm.Panes.Count);
+
+        var p0 = vm.Panes[0];
+        var p1 = vm.Panes[1];
+        var p2 = vm.Panes[2];
+
+        // p1 is already directly to the right of p0 (index 1).
+        // If user drags p1 and drops it to the Right of p0, it swaps p0 and p1 so the move always produces an effect!
+        vm.DockPane(p1, p0, DockEdge.Right);
+
+        Assert.Equal(p1, vm.Panes[0]);
+        Assert.Equal(p0, vm.Panes[1]);
+        Assert.Equal(p2, vm.Panes[2]);
+        Assert.Same(p1, vm.ActivePane);
+    }
+
+    [Fact]
     public void SplitPanes_SupportsUpTo16Panes()
     {
         var vm = new MainViewModel(_dirService, _iconService, _settingsService, _fs);

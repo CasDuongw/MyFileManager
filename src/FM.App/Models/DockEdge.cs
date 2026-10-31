@@ -1,7 +1,7 @@
 namespace FM.App.Models;
 
 /// <summary>
-/// Specifies the target edge when docking a pane via drag-and-drop.
+/// Specifies the target edge or center area when docking or swapping a pane via drag-and-drop.
 /// </summary>
 public enum DockEdge
 {
@@ -9,5 +9,6 @@ public enum DockEdge
     Left,
     Right,
     Top,
-    Bottom
+    Bottom,
+    Center
 }
