@@ -442,17 +442,36 @@ public partial class MainViewModel : ObservableObject
         ClosePaneCommand.NotifyCanExecuteChanged();
     }
 
+    public void SwapPanes(int sIdx, int tIdx)
+    {
+        if (sIdx == tIdx || sIdx < 0 || tIdx < 0 || sIdx >= Panes.Count || tIdx >= Panes.Count)
+            return;
+
+        if (Math.Abs(sIdx - tIdx) == 1)
+        {
+            Panes.Move(sIdx, tIdx);
+        }
+        else
+        {
+            int lower = Math.Min(sIdx, tIdx);
+            int higher = Math.Max(sIdx, tIdx);
+            Panes.Move(lower, higher);
+            Panes.Move(higher - 1, lower);
+        }
+    }
+
     public void DockPane(FilePaneViewModel sourcePane, FilePaneViewModel targetPane, DockEdge edge)
     {
         if (sourcePane == null || targetPane == null || sourcePane == targetPane) return;
         if (!Panes.Contains(sourcePane) || !Panes.Contains(targetPane)) return;
 
+        int sIdx = Panes.IndexOf(sourcePane);
+        int tIdx = Panes.IndexOf(targetPane);
+
         if (edge == DockEdge.Center)
         {
-            // Direct Swap of source and target panes
-            int sIdx = Panes.IndexOf(sourcePane);
-            int tIdx = Panes.IndexOf(targetPane);
-            (Panes[sIdx], Panes[tIdx]) = (Panes[tIdx], Panes[sIdx]);
+            // Direct Swap of source and target panes using Panes.Move without duplicate intermediates
+            SwapPanes(sIdx, tIdx);
             SetActivePane(sourcePane);
             OnPropertyChanged(nameof(CanClosePanes));
             return;

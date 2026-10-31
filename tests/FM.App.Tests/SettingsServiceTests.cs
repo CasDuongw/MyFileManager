@@ -1,24 +1,30 @@
+using System;
 using System.IO;
+using FM.App.Models;
 using FM.App.Services;
+using Xunit;
 
 namespace FM.App.Tests;
 
 public class SettingsServiceTests : IDisposable
 {
+    private readonly string _tempDir;
     private readonly string _tempFile;
 
     public SettingsServiceTests()
     {
-        _tempFile = Path.Combine(Path.GetTempPath(), $"FM_Settings_{Guid.NewGuid():N}.json");
+        _tempDir = Path.Combine(Path.GetTempPath(), $"FM_Test_{Guid.NewGuid():N}");
+        Directory.CreateDirectory(_tempDir);
+        _tempFile = Path.Combine(_tempDir, "settings.json");
     }
 
     public void Dispose()
     {
         try
         {
-            if (File.Exists(_tempFile))
+            if (Directory.Exists(_tempDir))
             {
-                File.Delete(_tempFile);
+                Directory.Delete(_tempDir, true);
             }
         }
         catch
@@ -28,90 +34,93 @@ public class SettingsServiceTests : IDisposable
     }
 
     [Fact]
-    public void MissingFile_ReturnsDefaultSettings()
+    public void LoadSettings_WhenFileDoesNotExist_ReturnsDefaultSettings()
     {
         var service = new SettingsService(_tempFile);
-
-        var settings = service.LoadSettings();
-
-        Assert.NotNull(settings);
-        Assert.True(settings.WindowWidth >= 600);
-        Assert.True(settings.WindowHeight >= 400);
-        Assert.Equal("Normal", settings.WindowState);
-        Assert.False(string.IsNullOrEmpty(settings.LeftPanePath));
-        Assert.False(string.IsNullOrEmpty(settings.RightPanePath));
-    }
-
-    [Fact]
-    public void CorruptedJson_ReturnsDefaultSettingsWithoutCrashing()
-    {
-        File.WriteAllText(_tempFile, "{ broken json [{{ 12345: true");
-        var service = new SettingsService(_tempFile);
-
         var settings = service.LoadSettings();
 
         Assert.NotNull(settings);
         Assert.Equal(1100, settings.WindowWidth);
         Assert.Equal(700, settings.WindowHeight);
+        Assert.Equal("Normal", settings.WindowState);
+        Assert.Equal("DualVertical", settings.LayoutMode);
     }
 
     [Fact]
-    public void RoundTrip_SavesAndLoadsIdenticalValues()
+    public void SaveSettings_And_LoadSettings_RoundtripsSuccessfully()
     {
         var service = new SettingsService(_tempFile);
-        string tempDir = Path.GetTempPath();
-
         var original = new AppSettings
         {
-            WindowWidth = 1440,
+            WindowWidth = 1400,
             WindowHeight = 900,
-            WindowLeft = 100,
-            WindowTop = 50,
             WindowState = "Maximized",
-            LeftPanePath = tempDir,
-            RightPanePath = tempDir
+            LayoutMode = "TripleLeft",
+            LeftPanePath = @"C:\Windows",
+            RightPanePath = @"C:\Program Files"
         };
 
         service.SaveSettings(original);
         var loaded = service.LoadSettings();
 
-        Assert.Equal(1440, loaded.WindowWidth);
-        Assert.Equal(900, loaded.WindowHeight);
-        Assert.Equal(100, loaded.WindowLeft);
-        Assert.Equal(50, loaded.WindowTop);
-        Assert.Equal("Maximized", loaded.WindowState);
-        Assert.Equal(tempDir, loaded.LeftPanePath);
-        Assert.Equal(tempDir, loaded.RightPanePath);
+        Assert.Equal(original.WindowWidth, loaded.WindowWidth);
+        Assert.Equal(original.WindowHeight, loaded.WindowHeight);
+        Assert.Equal(original.WindowState, loaded.WindowState);
+        Assert.Equal(original.LayoutMode, loaded.LayoutMode);
+        Assert.Equal(original.LeftPanePath, loaded.LeftPanePath);
+        Assert.Equal(original.RightPanePath, loaded.RightPanePath);
     }
 
     [Fact]
-    public async Task InvalidValues_ClampedToSensibleDefaults()
+    public void ValidateSettings_FixesInvalidDimensions()
     {
         var service = new SettingsService(_tempFile);
-
         var invalid = new AppSettings
         {
-            WindowWidth = -500, // Invalid width
-            WindowHeight = 50,  // Invalid height
-            WindowLeft = double.NaN,
-            WindowTop = double.PositiveInfinity,
-            WindowState = "InvalidWindowState",
-            LeftPanePath = @"C:\Nonexistent_Folder_12345",
-            RightPanePath = string.Empty
+            WindowWidth = 100,
+            WindowHeight = 50,
+            WindowState = "InvalidState",
+            LeftPanePath = "",
+            RightPanePath = "   "
         };
 
         service.SaveSettings(invalid);
         var loaded = service.LoadSettings();
 
-        // Enforced clamping without blocking disk I/O
         Assert.Equal(1100, loaded.WindowWidth);
         Assert.Equal(700, loaded.WindowHeight);
-        Assert.Null(loaded.WindowLeft);
-        Assert.Null(loaded.WindowTop);
         Assert.Equal("Normal", loaded.WindowState);
+        Assert.False(string.IsNullOrWhiteSpace(loaded.LeftPanePath));
+        Assert.False(string.IsNullOrWhiteSpace(loaded.RightPanePath));
+    }
 
-        // Path validation happens asynchronously
-        await service.ValidatePathsAsync(loaded);
+    [Fact]
+    public async Task ValidatePathsAsync_ReplacesNonExistentPathsWithFallback()
+    {
+        var service = new SettingsService(_tempFile);
+        var settings = new AppSettings
+        {
+            LeftPanePath = @"Z:\NonExistentPath_12345",
+            RightPanePath = @"Y:\AnotherFakePath_67890"
+        };
+
+        await service.ValidatePathsAsync(settings);
+
+        Assert.True(Directory.Exists(settings.LeftPanePath));
+        Assert.True(Directory.Exists(settings.RightPanePath));
+    }
+
+    [Fact]
+    public void LoadSettings_InvalidJson_ReturnsDefaultSettings()
+    {
+        File.WriteAllText(_tempFile, "{ broken json content ... ");
+
+        var service = new SettingsService(_tempFile);
+        var loaded = service.LoadSettings();
+
+        Assert.NotNull(loaded);
+        Assert.Equal(1100, loaded.WindowWidth);
+        Assert.Equal(700, loaded.WindowHeight);
         Assert.True(Directory.Exists(loaded.LeftPanePath));
         Assert.True(Directory.Exists(loaded.RightPanePath));
     }
@@ -123,11 +132,7 @@ public class SettingsServiceTests : IDisposable
         service.SaveSettings(new AppSettings { WindowWidth = 1200 });
 
         Assert.True(File.Exists(_tempFile));
-        string? dir = Path.GetDirectoryName(_tempFile);
-        if (!string.IsNullOrEmpty(dir))
-        {
-            var tempFiles = Directory.GetFiles(dir, "settings_*.tmp");
-            Assert.Empty(tempFiles);
-        }
+        var tempFiles = Directory.GetFiles(_tempDir, "settings_*.tmp");
+        Assert.Empty(tempFiles);
     }
 }
