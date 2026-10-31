@@ -177,4 +177,57 @@ public class MultiPaneWorkspaceTests
         Assert.Equal(3, _settingsService.Settings.PanePaths.Count);
         Assert.Equal(vm.LayoutMode.ToString(), _settingsService.Settings.LayoutMode);
     }
+
+    [Fact]
+    public void Breadcrumbs_GeneratesExpectedSegments()
+    {
+        var crumbs = FilePaneViewModel.GenerateBreadcrumbs(@"C:\Users\PC\Documents");
+
+        Assert.Equal(4, crumbs.Count);
+        Assert.Equal("C:", crumbs[0].Name);
+        Assert.False(crumbs[0].IsLast);
+
+        Assert.Equal("Users", crumbs[1].Name);
+        Assert.False(crumbs[1].IsLast);
+
+        Assert.Equal("PC", crumbs[2].Name);
+        Assert.False(crumbs[2].IsLast);
+
+        Assert.Equal("Documents", crumbs[3].Name);
+        Assert.True(crumbs[3].IsLast);
+    }
+
+    [Fact]
+    public void ViewModes_SwitchLocallyAndGlobally()
+    {
+        var vm = new MainViewModel(_dirService, _iconService, _settingsService, _fs);
+        var pane = vm.ActivePane;
+
+        Assert.Equal(FilePaneViewMode.Details, pane.ViewMode);
+
+        pane.SetViewMode("Icons");
+        Assert.Equal(FilePaneViewMode.Icons, pane.ViewMode);
+
+        pane.SetViewMode("Preview");
+        Assert.Equal(FilePaneViewMode.Preview, pane.ViewMode);
+
+        // Global switch
+        vm.SetGlobalViewMode("Details");
+        Assert.All(vm.Panes, p => Assert.Equal(FilePaneViewMode.Details, p.ViewMode));
+    }
+
+    [Fact]
+    public void AddressEditing_TogglesState()
+    {
+        var vm = new MainViewModel(_dirService, _iconService, _settingsService, _fs);
+        var pane = vm.ActivePane;
+
+        Assert.False(pane.IsEditingAddress);
+
+        pane.StartEditingAddress();
+        Assert.True(pane.IsEditingAddress);
+
+        pane.StopEditingAddress();
+        Assert.False(pane.IsEditingAddress);
+    }
 }

@@ -65,6 +65,15 @@ public partial class FilePaneView : UserControl
                 {
                     FileListView.SelectedItems.Add(item);
                 }
+
+                if (IconsListView != null)
+                {
+                    IconsListView.SelectedItems.Clear();
+                    foreach (var item in ViewModel.SelectedItems)
+                    {
+                        IconsListView.SelectedItems.Add(item);
+                    }
+                }
             }
             finally
             {
@@ -75,8 +84,15 @@ public partial class FilePaneView : UserControl
 
     public void FocusAddressBar()
     {
-        AddressTextBox.Focus();
-        AddressTextBox.SelectAll();
+        if (ViewModel != null)
+        {
+            ViewModel.IsEditingAddress = true;
+        }
+        Dispatcher.BeginInvoke(() =>
+        {
+            AddressTextBox.Focus();
+            AddressTextBox.SelectAll();
+        });
     }
 
     public void FocusFileList()
@@ -94,6 +110,18 @@ public partial class FilePaneView : UserControl
         if (e.Key == Key.Enter)
         {
             ViewModel?.NavigateCommand.Execute(AddressTextBox.Text);
+            if (ViewModel != null)
+            {
+                ViewModel.IsEditingAddress = false;
+            }
+            e.Handled = true;
+        }
+        else if (e.Key == Key.Escape)
+        {
+            if (ViewModel != null)
+            {
+                ViewModel.IsEditingAddress = false;
+            }
             e.Handled = true;
         }
     }

@@ -1,10 +1,12 @@
 using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
+using System.Windows.Media;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using FM.App.Collections;
 using FM.App.Helpers;
+using FM.App.Models;
 using FM.App.Services;
 using FM.Core.FileSystem;
 using FM.Core.Helpers;
@@ -50,7 +52,59 @@ public partial class FilePaneViewModel : ObservableObject
     partial void OnCurrentPathChanged(string value)
     {
         NewFolderCommand.NotifyCanExecuteChanged();
+        OnPropertyChanged(nameof(CurrentFolderName));
+        OnPropertyChanged(nameof(Breadcrumbs));
     }
+
+    public string CurrentFolderName
+    {
+        get
+        {
+            if (string.IsNullOrWhiteSpace(CurrentPath)) return "Home";
+            try
+            {
+                string trimmed = CurrentPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                string name = Path.GetFileName(trimmed);
+                return string.IsNullOrEmpty(name) ? CurrentPath : name;
+            }
+            catch
+            {
+                return CurrentPath;
+            }
+        }
+    }
+
+    public IReadOnlyList<BreadcrumbItem> Breadcrumbs => GenerateBreadcrumbs(CurrentPath);
+
+    [ObservableProperty]
+    private FilePaneViewMode _viewMode = FilePaneViewMode.Details;
+
+    [RelayCommand]
+    public void SetViewMode(string modeStr)
+    {
+        if (Enum.TryParse<FilePaneViewMode>(modeStr, ignoreCase: true, out var mode))
+        {
+            ViewMode = mode;
+        }
+    }
+
+    [ObservableProperty]
+    private bool _isEditingAddress;
+
+    [RelayCommand]
+    public void StartEditingAddress()
+    {
+        IsEditingAddress = true;
+    }
+
+    [RelayCommand]
+    public void StopEditingAddress()
+    {
+        IsEditingAddress = false;
+    }
+
+    [ObservableProperty]
+    private string _searchText = string.Empty;
 
     [ObservableProperty]
     private string _addressText = string.Empty;
@@ -80,7 +134,22 @@ public partial class FilePaneViewModel : ObservableObject
     partial void OnSelectedItemChanged(FileItemViewModel? value)
     {
         RenameCommand.NotifyCanExecuteChanged();
+        OnPropertyChanged(nameof(SelectedItemName));
+        OnPropertyChanged(nameof(SelectedItemType));
+        OnPropertyChanged(nameof(SelectedItemSize));
+        OnPropertyChanged(nameof(SelectedItemModified));
+        OnPropertyChanged(nameof(SelectedItemPath));
+        OnPropertyChanged(nameof(SelectedItemIcon));
+        OnPropertyChanged(nameof(HasSelectedItem));
     }
+
+    public string SelectedItemName => SelectedItem?.Name ?? "No item selected";
+    public string SelectedItemType => SelectedItem?.DisplayType ?? "";
+    public string SelectedItemSize => SelectedItem?.FormattedSize ?? "";
+    public string SelectedItemModified => SelectedItem?.FormattedModified ?? "";
+    public string SelectedItemPath => SelectedItem?.FullPath ?? "";
+    public ImageSource? SelectedItemIcon => SelectedItem?.Icon;
+    public bool HasSelectedItem => SelectedItem != null;
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(SelectionStatusText))]
@@ -717,5 +786,46 @@ public partial class FilePaneViewModel : ObservableObject
         GoBackCommand.NotifyCanExecuteChanged();
         GoForwardCommand.NotifyCanExecuteChanged();
         GoUpCommand.NotifyCanExecuteChanged();
+    }
+
+    public static List<BreadcrumbItem> GenerateBreadcrumbs(string? path)
+    {
+        var result = new List<BreadcrumbItem>();
+        if (string.IsNullOrWhiteSpace(path)) return result;
+
+        try
+        {
+            string fullPath = Path.GetFullPath(path);
+            var root = Path.GetPathRoot(fullPath);
+            if (string.IsNullOrEmpty(root))
+            {
+                result.Add(new BreadcrumbItem(fullPath, fullPath, true));
+                return result;
+            }
+
+            string rootDisplay = root.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            if (string.IsNullOrEmpty(rootDisplay)) rootDisplay = root;
+            result.Add(new BreadcrumbItem(rootDisplay, root, root.Equals(fullPath, StringComparison.OrdinalIgnoreCase)));
+
+            string relative = fullPath.Substring(root.Length).Trim(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            if (!string.IsNullOrEmpty(relative))
+            {
+                var parts = relative.Split(new[] { Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar }, StringSplitOptions.RemoveEmptyEntries);
+                string accumulated = root;
+                for (int i = 0; i < parts.Length; i++)
+                {
+                    accumulated = Path.Combine(accumulated, parts[i]);
+                    bool isLast = (i == parts.Length - 1);
+                    result.Add(new BreadcrumbItem(parts[i], accumulated, isLast));
+                }
+            }
+        }
+        catch
+        {
+            result.Clear();
+            result.Add(new BreadcrumbItem(path, path, true));
+        }
+
+        return result;
     }
 }

@@ -37,7 +37,30 @@ public partial class MainViewModel : ObservableObject
     public TransferDrawerViewModel TransferDrawer { get; }
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ActiveFolderName))]
     private FilePaneViewModel _activePane;
+
+    public string ActiveFolderName => ActivePane?.CurrentFolderName ?? "MyFileManager";
+
+    [ObservableProperty]
+    private string _searchText = string.Empty;
+
+    partial void OnSearchTextChanged(string value)
+    {
+        if (ActivePane != null)
+        {
+            ActivePane.SearchText = value;
+        }
+    }
+
+    [RelayCommand]
+    public void SetGlobalViewMode(string modeStr)
+    {
+        foreach (var p in Panes)
+        {
+            p.SetViewMode(modeStr);
+        }
+    }
 
     private FilePaneViewModel? _lastActivePane;
 

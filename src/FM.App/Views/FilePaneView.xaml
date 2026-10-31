@@ -4,28 +4,68 @@
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" 
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008" 
              xmlns:vm="clr-namespace:FM.App.ViewModels"
+             xmlns:conv="clr-namespace:FM.App.Converters"
+             xmlns:models="clr-namespace:FM.App.Models"
              mc:Ignorable="d" 
              d:DataContext="{d:DesignInstance Type=vm:FilePaneViewModel}"
-             d:DesignHeight="500" d:DesignWidth="600"
+             d:DesignHeight="600" d:DesignWidth="700"
              Focusable="True"
              PreviewMouseDown="OnPanePreviewMouseDown">
 
     <UserControl.Resources>
         <BooleanToVisibilityConverter x:Key="BoolToVis" />
+        <conv:EqualityToVisibilityConverter x:Key="EqToVis" />
+        <conv:InverseBooleanToVisibilityConverter x:Key="InvBoolToVis" />
+
+        <!-- Crumb button style -->
+        <Style x:Key="CrumbButtonStyle" TargetType="Button">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Padding" Value="3,1" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="FontSize" Value="11" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="bd" Background="{TemplateBinding Background}" CornerRadius="3" Padding="{TemplateBinding Padding}">
+                            <ContentPresenter VerticalAlignment="Center" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="bd" Property="Background" Value="#F3F4F6" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- GridViewColumnHeader Clean Style -->
+        <Style TargetType="GridViewColumnHeader">
+            <Setter Property="Height" Value="26" />
+            <Setter Property="Background" Value="#FAFAFA" />
+            <Setter Property="Foreground" Value="#6B7280" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="FontSize" Value="11" />
+            <Setter Property="Padding" Value="8,2" />
+            <Setter Property="BorderThickness" Value="0,0,0,1" />
+            <Setter Property="BorderBrush" Value="#F3F4F6" />
+        </Style>
     </UserControl.Resources>
 
-    <!-- Outer border displaying active pane accent border for Windows 11 visual feedback -->
+    <!-- Outer card container with active pane accent border and rounded corners -->
     <Border x:Name="PaneBorder"
             Background="#FFFFFF"
-            BorderThickness="2"
-            CornerRadius="4"
+            BorderThickness="1"
+            CornerRadius="8"
+            Margin="2"
             SnapsToDevicePixels="True">
         <Border.Style>
             <Style TargetType="Border">
                 <Setter Property="BorderBrush" Value="#E5E7EB" />
                 <Style.Triggers>
                     <DataTrigger Binding="{Binding IsActive}" Value="True">
-                        <Setter Property="BorderBrush" Value="#0078D4" />
+                        <Setter Property="BorderBrush" Value="#D92662" />
                     </DataTrigger>
                 </Style.Triggers>
             </Style>
@@ -33,143 +73,306 @@
 
         <Grid>
             <Grid.RowDefinitions>
-                <RowDefinition Height="Auto" /> <!-- Navigation and Address Bar -->
-                <RowDefinition Height="Auto" /> <!-- Loading bar -->
-                <RowDefinition Height="Auto" /> <!-- Inline Error Banner -->
-                <RowDefinition Height="*" />    <!-- File List (Virtualized) -->
-                <RowDefinition Height="Auto" /> <!-- Status Footer -->
+                <RowDefinition Height="Auto" /> <!-- Row 0: Tab Bar & Quick Splits -->
+                <RowDefinition Height="Auto" /> <!-- Row 1: Breadcrumb Navigation Trail -->
+                <RowDefinition Height="Auto" /> <!-- Row 2: Progress Indicator -->
+                <RowDefinition Height="Auto" /> <!-- Row 3: Error Banner -->
+                <RowDefinition Height="*" />    <!-- Row 4: Main Content (Details / Icons / Preview) -->
+                <RowDefinition Height="Auto" /> <!-- Row 5: Status Footer -->
             </Grid.RowDefinitions>
 
-            <!-- Navigation Toolbar & Address Bar -->
-            <Grid Grid.Row="0" Margin="4,4,4,2">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="Auto" /> <!-- Back -->
-                    <ColumnDefinition Width="Auto" /> <!-- Forward -->
-                    <ColumnDefinition Width="Auto" /> <!-- Up -->
-                    <ColumnDefinition Width="*" />    <!-- Editable Address Box -->
-                    <ColumnDefinition Width="Auto" /> <!-- Go Button -->
-                    <ColumnDefinition Width="Auto" /> <!-- Refresh Button -->
-                    <ColumnDefinition Width="Auto" /> <!-- New Folder Button -->
-                    <ColumnDefinition Width="Auto" /> <!-- Rename Button -->
-                    <ColumnDefinition Width="Auto" /> <!-- Undo Button -->
-                    <ColumnDefinition Width="Auto" /> <!-- Copy to Other Pane Button -->
-                    <ColumnDefinition Width="Auto" /> <!-- Move to Other Pane Button -->
-                    <ColumnDefinition Width="Auto" /> <!-- Split Vertical Button -->
-                    <ColumnDefinition Width="Auto" /> <!-- Split Horizontal Button -->
-                    <ColumnDefinition Width="Auto" /> <!-- Close Pane Button -->
-                </Grid.ColumnDefinitions>
+            <!-- Row 0: Tab Header Bar -->
+            <Border Grid.Row="0"
+                    Background="#FAFAFA"
+                    BorderBrush="#F3F4F6"
+                    BorderThickness="0,0,0,1"
+                    CornerRadius="8,8,0,0"
+                    Padding="8,4">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" /> <!-- Tab Capsule -->
+                        <ColumnDefinition Width="*" />    <!-- Spacer -->
+                        <ColumnDefinition Width="Auto" /> <!-- View Modes & Splits -->
+                    </Grid.ColumnDefinitions>
 
-                <Button Grid.Column="0"
-                        Command="{Binding GoBackCommand}"
-                        ToolTip="Back (Alt+Left)"
-                        Width="28" Height="26" Margin="1"
-                        Content="◄" FontSize="11" />
+                    <!-- Tab Capsule for Current Folder -->
+                    <Border Grid.Column="0"
+                            Background="#FFFFFF"
+                            BorderBrush="#E5E7EB"
+                            BorderThickness="1"
+                            CornerRadius="5"
+                            Padding="8,3">
+                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                            <!-- Rose folder icon -->
+                            <TextBlock Text="📁" FontSize="11" Foreground="#D92662" VerticalAlignment="Center" Margin="0,0,6,0" />
+                            <TextBlock Text="{Binding CurrentFolderName}"
+                                       FontWeight="SemiBold"
+                                       FontSize="11"
+                                       Foreground="#1F2937"
+                                       VerticalAlignment="Center"
+                                       MaxWidth="160"
+                                       TextTrimming="CharacterEllipsis" />
+                            <!-- Close tab / close pane button -->
+                            <Button Command="{Binding DataContext.ClosePaneCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                    CommandParameter="{Binding}"
+                                    ToolTip="Close Pane"
+                                    Width="16" Height="16"
+                                    Margin="6,0,0,0"
+                                    Background="Transparent"
+                                    BorderThickness="0"
+                                    Content="✕" FontSize="9"
+                                    Foreground="#9CA3AF"
+                                    Cursor="Hand"
+                                    Visibility="{Binding DataContext.CanClosePanes, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource BoolToVis}}" />
+                        </StackPanel>
+                    </Border>
 
-                <Button Grid.Column="1"
-                        Command="{Binding GoForwardCommand}"
-                        ToolTip="Forward (Alt+Right)"
-                        Width="28" Height="26" Margin="1"
-                        Content="►" FontSize="11" />
+                    <!-- Right Controls: View Modes & Pane Splitters -->
+                    <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
+                        <!-- View Modes Segmented Control -->
+                        <Border Background="#F3F4F6"
+                                BorderBrush="#E5E7EB"
+                                BorderThickness="1"
+                                CornerRadius="5"
+                                Padding="1"
+                                Margin="0,0,6,0">
+                            <StackPanel Orientation="Horizontal">
+                                <Button Command="{Binding SetViewModeCommand}" CommandParameter="Details"
+                                        ToolTip="Details List View"
+                                        Style="{StaticResource SubtleToolButton}"
+                                        Height="20" Width="22" Padding="0"
+                                        Content="≡" FontSize="11" />
+                                <Button Command="{Binding SetViewModeCommand}" CommandParameter="Icons"
+                                        ToolTip="Icons / Grid View"
+                                        Style="{StaticResource SubtleToolButton}"
+                                        Height="20" Width="22" Padding="0"
+                                        Content="⊞" FontSize="10" />
+                                <Button Command="{Binding SetViewModeCommand}" CommandParameter="Preview"
+                                        ToolTip="Preview / Inspector View"
+                                        Style="{StaticResource SubtleToolButton}"
+                                        Height="20" Width="22" Padding="0"
+                                        Content="▯" FontSize="10" />
+                            </StackPanel>
+                        </Border>
 
-                <Button Grid.Column="2"
-                        Command="{Binding GoUpCommand}"
-                        ToolTip="Up to Parent (Backspace)"
-                        Width="28" Height="26" Margin="1"
-                        Content="▲" FontSize="11" />
+                        <!-- Split & Close Actions -->
+                        <Button Command="{Binding DataContext.SplitVerticalCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                CommandParameter="{Binding}"
+                                ToolTip="Split Right (+)"
+                                Style="{StaticResource SubtleToolButton}"
+                                Height="22" Width="22" Margin="1"
+                                Content="+" FontSize="13" FontWeight="Bold" />
 
-                <!-- Address Bar (Press Enter to Navigate) -->
-                <TextBox x:Name="AddressTextBox"
-                         Grid.Column="3"
-                         Margin="3,1"
-                         Height="26"
-                         VerticalContentAlignment="Center"
-                         Padding="4,0"
-                         Text="{Binding AddressText, UpdateSourceTrigger=PropertyChanged}"
-                         KeyDown="OnAddressTextBoxKeyDown" />
+                        <Button Command="{Binding DataContext.SplitVerticalCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                CommandParameter="{Binding}"
+                                ToolTip="Split Vertical (◫)"
+                                Style="{StaticResource SubtleToolButton}"
+                                Height="22" Width="22" Margin="1"
+                                Content="◫" FontSize="11" />
 
-                <Button Grid.Column="4"
-                        Command="{Binding NavigateCommand}"
-                        CommandParameter="{Binding AddressText}"
-                        ToolTip="Go"
-                        Width="28" Height="26" Margin="1"
-                        Content="➔" FontSize="12" />
+                        <Button Command="{Binding DataContext.SplitHorizontalCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                CommandParameter="{Binding}"
+                                ToolTip="Split Horizontal (⬒)"
+                                Style="{StaticResource SubtleToolButton}"
+                                Height="22" Width="22" Margin="1"
+                                Content="⬒" FontSize="11" />
 
-                <Button Grid.Column="5"
-                        Command="{Binding RefreshCommand}"
-                        ToolTip="Refresh (F5)"
-                        Width="28" Height="26" Margin="1"
-                        Content="↻" FontSize="13" />
+                        <Button Command="{Binding DataContext.ClosePaneCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                CommandParameter="{Binding}"
+                                ToolTip="Close Pane"
+                                Style="{StaticResource SubtleToolButton}"
+                                Height="22" Width="22" Margin="1"
+                                Content="✕" FontSize="10" Foreground="#DC2626"
+                                Visibility="{Binding DataContext.CanClosePanes, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource BoolToVis}}" />
+                    </StackPanel>
+                </Grid>
+            </Border>
 
-                <Button Grid.Column="6"
-                        Command="{Binding NewFolderCommand}"
-                        ToolTip="New Folder (Ctrl+Shift+N)"
-                        Width="28" Height="26" Margin="1"
-                        Content="📁+" FontSize="10" />
+            <!-- Row 1: Breadcrumb Path Bar & Pane Actions -->
+            <Border Grid.Row="1"
+                    Background="#FFFFFF"
+                    BorderBrush="#F3F4F6"
+                    BorderThickness="0,0,0,1"
+                    Padding="8,3">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" /> <!-- Navigation Buttons (Back/Forward/Up) -->
+                        <ColumnDefinition Width="*" />    <!-- Breadcrumb or Editable Address -->
+                        <ColumnDefinition Width="Auto" /> <!-- Pane Action Buttons -->
+                    </Grid.ColumnDefinitions>
 
-                <Button Grid.Column="7"
-                        Command="{Binding RenameCommand}"
-                        ToolTip="Rename (F2)"
-                        Width="28" Height="26" Margin="1"
-                        Content="✎" FontSize="11" />
+                    <!-- Nav Buttons -->
+                    <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,6,0">
+                        <Button Command="{Binding GoBackCommand}"
+                                ToolTip="Back (Alt+Left)"
+                                Style="{StaticResource SubtleToolButton}"
+                                Width="22" Height="22" Margin="1"
+                                Content="‹" FontSize="13" FontWeight="Bold" />
+                        <Button Command="{Binding GoForwardCommand}"
+                                ToolTip="Forward (Alt+Right)"
+                                Style="{StaticResource SubtleToolButton}"
+                                Width="22" Height="22" Margin="1"
+                                Content="›" FontSize="13" FontWeight="Bold" />
+                        <Button Command="{Binding GoUpCommand}"
+                                ToolTip="Up to Parent (Backspace)"
+                                Style="{StaticResource SubtleToolButton}"
+                                Width="22" Height="22" Margin="1"
+                                Content="▲" FontSize="9" />
+                    </StackPanel>
 
-                <Button Grid.Column="8"
-                        Command="{Binding UndoCommand}"
-                        ToolTip="Undo (Ctrl+Z)"
-                        Width="28" Height="26" Margin="1"
-                        Content="↶" FontSize="12" />
+                    <!-- Middle: Clickable Breadcrumbs when NOT editing -->
+                    <ScrollViewer Grid.Column="1"
+                                  HorizontalScrollBarVisibility="Hidden"
+                                  VerticalScrollBarVisibility="Disabled"
+                                  VerticalAlignment="Center"
+                                  Visibility="{Binding IsEditingAddress, Converter={StaticResource InvBoolToVis}}">
+                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                            <!-- Drive / Root icon -->
+                            <TextBlock Text="📁" FontSize="11" Foreground="#9CA3AF" VerticalAlignment="Center" Margin="0,0,4,0" />
 
-                <Button Grid.Column="9"
-                        Command="{Binding DataContext.CopyToOtherPaneCommand, RelativeSource={RelativeSource AncestorType=Window}}"
-                        ToolTip="Copy to other pane (Ctrl+Shift+C)"
-                        Width="32" Height="26" Margin="1"
-                        Content="📋➔" FontSize="10" />
+                            <!-- Breadcrumb segments list -->
+                            <ItemsControl ItemsSource="{Binding Breadcrumbs}">
+                                <ItemsControl.ItemsPanel>
+                                    <ItemsPanelTemplate>
+                                        <StackPanel Orientation="Horizontal" />
+                                    </ItemsPanelTemplate>
+                                </ItemsControl.ItemsPanel>
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate DataType="{x:Type models:BreadcrumbItem}">
+                                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                            <Button Command="{Binding DataContext.NavigateCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                    CommandParameter="{Binding FullPath}"
+                                                    ToolTip="{Binding FullPath}"
+                                                    Style="{StaticResource CrumbButtonStyle}">
+                                                <TextBlock Text="{Binding Name}">
+                                                    <TextBlock.Style>
+                                                        <Style TargetType="TextBlock">
+                                                            <Setter Property="Foreground" Value="#374151" />
+                                                            <Style.Triggers>
+                                                                <DataTrigger Binding="{Binding IsLast}" Value="True">
+                                                                    <Setter Property="Foreground" Value="#D92662" />
+                                                                    <Setter Property="FontWeight" Value="SemiBold" />
+                                                                </DataTrigger>
+                                                            </Style.Triggers>
+                                                        </Style>
+                                                    </TextBlock.Style>
+                                                </TextBlock>
+                                            </Button>
 
-                <Button Grid.Column="10"
-                        Command="{Binding DataContext.MoveToOtherPaneCommand, RelativeSource={RelativeSource AncestorType=Window}}"
-                        ToolTip="Move to other pane (Ctrl+Shift+M)"
-                        Width="32" Height="26" Margin="1"
-                        Content="✂➔" FontSize="10" />
+                                            <!-- Chevron separator (hidden for the last item) -->
+                                            <TextBlock Text="›"
+                                                       FontSize="12"
+                                                       Foreground="#9CA3AF"
+                                                       Margin="2,0"
+                                                       VerticalAlignment="Center"
+                                                       Visibility="{Binding IsLast, Converter={StaticResource InvBoolToVis}}" />
+                                        </StackPanel>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
 
-                <Button Grid.Column="11"
-                        Command="{Binding DataContext.SplitVerticalCommand, RelativeSource={RelativeSource AncestorType=Window}}"
-                        CommandParameter="{Binding}"
-                        ToolTip="Split Pane Right (Vertical)"
-                        Width="28" Height="26" Margin="2,1,1,1"
-                        Content="◫" FontSize="12" />
+                            <!-- Edit Pencil Button to switch to Address bar -->
+                            <Button Command="{Binding StartEditingAddressCommand}"
+                                    ToolTip="Edit Path"
+                                    Style="{StaticResource SubtleToolButton}"
+                                    Width="20" Height="20" Margin="4,0,0,0"
+                                    Content="✎" FontSize="9" Foreground="#9CA3AF" />
+                        </StackPanel>
+                    </ScrollViewer>
 
-                <Button Grid.Column="12"
-                        Command="{Binding DataContext.SplitHorizontalCommand, RelativeSource={RelativeSource AncestorType=Window}}"
-                        CommandParameter="{Binding}"
-                        ToolTip="Split Pane Down (Horizontal)"
-                        Width="28" Height="26" Margin="1"
-                        Content="⬒" FontSize="12" />
+                    <!-- Middle: Editable Address Box when editing -->
+                    <Grid Grid.Column="1"
+                          VerticalAlignment="Center"
+                          Visibility="{Binding IsEditingAddress, Converter={StaticResource BoolToVis}}">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
 
-                <Button Grid.Column="13"
-                        Command="{Binding DataContext.ClosePaneCommand, RelativeSource={RelativeSource AncestorType=Window}}"
-                        CommandParameter="{Binding}"
-                        ToolTip="Close this pane"
-                        Width="26" Height="26" Margin="1"
-                        Content="✕" FontSize="11" Foreground="#DC2626"
-                        Visibility="{Binding DataContext.CanClosePanes, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource BoolToVis}}" />
-            </Grid>
+                        <TextBox x:Name="AddressTextBox"
+                                 Grid.Column="0"
+                                 Height="24"
+                                 VerticalContentAlignment="Center"
+                                 Padding="4,0"
+                                 FontSize="11"
+                                 Text="{Binding AddressText, UpdateSourceTrigger=PropertyChanged}"
+                                 KeyDown="OnAddressTextBoxKeyDown" />
 
-            <!-- Progress Indicator -->
-            <ProgressBar Grid.Row="1"
+                        <Button Grid.Column="1"
+                                Command="{Binding NavigateCommand}"
+                                CommandParameter="{Binding AddressText}"
+                                ToolTip="Go (Enter)"
+                                Style="{StaticResource SubtleToolButton}"
+                                Width="24" Height="24" Margin="2,0,0,0"
+                                Content="➔" FontSize="11" />
+
+                        <Button Grid.Column="2"
+                                Command="{Binding StopEditingAddressCommand}"
+                                ToolTip="Cancel (Esc)"
+                                Style="{StaticResource SubtleToolButton}"
+                                Width="24" Height="24" Margin="2,0,0,0"
+                                Content="✕" FontSize="10" Foreground="#6B7280" />
+                    </Grid>
+
+                    <!-- Right Action Buttons -->
+                    <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
+                        <Button Command="{Binding RefreshCommand}"
+                                ToolTip="Refresh (F5)"
+                                Style="{StaticResource SubtleToolButton}"
+                                Width="24" Height="22" Margin="1"
+                                Content="↻" FontSize="12" />
+
+                        <Button Command="{Binding NewFolderCommand}"
+                                ToolTip="New Folder (Ctrl+Shift+N)"
+                                Style="{StaticResource SubtleToolButton}"
+                                Width="26" Height="22" Margin="1"
+                                Content="📁+" FontSize="10" />
+
+                        <Button Command="{Binding RenameCommand}"
+                                ToolTip="Rename (F2)"
+                                Style="{StaticResource SubtleToolButton}"
+                                Width="24" Height="22" Margin="1"
+                                Content="✎" FontSize="10" />
+
+                        <Button Command="{Binding UndoCommand}"
+                                ToolTip="Undo (Ctrl+Z)"
+                                Style="{StaticResource SubtleToolButton}"
+                                Width="24" Height="22" Margin="1"
+                                Content="↶" FontSize="11" />
+
+                        <Button Command="{Binding DataContext.CopyToOtherPaneCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                ToolTip="Copy to other pane (Ctrl+Shift+C)"
+                                Style="{StaticResource SubtleToolButton}"
+                                Height="22" Padding="4,0" Margin="1"
+                                Content="📋➔" FontSize="10" />
+
+                        <Button Command="{Binding DataContext.MoveToOtherPaneCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                ToolTip="Move to other pane (Ctrl+Shift+M)"
+                                Style="{StaticResource SubtleToolButton}"
+                                Height="22" Padding="4,0" Margin="1"
+                                Content="✂➔" FontSize="10" />
+                    </StackPanel>
+                </Grid>
+            </Border>
+
+            <!-- Row 2: Progress Indicator -->
+            <ProgressBar Grid.Row="2"
                          Height="2"
                          BorderThickness="0"
                          IsIndeterminate="True"
                          Visibility="{Binding IsLoading, Converter={StaticResource BoolToVis}}"
-                         Foreground="#0078D4"
+                         Foreground="#D92662"
                          Background="Transparent" />
 
-            <!-- Inline Error Banner -->
-            <Border Grid.Row="2"
+            <!-- Row 3: Inline Error Banner -->
+            <Border Grid.Row="3"
                     Margin="4,2"
                     Padding="8,4"
                     Background="#FEF2F2"
                     BorderBrush="#F87171"
                     BorderThickness="1"
-                    CornerRadius="3"
+                    CornerRadius="4"
                     Visibility="{Binding HasError, Converter={StaticResource BoolToVis}}">
                 <Grid>
                     <Grid.ColumnDefinitions>
@@ -180,6 +383,7 @@
                                ToolTip="{Binding ErrorMessage}"
                                Foreground="#B91C1C"
                                VerticalAlignment="Center"
+                               FontSize="11"
                                TextTrimming="CharacterEllipsis" />
                     <Button Grid.Column="1"
                             Command="{Binding DismissErrorCommand}"
@@ -193,119 +397,379 @@
                 </Grid>
             </Border>
 
-            <!-- File List: UI Virtualization Enabled. Do NOT wrap inside a ScrollViewer! -->
-            <ListView x:Name="FileListView"
-                      Grid.Row="3"
-                      Margin="2"
-                      ItemsSource="{Binding Items}"
-                      SelectionMode="Extended"
-                      AllowDrop="True"
-                      SelectionChanged="OnFileListViewSelectionChanged"
-                      VirtualizingPanel.IsVirtualizing="True"
-                      VirtualizingPanel.VirtualizationMode="Recycling"
-                      ScrollViewer.CanContentScroll="True"
-                      ScrollViewer.HorizontalScrollBarVisibility="Auto"
-                      ScrollViewer.VerticalScrollBarVisibility="Auto"
-                      GridViewColumnHeader.Click="OnGridViewColumnHeaderClicked"
-                      PreviewMouseLeftButtonDown="OnFileListViewPreviewMouseLeftButtonDown"
-                      PreviewMouseLeftButtonUp="OnFileListViewPreviewMouseLeftButtonUp"
-                      MouseMove="OnFileListViewMouseMove"
-                      DragEnter="OnFileListViewDragEnter"
-                      DragOver="OnFileListViewDragOver"
-                      DragLeave="OnFileListViewDragLeave"
-                      Drop="OnFileListViewDrop"
-                      MouseDoubleClick="OnFileListViewMouseDoubleClick"
-                      KeyDown="OnFileListViewKeyDown">
-                <ListView.ItemContainerStyle>
-                    <Style TargetType="ListViewItem">
-                        <Setter Property="Opacity" Value="{Binding Opacity}" />
-                        <Setter Property="HorizontalContentAlignment" Value="Stretch" />
-                    </Style>
-                </ListView.ItemContainerStyle>
-                <ListView.View>
-                    <GridView>
-                        <!-- Name Column with Icon -->
-                        <GridViewColumn Width="260">
-                            <GridViewColumn.Header>
-                                <GridViewColumnHeader Content="Name" Tag="Name" />
-                            </GridViewColumn.Header>
-                            <GridViewColumn.CellTemplate>
-                                <DataTemplate>
-                                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                                        <Image Width="16" Height="16"
-                                               Margin="0,0,6,0"
-                                               Source="{Binding Icon}"
-                                               RenderOptions.BitmapScalingMode="HighQuality" />
-                                        <TextBlock Text="{Binding Name}"
+            <!-- Row 4: Main Content Area (Mode 1: Details View, Mode 2: Icons View, Mode 3: Preview Inspector) -->
+            <Grid Grid.Row="4" Margin="2">
+
+                <!-- Mode 1: Detailed List View (Virtualized ListView) -->
+                <ListView x:Name="FileListView"
+                          ItemsSource="{Binding Items}"
+                          SelectionMode="Extended"
+                          AllowDrop="True"
+                          SelectionChanged="OnFileListViewSelectionChanged"
+                          VirtualizingPanel.IsVirtualizing="True"
+                          VirtualizingPanel.VirtualizationMode="Recycling"
+                          ScrollViewer.CanContentScroll="True"
+                          ScrollViewer.HorizontalScrollBarVisibility="Auto"
+                          ScrollViewer.VerticalScrollBarVisibility="Auto"
+                          GridViewColumnHeader.Click="OnGridViewColumnHeaderClicked"
+                          PreviewMouseLeftButtonDown="OnFileListViewPreviewMouseLeftButtonDown"
+                          PreviewMouseLeftButtonUp="OnFileListViewPreviewMouseLeftButtonUp"
+                          MouseMove="OnFileListViewMouseMove"
+                          DragEnter="OnFileListViewDragEnter"
+                          DragOver="OnFileListViewDragOver"
+                          DragLeave="OnFileListViewDragLeave"
+                          Drop="OnFileListViewDrop"
+                          MouseDoubleClick="OnFileListViewMouseDoubleClick"
+                          KeyDown="OnFileListViewKeyDown"
+                          BorderThickness="0"
+                          Visibility="{Binding ViewMode, Converter={StaticResource EqToVis}, ConverterParameter=Details}">
+                    <ListView.ItemContainerStyle>
+                        <Style TargetType="ListViewItem">
+                            <Setter Property="Opacity" Value="{Binding Opacity}" />
+                            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                            <Setter Property="Padding" Value="6,3" />
+                            <Setter Property="Margin" Value="0,1" />
+                            <Setter Property="Template">
+                                <Setter.Value>
+                                    <ControlTemplate TargetType="ListViewItem">
+                                        <Border x:Name="ItemBorder"
+                                                Background="Transparent"
+                                                BorderThickness="1"
+                                                BorderBrush="Transparent"
+                                                CornerRadius="4"
+                                                Padding="{TemplateBinding Padding}">
+                                            <GridViewRowPresenter VerticalAlignment="Center" />
+                                        </Border>
+                                        <ControlTemplate.Triggers>
+                                            <Trigger Property="IsMouseOver" Value="True">
+                                                <Setter TargetName="ItemBorder" Property="Background" Value="#F8FAFC" />
+                                                <Setter TargetName="ItemBorder" Property="BorderBrush" Value="#F1F5F9" />
+                                            </Trigger>
+                                            <Trigger Property="IsSelected" Value="True">
+                                                <Setter TargetName="ItemBorder" Property="Background" Value="#FDF2F4" />
+                                                <Setter TargetName="ItemBorder" Property="BorderBrush" Value="#FECDD3" />
+                                            </Trigger>
+                                        </ControlTemplate.Triggers>
+                                    </ControlTemplate>
+                                </Setter.Value>
+                            </Setter>
+                        </Style>
+                    </ListView.ItemContainerStyle>
+                    <ListView.View>
+                        <GridView>
+                            <!-- Name Column with Shell Icon -->
+                            <GridViewColumn Width="260">
+                                <GridViewColumn.Header>
+                                    <GridViewColumnHeader Content="Name" Tag="Name" />
+                                </GridViewColumn.Header>
+                                <GridViewColumn.CellTemplate>
+                                    <DataTemplate DataType="{x:Type vm:FileItemViewModel}">
+                                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                            <Image Width="16" Height="16"
+                                                   Margin="0,0,6,0"
+                                                   Source="{Binding Icon}"
+                                                   RenderOptions.BitmapScalingMode="HighQuality" />
+                                            <TextBlock Text="{Binding Name}"
+                                                       VerticalAlignment="Center"
+                                                       TextTrimming="CharacterEllipsis" />
+                                        </StackPanel>
+                                    </DataTemplate>
+                                </GridViewColumn.CellTemplate>
+                            </GridViewColumn>
+
+                            <!-- Modified Column -->
+                            <GridViewColumn Width="130">
+                                <GridViewColumn.Header>
+                                    <GridViewColumnHeader Content="Date Modified" Tag="Modified" />
+                                </GridViewColumn.Header>
+                                <GridViewColumn.CellTemplate>
+                                    <DataTemplate DataType="{x:Type vm:FileItemViewModel}">
+                                        <TextBlock Text="{Binding FormattedModified}"
                                                    VerticalAlignment="Center"
-                                                   TextTrimming="CharacterEllipsis" />
+                                                   Foreground="#6B7280" />
+                                    </DataTemplate>
+                                </GridViewColumn.CellTemplate>
+                            </GridViewColumn>
+
+                            <!-- Size Column -->
+                            <GridViewColumn Width="90">
+                                <GridViewColumn.Header>
+                                    <GridViewColumnHeader Content="Size" Tag="Size" />
+                                </GridViewColumn.Header>
+                                <GridViewColumn.CellTemplate>
+                                    <DataTemplate DataType="{x:Type vm:FileItemViewModel}">
+                                        <TextBlock Text="{Binding FormattedSize}"
+                                                   HorizontalAlignment="Right"
+                                                   VerticalAlignment="Center"
+                                                   Foreground="#6B7280" />
+                                    </DataTemplate>
+                                </GridViewColumn.CellTemplate>
+                            </GridViewColumn>
+
+                            <!-- Type Column -->
+                            <GridViewColumn Width="120">
+                                <GridViewColumn.Header>
+                                    <GridViewColumnHeader Content="Kind" Tag="Type" />
+                                </GridViewColumn.Header>
+                                <GridViewColumn.CellTemplate>
+                                    <DataTemplate DataType="{x:Type vm:FileItemViewModel}">
+                                        <TextBlock Text="{Binding DisplayType}"
+                                                   VerticalAlignment="Center"
+                                                   Foreground="#9CA3AF" />
+                                    </DataTemplate>
+                                </GridViewColumn.CellTemplate>
+                            </GridViewColumn>
+                        </GridView>
+                    </ListView.View>
+                </ListView>
+
+                <!-- Mode 2: Icons / Grid View (matching bottom-right pane in reference) -->
+                <ListView x:Name="IconsListView"
+                          ItemsSource="{Binding Items}"
+                          SelectionMode="Extended"
+                          AllowDrop="True"
+                          BorderThickness="0"
+                          ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                          ScrollViewer.VerticalScrollBarVisibility="Auto"
+                          MouseDoubleClick="OnFileListViewMouseDoubleClick"
+                          KeyDown="OnFileListViewKeyDown"
+                          SelectionChanged="OnFileListViewSelectionChanged"
+                          PreviewMouseLeftButtonDown="OnFileListViewPreviewMouseLeftButtonDown"
+                          PreviewMouseLeftButtonUp="OnFileListViewPreviewMouseLeftButtonUp"
+                          MouseMove="OnFileListViewMouseMove"
+                          DragEnter="OnFileListViewDragEnter"
+                          DragOver="OnFileListViewDragOver"
+                          DragLeave="OnFileListViewDragLeave"
+                          Drop="OnFileListViewDrop"
+                          Visibility="{Binding ViewMode, Converter={StaticResource EqToVis}, ConverterParameter=Icons}">
+                    <ListView.ItemsPanel>
+                        <ItemsPanelTemplate>
+                            <WrapPanel Orientation="Horizontal" />
+                        </ItemsPanelTemplate>
+                    </ListView.ItemsPanel>
+                    <ListView.ItemContainerStyle>
+                        <Style TargetType="ListViewItem">
+                            <Setter Property="Width" Value="86" />
+                            <Setter Property="Height" Value="92" />
+                            <Setter Property="Margin" Value="4" />
+                            <Setter Property="Padding" Value="4" />
+                            <Setter Property="Cursor" Value="Hand" />
+                            <Setter Property="Opacity" Value="{Binding Opacity}" />
+                            <Setter Property="Template">
+                                <Setter.Value>
+                                    <ControlTemplate TargetType="ListViewItem">
+                                        <Border x:Name="bd"
+                                                Background="Transparent"
+                                                BorderThickness="1"
+                                                BorderBrush="Transparent"
+                                                CornerRadius="6"
+                                                Padding="4">
+                                            <ContentPresenter />
+                                        </Border>
+                                        <ControlTemplate.Triggers>
+                                            <Trigger Property="IsMouseOver" Value="True">
+                                                <Setter TargetName="bd" Property="Background" Value="#F3F4F6" />
+                                                <Setter TargetName="bd" Property="BorderBrush" Value="#E5E7EB" />
+                                            </Trigger>
+                                            <Trigger Property="IsSelected" Value="True">
+                                                <Setter TargetName="bd" Property="Background" Value="#FDF2F4" />
+                                                <Setter TargetName="bd" Property="BorderBrush" Value="#FECDD3" />
+                                            </Trigger>
+                                        </ControlTemplate.Triggers>
+                                    </ControlTemplate>
+                                </Setter.Value>
+                            </Setter>
+                        </Style>
+                    </ListView.ItemContainerStyle>
+                    <ListView.ItemTemplate>
+                        <DataTemplate DataType="{x:Type vm:FileItemViewModel}">
+                            <Grid HorizontalAlignment="Center">
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="56" />
+                                    <RowDefinition Height="*" />
+                                </Grid.RowDefinitions>
+                                <Image Grid.Row="0"
+                                       Width="48" Height="48"
+                                       Source="{Binding Icon}"
+                                       HorizontalAlignment="Center"
+                                       VerticalAlignment="Center"
+                                       RenderOptions.BitmapScalingMode="HighQuality" />
+                                <TextBlock Grid.Row="1"
+                                           Text="{Binding Name}"
+                                           FontSize="10"
+                                           HorizontalAlignment="Center"
+                                           TextAlignment="Center"
+                                           TextTrimming="CharacterEllipsis"
+                                           Foreground="#1F2937"
+                                           MaxWidth="78"
+                                           Margin="0,2,0,0" />
+                            </Grid>
+                        </DataTemplate>
+                    </ListView.ItemTemplate>
+                </ListView>
+
+                <!-- Mode 3: Preview Inspector View (matching top-left pane in reference) -->
+                <Grid Visibility="{Binding ViewMode, Converter={StaticResource EqToVis}, ConverterParameter=Preview}">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />    <!-- Large Preview Area & Filmstrip -->
+                        <ColumnDefinition Width="220" />  <!-- Information Sidebar Card -->
+                    </Grid.ColumnDefinitions>
+
+                    <!-- Left: Large Preview + Carousel Filmstrip -->
+                    <Grid Grid.Column="0" Margin="4">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="*" />    <!-- Large Preview Hero Box -->
+                            <RowDefinition Height="Auto" /> <!-- Selected File Title -->
+                            <RowDefinition Height="74" />   <!-- Filmstrip Carousel -->
+                        </Grid.RowDefinitions>
+
+                        <!-- Large Preview Hero Box -->
+                        <Border Grid.Row="0"
+                                Background="#F9FAFB"
+                                BorderBrush="#E5E7EB"
+                                BorderThickness="1"
+                                CornerRadius="8"
+                                Margin="4">
+                            <Grid HorizontalAlignment="Center" VerticalAlignment="Center">
+                                <Image Width="180" Height="180"
+                                       Source="{Binding SelectedItemIcon}"
+                                       RenderOptions.BitmapScalingMode="HighQuality" />
+                            </Grid>
+                        </Border>
+
+                        <!-- Selected File Title -->
+                        <TextBlock Grid.Row="1"
+                                   Text="{Binding SelectedItemName}"
+                                   FontWeight="SemiBold"
+                                   FontSize="12"
+                                   HorizontalAlignment="Center"
+                                   Margin="0,2,0,4"
+                                   Foreground="#1F2937" />
+
+                        <!-- Filmstrip Carousel of files in folder -->
+                        <ListView Grid.Row="2"
+                                  ItemsSource="{Binding Items}"
+                                  SelectedItem="{Binding SelectedItem, Mode=TwoWay}"
+                                  BorderThickness="0"
+                                  ScrollViewer.VerticalScrollBarVisibility="Disabled"
+                                  ScrollViewer.HorizontalScrollBarVisibility="Auto">
+                            <ListView.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <StackPanel Orientation="Horizontal" />
+                                </ItemsPanelTemplate>
+                            </ListView.ItemsPanel>
+                            <ListView.ItemTemplate>
+                                <DataTemplate DataType="{x:Type vm:FileItemViewModel}">
+                                    <Border Width="60" Height="60"
+                                            Background="#FFFFFF"
+                                            BorderBrush="#E5E7EB"
+                                            BorderThickness="1"
+                                            CornerRadius="4"
+                                            Margin="2"
+                                            Padding="4">
+                                        <Grid>
+                                            <Image Width="36" Height="36"
+                                                   Source="{Binding Icon}"
+                                                   HorizontalAlignment="Center"
+                                                   VerticalAlignment="Center"
+                                                   RenderOptions.BitmapScalingMode="HighQuality" />
+                                        </Grid>
+                                    </Border>
+                                </DataTemplate>
+                            </ListView.ItemTemplate>
+                        </ListView>
+                    </Grid>
+
+                    <!-- Right: Information Sidebar Card (exact match to top-left pane) -->
+                    <Border Grid.Column="1"
+                            Background="#FAFAFA"
+                            BorderBrush="#F3F4F6"
+                            BorderThickness="1,0,0,0"
+                            Padding="12,10">
+                        <ScrollViewer VerticalScrollBarVisibility="Auto">
+                            <StackPanel>
+                                <Grid Margin="0,0,0,12">
+                                    <TextBlock Text="Information" FontWeight="SemiBold" FontSize="13" Foreground="#111827" />
+                                    <TextBlock Text="Show More" FontSize="10" Foreground="#2563EB" HorizontalAlignment="Right" Cursor="Hand" />
+                                </Grid>
+
+                                <!-- File Icon + Header -->
+                                <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
+                                    <Image Width="32" Height="32"
+                                           Source="{Binding SelectedItemIcon}"
+                                           Margin="0,0,8,0"
+                                           RenderOptions.BitmapScalingMode="HighQuality" />
+                                    <StackPanel VerticalAlignment="Center">
+                                        <TextBlock Text="{Binding SelectedItemName}" FontWeight="SemiBold" FontSize="12" TextTrimming="CharacterEllipsis" MaxWidth="150" Foreground="#111827" />
+                                        <TextBlock Text="{Binding SelectedItemType}" FontSize="10" Foreground="#6B7280" />
+                                        <TextBlock Text="{Binding SelectedItemSize}" FontSize="10" Foreground="#6B7280" />
                                     </StackPanel>
-                                </DataTemplate>
-                            </GridViewColumn.CellTemplate>
-                        </GridViewColumn>
+                                </StackPanel>
 
-                        <!-- Size Column -->
-                        <GridViewColumn Width="90">
-                            <GridViewColumn.Header>
-                                <GridViewColumnHeader Content="Size" Tag="Size" />
-                            </GridViewColumn.Header>
-                            <GridViewColumn.CellTemplate>
-                                <DataTemplate>
-                                    <TextBlock Text="{Binding FormattedSize}"
-                                               HorizontalAlignment="Right"
-                                               VerticalAlignment="Center"
-                                               Foreground="#4B5563" />
-                                </DataTemplate>
-                            </GridViewColumn.CellTemplate>
-                        </GridViewColumn>
+                                <Separator Background="#E5E7EB" Margin="0,4,0,8" />
 
-                        <!-- Modified Column -->
-                        <GridViewColumn Width="140">
-                            <GridViewColumn.Header>
-                                <GridViewColumnHeader Content="Modified" Tag="Modified" />
-                            </GridViewColumn.Header>
-                            <GridViewColumn.CellTemplate>
-                                <DataTemplate>
-                                    <TextBlock Text="{Binding FormattedModified}"
-                                               VerticalAlignment="Center"
-                                               Foreground="#4B5563" />
-                                </DataTemplate>
-                            </GridViewColumn.CellTemplate>
-                        </GridViewColumn>
+                                <!-- Metadata Grid -->
+                                <Grid Margin="0,4">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="70" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
+                                    </Grid.RowDefinitions>
 
-                        <!-- Type Column -->
-                        <GridViewColumn Width="110">
-                            <GridViewColumn.Header>
-                                <GridViewColumnHeader Content="Type" Tag="Type" />
-                            </GridViewColumn.Header>
-                            <GridViewColumn.CellTemplate>
-                                <DataTemplate>
-                                    <TextBlock Text="{Binding DisplayType}"
-                                               VerticalAlignment="Center"
-                                               Foreground="#6B7280" />
-                                </DataTemplate>
-                            </GridViewColumn.CellTemplate>
-                        </GridViewColumn>
-                    </GridView>
-                </ListView.View>
-            </ListView>
+                                    <TextBlock Grid.Row="0" Grid.Column="0" Text="Modified" FontSize="10" Foreground="#6B7280" Margin="0,2" />
+                                    <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding SelectedItemModified}" FontSize="10" Foreground="#111827" Margin="0,2" />
 
-            <!-- Status Footer -->
-            <Border Grid.Row="4"
-                    Background="#F9FAFB"
-                    BorderBrush="#E5E7EB"
+                                    <TextBlock Grid.Row="1" Grid.Column="0" Text="Size" FontSize="10" Foreground="#6B7280" Margin="0,2" />
+                                    <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding SelectedItemSize}" FontSize="10" Foreground="#111827" Margin="0,2" />
+
+                                    <TextBlock Grid.Row="2" Grid.Column="0" Text="Path" FontSize="10" Foreground="#6B7280" Margin="0,2" />
+                                    <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding SelectedItemPath}" FontSize="9" Foreground="#6B7280" TextTrimming="CharacterEllipsis" Margin="0,2" />
+                                </Grid>
+
+                                <Separator Background="#E5E7EB" Margin="0,12,0,10" />
+
+                                <!-- Quick Actions (Rotate / Open / Delete) -->
+                                <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,8">
+                                    <Button Command="{Binding OpenItemCommand}"
+                                            CommandParameter="{Binding SelectedItem}"
+                                            ToolTip="Open File"
+                                            Style="{StaticResource SubtleToolButton}"
+                                            Height="26" Padding="8,2" Margin="2"
+                                            Content="Open" FontSize="11" />
+
+                                    <Button Command="{Binding DeleteToRecycleBinCommand}"
+                                            ToolTip="Delete to Recycle Bin"
+                                            Style="{StaticResource SubtleToolButton}"
+                                            Height="26" Padding="8,2" Margin="2"
+                                            Content="Delete" FontSize="11" Foreground="#DC2626" />
+                                </StackPanel>
+                            </StackPanel>
+                        </ScrollViewer>
+                    </Border>
+                </Grid>
+            </Grid>
+
+            <!-- Row 5: Status Footer -->
+            <Border Grid.Row="5"
+                    Background="#FAFAFA"
+                    BorderBrush="#F3F4F6"
                     BorderThickness="0,1,0,0"
-                    Padding="6,3">
+                    CornerRadius="0,0,8,8"
+                    Padding="8,3">
                 <Grid>
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*" />
                         <ColumnDefinition Width="Auto" />
                     </Grid.ColumnDefinitions>
                     <TextBlock Text="{Binding SelectionStatusText}"
-                               FontSize="11" Foreground="#6B7280" />
+                               FontSize="10" Foreground="#6B7280" VerticalAlignment="Center" />
                     <TextBlock Grid.Column="1"
                                Text="{Binding SortStatusText}"
-                               FontSize="11" Foreground="#9CA3AF" />
+                               FontSize="10" Foreground="#9CA3AF" VerticalAlignment="Center" />
                 </Grid>
             </Border>
         </Grid>

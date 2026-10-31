@@ -1,12 +1,92 @@
 <Application x:Class="FM.App.App"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             xmlns:local="clr-namespace:FM.App">
+             xmlns:local="clr-namespace:FM.App"
+             xmlns:conv="clr-namespace:FM.App.Converters">
     <Application.Resources>
-        <!-- Windows 11 Fluent typography default -->
+        <BooleanToVisibilityConverter x:Key="BoolToVis" />
+        <conv:EqualityToVisibilityConverter x:Key="EqToVis" />
+        <conv:InverseBooleanToVisibilityConverter x:Key="InvBoolToVis" />
+
+        <!-- Windows 11 / Modern Fluent typography default -->
         <Style TargetType="Window">
             <Setter Property="FontFamily" Value="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" />
             <Setter Property="FontSize" Value="12" />
+        </Style>
+
+        <!-- Clean Subtle Toolbar Button Style -->
+        <Style x:Key="SubtleToolButton" TargetType="Button">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderBrush" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="Padding" Value="4,2" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Foreground" Value="#374151" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="border"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="4"
+                                Padding="{TemplateBinding Padding}"
+                                SnapsToDevicePixels="True">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="border" Property="Background" Value="#F3F4F6" />
+                                <Setter TargetName="border" Property="BorderBrush" Value="#E5E7EB" />
+                                <Setter Property="Foreground" Value="#111827" />
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="border" Property="Background" Value="#E5E7EB" />
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Opacity" Value="0.4" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- Accent Pill Button Style -->
+        <Style x:Key="PillButton" TargetType="Button">
+            <Setter Property="Background" Value="#F3F4F6" />
+            <Setter Property="BorderBrush" Value="#E5E7EB" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="Padding" Value="6,2" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Foreground" Value="#374151" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="border"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="12"
+                                Padding="{TemplateBinding Padding}"
+                                SnapsToDevicePixels="True">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="border" Property="Background" Value="#E5E7EB" />
+                                <Setter Property="Foreground" Value="#111827" />
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="border" Property="Background" Value="#D1D5DB" />
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Opacity" Value="0.4" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
         </Style>
     </Application.Resources>
 </Application>

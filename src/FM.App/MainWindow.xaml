@@ -71,66 +71,150 @@
                 Background="#FFFFFF"
                 BorderBrush="#E5E7EB"
                 BorderThickness="0,0,0,1"
-                Padding="10,5">
+                Padding="12,6">
             <Grid>
                 <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="Auto" /> <!-- Title / Brand -->
+                    <ColumnDefinition Width="Auto" /> <!-- Navigation (Back/Forward) -->
+                    <ColumnDefinition Width="Auto" /> <!-- Active Folder Title -->
                     <ColumnDefinition Width="*" />    <!-- Spacer -->
-                    <ColumnDefinition Width="Auto" /> <!-- Layout Controls -->
+                    <ColumnDefinition Width="Auto" /> <!-- View Modes (Icons/List/Preview) -->
+                    <ColumnDefinition Width="Auto" /> <!-- Layout Switcher Presets -->
+                    <ColumnDefinition Width="Auto" /> <!-- Actions (+Split, ⇄ Switch, 👁 Hidden) -->
+                    <ColumnDefinition Width="Auto" /> <!-- Search Box Capsule -->
                 </Grid.ColumnDefinitions>
 
-                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                    <TextBlock Text="📁 MyFileManager" FontWeight="SemiBold" FontSize="13" Foreground="#1F2937" VerticalAlignment="Center" />
+                <!-- Navigation Back / Forward Buttons -->
+                <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,12,0">
+                    <Button Command="{Binding ActivePane.GoBackCommand}"
+                            ToolTip="Back (Alt+Left)"
+                            Style="{StaticResource SubtleToolButton}"
+                            Width="26" Height="26" Margin="1"
+                            Content="‹" FontSize="16" FontWeight="Bold" />
+                    <Button Command="{Binding ActivePane.GoForwardCommand}"
+                            ToolTip="Forward (Alt+Right)"
+                            Style="{StaticResource SubtleToolButton}"
+                            Width="26" Height="26" Margin="1"
+                            Content="›" FontSize="16" FontWeight="Bold" />
                 </StackPanel>
 
-                <!-- Multi-Pane Layout Presets & Controls -->
-                <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
-                    <TextBlock Text="Layout:" FontSize="11" Foreground="#6B7280" VerticalAlignment="Center" Margin="0,0,6,0" />
+                <!-- Active Folder Title -->
+                <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                    <TextBlock Text="{Binding ActiveFolderName}"
+                               FontWeight="SemiBold"
+                               FontSize="13"
+                               Foreground="#111827"
+                               VerticalAlignment="Center" />
+                </StackPanel>
 
-                    <!-- Presets -->
-                    <Button Command="{Binding SetLayoutCommand}" CommandParameter="Single"
-                            ToolTip="Single Pane (Ctrl+Shift+1)"
-                            Width="28" Height="26" Margin="1"
-                            Content="1" FontSize="11" FontWeight="SemiBold" />
+                <!-- Center/Right: View Modes Segmented Control -->
+                <Border Grid.Column="3"
+                        Background="#F3F4F6"
+                        BorderBrush="#E5E7EB"
+                        BorderThickness="1"
+                        CornerRadius="6"
+                        Padding="2"
+                        Margin="0,0,10,0"
+                        VerticalAlignment="Center">
+                    <StackPanel Orientation="Horizontal">
+                        <Button Command="{Binding SetGlobalViewModeCommand}" CommandParameter="Icons"
+                                ToolTip="Icons / Grid View"
+                                Style="{StaticResource SubtleToolButton}"
+                                Height="22" Width="26" Padding="0"
+                                Content="⊞" FontSize="11" />
+                        <Button Command="{Binding SetGlobalViewModeCommand}" CommandParameter="Details"
+                                ToolTip="Details List View"
+                                Style="{StaticResource SubtleToolButton}"
+                                Height="22" Width="26" Padding="0"
+                                Content="≡" FontSize="13" />
+                        <Button Command="{Binding SetGlobalViewModeCommand}" CommandParameter="Preview"
+                                ToolTip="Preview / Inspector View"
+                                Style="{StaticResource SubtleToolButton}"
+                                Height="22" Width="26" Padding="0"
+                                Content="▯" FontSize="11" />
+                    </StackPanel>
+                </Border>
 
-                    <Button Command="{Binding SetLayoutCommand}" CommandParameter="DualVertical"
-                            ToolTip="2 Columns (Ctrl+Shift+2)"
-                            Width="28" Height="26" Margin="1"
-                            Content="◫" FontSize="12" />
+                <!-- Multi-Pane Layout Presets Segmented Control -->
+                <Border Grid.Column="4"
+                        Background="#F3F4F6"
+                        BorderBrush="#E5E7EB"
+                        BorderThickness="1"
+                        CornerRadius="6"
+                        Padding="2"
+                        Margin="0,0,10,0"
+                        VerticalAlignment="Center">
+                    <StackPanel Orientation="Horizontal">
+                        <Button Command="{Binding SetLayoutCommand}" CommandParameter="Single"
+                                ToolTip="Single Pane (Ctrl+Shift+1)"
+                                Style="{StaticResource SubtleToolButton}"
+                                Height="22" Width="24" Padding="0"
+                                Content="1" FontSize="11" FontWeight="SemiBold" />
+                        <Button Command="{Binding SetLayoutCommand}" CommandParameter="DualVertical"
+                                ToolTip="2 Columns (Ctrl+Shift+2)"
+                                Style="{StaticResource SubtleToolButton}"
+                                Height="22" Width="24" Padding="0"
+                                Content="◫" FontSize="11" />
+                        <Button Command="{Binding SetLayoutCommand}" CommandParameter="DualHorizontal"
+                                ToolTip="2 Rows (Ctrl+Shift+3)"
+                                Style="{StaticResource SubtleToolButton}"
+                                Height="22" Width="24" Padding="0"
+                                Content="⬒" FontSize="11" />
+                        <Button Command="{Binding SetLayoutCommand}" CommandParameter="TripleLeft"
+                                ToolTip="Triple Layout (1 Left, 2 Right)"
+                                Style="{StaticResource SubtleToolButton}"
+                                Height="22" Width="24" Padding="0"
+                                Content="◫+" FontSize="9" />
+                        <Button Command="{Binding SetLayoutCommand}" CommandParameter="QuadGrid"
+                                ToolTip="Quad Grid 2x2 (Ctrl+Shift+4)"
+                                Style="{StaticResource SubtleToolButton}"
+                                Height="22" Width="24" Padding="0"
+                                Content="⊞" FontSize="11" />
+                    </StackPanel>
+                </Border>
 
-                    <Button Command="{Binding SetLayoutCommand}" CommandParameter="DualHorizontal"
-                            ToolTip="2 Rows (Ctrl+Shift+3)"
-                            Width="28" Height="26" Margin="1"
-                            Content="⬒" FontSize="12" />
-
-                    <Button Command="{Binding SetLayoutCommand}" CommandParameter="TripleLeft"
-                            ToolTip="Triple Layout (1 Left, 2 Right)"
-                            Width="28" Height="26" Margin="1"
-                            Content="◫+" FontSize="10" />
-
-                    <Button Command="{Binding SetLayoutCommand}" CommandParameter="QuadGrid"
-                            ToolTip="Quad Grid 2x2 (Ctrl+Shift+4)"
-                            Width="28" Height="26" Margin="1"
-                            Content="⊞" FontSize="13" />
-
-                    <Separator Margin="6,4" Background="#E5E7EB" />
-
-                    <!-- Actions -->
+                <!-- Actions (+Split, ⇄ Switch, 👁 Hidden) -->
+                <StackPanel Grid.Column="5" Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,10,0">
                     <Button Command="{Binding SplitVerticalCommand}"
                             ToolTip="Add Split Pane (Ctrl+Shift+T)"
+                            Style="{StaticResource SubtleToolButton}"
                             Height="26" Padding="6,0" Margin="1"
                             Content="+ Split" FontSize="11" />
-
                     <Button Command="{Binding SwitchActivePaneCommand}"
                             ToolTip="Switch Active Pane (Tab)"
+                            Style="{StaticResource SubtleToolButton}"
                             Height="26" Padding="6,0" Margin="2,1"
                             Content="⇄ Switch" FontSize="11" />
-
                     <Button Command="{Binding ToggleHiddenFilesCommand}"
                             ToolTip="Toggle Hidden Files (Ctrl+H)"
+                            Style="{StaticResource SubtleToolButton}"
                             Height="26" Padding="6,0" Margin="1"
                             Content="👁 Hidden" FontSize="11" />
                 </StackPanel>
+
+                <!-- Modern Search Capsule -->
+                <Border Grid.Column="6"
+                        Background="#F3F4F6"
+                        BorderBrush="#E5E7EB"
+                        BorderThickness="1"
+                        CornerRadius="13"
+                        Height="26" Width="150"
+                        Padding="8,0"
+                        VerticalAlignment="Center">
+                    <Grid VerticalAlignment="Center">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Grid.Column="0" Text="🔍" FontSize="10" Foreground="#9CA3AF" VerticalAlignment="Center" Margin="0,0,5,0" />
+                        <TextBox Grid.Column="1"
+                                 Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}"
+                                 Background="Transparent"
+                                 BorderThickness="0"
+                                 FontSize="11"
+                                 VerticalContentAlignment="Center"
+                                 Foreground="#111827" />
+                    </Grid>
+                </Border>
             </Grid>
         </Border>
 
