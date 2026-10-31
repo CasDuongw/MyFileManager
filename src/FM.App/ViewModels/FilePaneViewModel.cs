@@ -440,6 +440,13 @@ public partial class FilePaneViewModel : ObservableObject
 
     public async Task NavigateInternalAsync(string targetPath, NavigationPhaseType phaseType)
     {
+        var dispatcher = System.Windows.Application.Current?.Dispatcher;
+        if (dispatcher != null && !dispatcher.HasShutdownStarted && !dispatcher.CheckAccess())
+        {
+            await dispatcher.InvokeAsync(() => NavigateInternalAsync(targetPath, phaseType)).Task.Unwrap().ConfigureAwait(false);
+            return;
+        }
+
         long currentVersion = Interlocked.Increment(ref _navigationVersion);
 
         // Cancel previous loading task so fast navigation never displays stale results

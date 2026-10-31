@@ -212,4 +212,31 @@ public class MainViewModelTransferTests
         Assert.True(_fs.FileExists(@"C:\right\photo.png"));
         Assert.True(_mainViewModel.RightPane.UndoStack.CanUndo);
     }
+
+    [Fact]
+    public async Task DropTransfer_FromRightToLeft_RefreshesBothPanes_WithoutCrossThreadException()
+    {
+        _fs.CreateVirtualFile(@"D:\Download\item.jpg", 1024);
+        _fs.CreateDirectory(@"D:\IOT");
+
+        await _mainViewModel.LeftPane.NavigateAsync(@"D:\IOT");
+        await _mainViewModel.RightPane.NavigateAsync(@"D:\Download");
+
+        // Drag from RightPane to LeftPane
+        var job = _mainViewModel.EnqueueTransfer(
+            TransferKind.Move,
+            new[] { @"D:\Download\item.jpg" },
+            @"D:\IOT",
+            _mainViewModel.RightPane);
+
+        Assert.NotNull(job);
+        await _mainViewModel.WaitForJobCompletionAsync(job);
+
+        // Verification: file moved, left pane contains it, no error banner
+        Assert.True(_fs.FileExists(@"D:\IOT\item.jpg"));
+        Assert.False(_fs.FileExists(@"D:\Download\item.jpg"));
+        Assert.Null(_mainViewModel.LeftPane.ErrorMessage);
+        Assert.False(_mainViewModel.LeftPane.HasError);
+        Assert.Contains("item.jpg", _mainViewModel.LeftPane.Items.Select(i => i.Name));
+    }
 }

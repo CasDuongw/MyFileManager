@@ -202,47 +202,77 @@ public partial class MainViewModel : ObservableObject
             result = new TransferResult(TransferState.Failed, Array.Empty<TransferItemResult>());
         }
 
-        // 1. Refresh panes
-        await RefreshPanesAfterTransferAsync().ConfigureAwait(false);
-
-        // 2. Summary
-        int failed = result.Items.Count(i => i.Outcome == ItemOutcome.Failed);
-        int skipped = result.Items.Count(i => i.Outcome == ItemOutcome.Skipped);
-        int transferred = result.Items.Count(i => i.Outcome == ItemOutcome.Copied || i.Outcome == ItemOutcome.Moved || i.Outcome == ItemOutcome.KeptBoth || i.Outcome == ItemOutcome.Replaced);
-
-        string summary;
-        if (result.FinalState == TransferState.Cancelled)
+        try
         {
-            summary = "Transfer cancelled.";
+            await RunOnUiAsync(async () =>
+            {
+                // 1. Refresh panes
+                await RefreshPanesAfterTransferAsync().ConfigureAwait(true);
+
+                // 2. Summary
+                int failed = result.Items.Count(i => i.Outcome == ItemOutcome.Failed);
+                int skipped = result.Items.Count(i => i.Outcome == ItemOutcome.Skipped);
+                int transferred = result.Items.Count(i => i.Outcome == ItemOutcome.Copied || i.Outcome == ItemOutcome.Moved || i.Outcome == ItemOutcome.KeptBoth || i.Outcome == ItemOutcome.Replaced);
+
+                string summary;
+                if (result.FinalState == TransferState.Cancelled)
+                {
+                    summary = "Transfer cancelled.";
+                }
+                else if (failed > 0 || skipped > 0)
+                {
+                    summary = $"Completed with warnings: {transferred} transferred, {failed} failed, {skipped} skipped.";
+                }
+                else
+                {
+                    string verbPast = kind == TransferKind.Copy ? "Copied" : "Moved";
+                    summary = $"{verbPast} {transferred} item(s) successfully.";
+                }
+
+                lock (_transferStatusLock)
+                {
+                    _activeTransfersCount = Math.Max(0, _activeTransfersCount - 1);
+                    if (_activeTransfersCount > 0)
+                    {
+                        ownerPane.SetStatusText(_activeTransfersCount == 1 ? "1 transfer running..." : $"{_activeTransfersCount} transfers running...");
+                    }
+                    else
+                    {
+                        ownerPane.SetStatusText(summary, TimeSpan.FromSeconds(5));
+                    }
+                }
+
+                // 3. Push TransferUndoOperation if undoable
+                var undoOp = new TransferUndoOperation(_fileSystem, kind, result, _stagingStore, job.Id, _journalStore);
+                if (undoOp.CanUndo)
+                {
+                    ownerPane.UndoStack.Push(undoOp);
+                }
+            }).ConfigureAwait(false);
         }
-        else if (failed > 0 || skipped > 0)
+        catch
         {
-            summary = $"Completed with warnings: {transferred} transferred, {failed} failed, {skipped} skipped.";
+            lock (_transferStatusLock)
+            {
+                _activeTransfersCount = Math.Max(0, _activeTransfersCount - 1);
+                if (_activeTransfersCount > 0)
+                {
+                    ownerPane.SetStatusText(_activeTransfersCount == 1 ? "1 transfer running..." : $"{_activeTransfersCount} transfers running...");
+                }
+            }
+        }
+    }
+
+    private async Task RunOnUiAsync(Func<Task> action)
+    {
+        var dispatcher = System.Windows.Application.Current?.Dispatcher;
+        if (dispatcher != null && !dispatcher.HasShutdownStarted && !dispatcher.CheckAccess())
+        {
+            await dispatcher.InvokeAsync(action).Task.Unwrap().ConfigureAwait(false);
         }
         else
         {
-            string verbPast = kind == TransferKind.Copy ? "Copied" : "Moved";
-            summary = $"{verbPast} {transferred} item(s) successfully.";
-        }
-
-        lock (_transferStatusLock)
-        {
-            _activeTransfersCount = Math.Max(0, _activeTransfersCount - 1);
-            if (_activeTransfersCount > 0)
-            {
-                ownerPane.SetStatusText(_activeTransfersCount == 1 ? "1 transfer running..." : $"{_activeTransfersCount} transfers running...");
-            }
-            else
-            {
-                ownerPane.SetStatusText(summary, TimeSpan.FromSeconds(5));
-            }
-        }
-
-        // 3. Push TransferUndoOperation if undoable
-        var undoOp = new TransferUndoOperation(_fileSystem, kind, result, _stagingStore, job.Id, _journalStore);
-        if (undoOp.CanUndo)
-        {
-            ownerPane.UndoStack.Push(undoOp);
+            await action().ConfigureAwait(false);
         }
     }
 
