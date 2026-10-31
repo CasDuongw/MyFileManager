@@ -32,15 +32,24 @@ public partial class MainViewModel : ObservableObject
 
     public ObservableCollection<FilePaneViewModel> Panes { get; } = new();
 
-    public FilePaneViewModel LeftPane => Panes.Count > 0 ? Panes[0] : ActivePane;
-    public FilePaneViewModel RightPane => Panes.Count > 1 ? Panes[1] : (Panes.Count > 0 ? Panes[0] : ActivePane);
+    private FilePaneViewModel? _fallbackPane;
+    private FilePaneViewModel FallbackPane => _fallbackPane ??= CreatePane();
+
+    public FilePaneViewModel LeftPane => (Panes.Count > 0 ? Panes[0] : ActivePane);
+    public FilePaneViewModel RightPane => (Panes.Count > 1 ? Panes[1] : (Panes.Count > 0 ? Panes[0] : ActivePane));
     public TransferDrawerViewModel TransferDrawer { get; }
 
-    [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(ActiveFolderName))]
-    private FilePaneViewModel _activePane;
+    private FilePaneViewModel? _activePane;
 
-    public string ActiveFolderName => ActivePane?.CurrentFolderName ?? "MyFileManager";
+    public FilePaneViewModel ActivePane
+    {
+        get => _activePane ?? FallbackPane;
+        set => SetActivePane(value);
+    }
+
+    public bool HasActivePane => _activePane != null && Panes.Contains(_activePane);
+
+    public string ActiveFolderName => _activePane?.CurrentFolderName ?? "MyFileManager";
 
     [ObservableProperty]
     private string _searchText = string.Empty;
@@ -68,7 +77,7 @@ public partial class MainViewModel : ObservableObject
     [NotifyPropertyChangedFor(nameof(CanClosePanes))]
     private PaneLayoutMode _layoutMode = PaneLayoutMode.DualVertical;
 
-    public bool CanClosePanes => Panes.Count > 1;
+    public bool CanClosePanes => Panes.Count > 0;
 
     [ObservableProperty]
     private bool _showHiddenFiles;
@@ -148,12 +157,12 @@ public partial class MainViewModel : ObservableObject
     {
         get
         {
-            if (Panes.Count <= 1) return ActivePane;
+            if (Panes.Count <= 1) return ActivePane ?? FallbackPane;
             if (_lastActivePane != null && _lastActivePane != ActivePane && Panes.Contains(_lastActivePane))
             {
                 return _lastActivePane;
             }
-            int idx = Panes.IndexOf(ActivePane);
+            int idx = ActivePane != null ? Panes.IndexOf(ActivePane) : -1;
             int nextIdx = (idx >= 0 && idx + 1 < Panes.Count) ? idx + 1 : 0;
             return Panes[nextIdx];
         }
@@ -367,12 +376,16 @@ public partial class MainViewModel : ObservableObject
         SetActivePane(pane);
     }
 
-    public void SetActivePane(FilePaneViewModel pane)
+    public void SetActivePane(FilePaneViewModel? pane)
     {
-        if (ActivePane == pane) return;
+        if (_activePane == pane) return;
 
-        _lastActivePane = ActivePane;
-        ActivePane = pane;
+        _lastActivePane = _activePane;
+        _activePane = pane;
+
+        OnPropertyChanged(nameof(ActivePane));
+        OnPropertyChanged(nameof(ActiveFolderName));
+        OnPropertyChanged(nameof(HasActivePane));
 
         foreach (var p in Panes)
         {
@@ -461,7 +474,7 @@ public partial class MainViewModel : ObservableObject
     [RelayCommand(CanExecute = nameof(CanClosePanes))]
     public void ClosePane(FilePaneViewModel? targetPane = null)
     {
-        if (Panes.Count <= 1) return;
+        if (Panes.Count == 0) return;
 
         var paneToClose = targetPane ?? ActivePane;
         if (paneToClose == null || !Panes.Contains(paneToClose)) return;
@@ -472,7 +485,20 @@ public partial class MainViewModel : ObservableObject
         paneToClose.Activated -= OnPaneActivated;
         paneToClose.SelectionChanged -= OnTransferCanExecuteChanged;
 
-        if (Panes.Count == 1)
+        if (ActivePane == paneToClose)
+        {
+            if (Panes.Count > 0)
+            {
+                int nextActiveIdx = Math.Min(idx, Panes.Count - 1);
+                SetActivePane(Panes[nextActiveIdx]);
+            }
+            else
+            {
+                SetActivePane(null);
+            }
+        }
+
+        if (Panes.Count <= 1)
         {
             LayoutMode = PaneLayoutMode.Single;
         }
@@ -483,12 +509,6 @@ public partial class MainViewModel : ObservableObject
         else if (Panes.Count == 3 && LayoutMode == PaneLayoutMode.QuadGrid)
         {
             LayoutMode = PaneLayoutMode.TripleLeft;
-        }
-
-        if (ActivePane == paneToClose)
-        {
-            int nextActiveIdx = Math.Min(idx, Panes.Count - 1);
-            SetActivePane(Panes[nextActiveIdx]);
         }
 
         OnPropertyChanged(nameof(CanClosePanes));
@@ -543,11 +563,28 @@ public partial class MainViewModel : ObservableObject
     }
 
     [RelayCommand]
+    public void OpenNewTab(string? initialPath = null)
+    {
+        SplitVertical(ActivePane);
+        if (!string.IsNullOrWhiteSpace(initialPath) && ActivePane != null)
+        {
+            ActivePane.Navigate(initialPath);
+        }
+    }
+
+    [RelayCommand]
     public void NavigateActivePane(string? path)
     {
         if (!string.IsNullOrWhiteSpace(path))
         {
-            ActivePane.Navigate(path);
+            if (ActivePane != null)
+            {
+                ActivePane.Navigate(path);
+            }
+            else
+            {
+                OpenNewTab(path);
+            }
         }
     }
 
@@ -565,7 +602,7 @@ public partial class MainViewModel : ObservableObject
         _settingsService.SaveSettings(settings);
 
         string status = ShowHiddenFiles ? "Hidden files: Shown" : "Hidden files: Hidden";
-        ActivePane.SetStatusText(status, TimeSpan.FromSeconds(3));
+        ActivePane?.SetStatusText(status, TimeSpan.FromSeconds(3));
 
         await Task.WhenAll(Panes.Select(p => p.RefreshAsync()));
     }

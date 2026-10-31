@@ -94,7 +94,7 @@ public class MultiPaneWorkspaceTests
     }
 
     [Fact]
-    public void SetLayout_Single_ReducesPanesToOne_DisablesClose()
+    public void SetLayout_Single_ReducesPanesToOne_CanCloseToZero()
     {
         var vm = new MainViewModel(_dirService, _iconService, _settingsService, _fs);
         Assert.Equal(2, vm.Panes.Count);
@@ -103,8 +103,53 @@ public class MultiPaneWorkspaceTests
 
         Assert.Single(vm.Panes);
         Assert.Equal(PaneLayoutMode.Single, vm.LayoutMode);
+        Assert.True(vm.CanClosePanes);
+        Assert.True(vm.ClosePaneCommand.CanExecute(vm.ActivePane));
+
+        // Close the remaining pane to reach 0 panes
+        vm.ClosePaneCommand.Execute(vm.ActivePane);
+        Assert.Empty(vm.Panes);
+        Assert.False(vm.HasActivePane);
         Assert.False(vm.CanClosePanes);
-        Assert.False(vm.ClosePaneCommand.CanExecute(vm.ActivePane));
+        Assert.False(vm.ClosePaneCommand.CanExecute(null));
+    }
+
+    [Fact]
+    public void ClosePane_WhenTwoPanes_ClosingActivePane_DoesNotThrow()
+    {
+        var vm = new MainViewModel(_dirService, _iconService, _settingsService, _fs);
+        Assert.Equal(2, vm.Panes.Count);
+
+        var firstPane = vm.Panes[0];
+        vm.SetActivePane(firstPane);
+
+        // Closing the active first pane should cleanly switch active pane to remaining pane
+        vm.ClosePaneCommand.Execute(firstPane);
+
+        Assert.Single(vm.Panes);
+        Assert.DoesNotContain(firstPane, vm.Panes);
+        Assert.Same(vm.Panes[0], vm.ActivePane);
+        Assert.True(vm.ActivePane.IsActive);
+    }
+
+    [Fact]
+    public void CloseAllPanes_ReachesZeroPanes_AndReopening_Works()
+    {
+        var vm = new MainViewModel(_dirService, _iconService, _settingsService, _fs);
+        Assert.Equal(2, vm.Panes.Count);
+
+        vm.ClosePaneCommand.Execute(vm.Panes[0]);
+        vm.ClosePaneCommand.Execute(vm.Panes[0]);
+
+        Assert.Empty(vm.Panes);
+        Assert.False(vm.HasActivePane);
+        Assert.False(vm.CanClosePanes);
+
+        // Re-open tab from Sidebar or New Tab
+        vm.OpenNewTab();
+        Assert.Single(vm.Panes);
+        Assert.True(vm.HasActivePane);
+        Assert.True(vm.CanClosePanes);
     }
 
     [Fact]
