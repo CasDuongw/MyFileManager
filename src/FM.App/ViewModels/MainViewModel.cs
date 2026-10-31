@@ -100,6 +100,17 @@ public partial class MainViewModel : ObservableObject
 
     private void OnTransferCanExecuteChanged()
     {
+        var dispatcher = System.Windows.Application.Current?.Dispatcher;
+        if (dispatcher != null && !dispatcher.HasShutdownStarted && !dispatcher.CheckAccess())
+        {
+            _ = dispatcher.InvokeAsync(() =>
+            {
+                CopyToOtherPaneCommand.NotifyCanExecuteChanged();
+                MoveToOtherPaneCommand.NotifyCanExecuteChanged();
+            });
+            return;
+        }
+
         CopyToOtherPaneCommand.NotifyCanExecuteChanged();
         MoveToOtherPaneCommand.NotifyCanExecuteChanged();
     }
@@ -270,18 +281,18 @@ public partial class MainViewModel : ObservableObject
         var dispatcher = System.Windows.Application.Current?.Dispatcher;
         if (dispatcher != null && !dispatcher.HasShutdownStarted && !dispatcher.CheckAccess())
         {
-            await dispatcher.InvokeAsync(action).Task.Unwrap().ConfigureAwait(false);
+            await dispatcher.InvokeAsync(action).Task.Unwrap();
         }
         else
         {
-            await action().ConfigureAwait(false);
+            await action();
         }
     }
 
     private async Task RefreshPanesAfterTransferAsync()
     {
-        await LeftPane.RefreshAsync().ConfigureAwait(false);
-        await RightPane.RefreshAsync().ConfigureAwait(false);
+        await LeftPane.RefreshAsync();
+        await RightPane.RefreshAsync();
     }
 
     private void OnPaneActivated(FilePaneViewModel pane)

@@ -21,9 +21,18 @@ public partial class FilePaneView : UserControl
     private bool _isDragging;
     private ListViewItem? _lastHoverItem;
     private Brush? _lastHoverOriginalBackground;
+    internal static bool LastDropWasInternal { get; set; }
 
-    private static readonly Brush HighlightBrush = new SolidColorBrush(Color.FromRgb(0x00, 0x78, 0xD4));
-    private static readonly Brush ItemHoverHighlightBrush = new SolidColorBrush(Color.FromArgb(0x40, 0x00, 0x78, 0xD4));
+    private static readonly Brush HighlightBrush = CreateFrozenBrush(Color.FromRgb(0x00, 0x78, 0xD4));
+    private static readonly Brush ItemHoverHighlightBrush = CreateFrozenBrush(Color.FromArgb(0x40, 0x00, 0x78, 0xD4));
+    private static readonly Brush InactivePaneBorderBrush = CreateFrozenBrush(Color.FromRgb(0xE5, 0xE7, 0xEB));
+
+    private static Brush CreateFrozenBrush(Color color)
+    {
+        var brush = new SolidColorBrush(color);
+        brush.Freeze();
+        return brush;
+    }
 
     public FilePaneView()
     {
@@ -238,6 +247,7 @@ public partial class FilePaneView : UserControl
 
         var data = new DataObject(DataFormats.FileDrop, selected);
         data.SetData("FM.App.PaneDrag", paneId);
+        LastDropWasInternal = false;
 
         try
         {
@@ -254,9 +264,9 @@ public partial class FilePaneView : UserControl
             _deferredSelectionItem = null;
         }
 
-        // After DoDragDrop returns: refresh both panes.
-        // DO NOT delete source files based on returned effect (Explorer handles external moves; our Drop handles internal).
-        if (mainVm != null)
+        // After DoDragDrop returns: refresh both panes for external drops (e.g. to Explorer).
+        // For internal drops, the transfer completes asynchronously and refreshes upon completion.
+        if (!LastDropWasInternal && mainVm != null)
         {
             _ = mainVm.LeftPane.RefreshAsync();
             _ = mainVm.RightPane.RefreshAsync();
@@ -409,6 +419,7 @@ public partial class FilePaneView : UserControl
         var mainVm = Window.GetWindow(this)?.DataContext as MainViewModel;
         if (mainVm != null)
         {
+            LastDropWasInternal = true;
             // OwnerPane for Undo:
             // Internal drag -> Source Pane
             // External drag (from Explorer) -> Target Pane (this ViewModel)
@@ -459,6 +470,6 @@ public partial class FilePaneView : UserControl
         // Restore PaneBorder brush according to active state
         PaneBorder.BorderBrush = (ViewModel?.IsActive == true)
             ? HighlightBrush
-            : new SolidColorBrush(Color.FromRgb(0xE5, 0xE7, 0xEB));
+            : InactivePaneBorderBrush;
     }
 }

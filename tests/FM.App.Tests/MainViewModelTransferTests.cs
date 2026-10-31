@@ -239,4 +239,17 @@ public class MainViewModelTransferTests
         Assert.False(_mainViewModel.LeftPane.HasError);
         Assert.Contains("item.jpg", _mainViewModel.LeftPane.Items.Select(i => i.Name));
     }
+
+    [Fact]
+    public async Task BackgroundThread_UpdatesAndCommandNotifications_DoNotThrow()
+    {
+        // Calling UpdateSelectedItems or UndoStack.Push from a ThreadPool thread must not throw thread affinity exceptions
+        await Task.Run(() =>
+        {
+            _mainViewModel.LeftPane.UpdateSelectedItems(Array.Empty<FileItemViewModel>());
+            _mainViewModel.LeftPane.UndoStack.Clear();
+        });
+
+        Assert.Empty(_mainViewModel.LeftPane.SelectedItems);
+    }
 }

@@ -150,6 +150,13 @@ public partial class FilePaneViewModel : ObservableObject
 
     public void UpdateSelectedItems(IEnumerable<FileItemViewModel> selected)
     {
+        var dispatcher = System.Windows.Application.Current?.Dispatcher;
+        if (dispatcher != null && !dispatcher.HasShutdownStarted && !dispatcher.CheckAccess())
+        {
+            dispatcher.Invoke(() => UpdateSelectedItems(selected));
+            return;
+        }
+
         SelectedItems = selected.ToList();
         SelectedItem = SelectedItems.Count > 0 ? SelectedItems[0] : null;
         SelectionChanged?.Invoke();
@@ -186,7 +193,18 @@ public partial class FilePaneViewModel : ObservableObject
         UndoStack = undoStack ?? new UndoStack();
         _shellLauncher = shellLauncher ?? new ShellLauncher();
 
-        UndoStack.CanUndoChanged += () => UndoCommand.NotifyCanExecuteChanged();
+        UndoStack.CanUndoChanged += () =>
+        {
+            var dispatcher = System.Windows.Application.Current?.Dispatcher;
+            if (dispatcher != null && !dispatcher.HasShutdownStarted && !dispatcher.CheckAccess())
+            {
+                _ = dispatcher.InvokeAsync(() => UndoCommand.NotifyCanExecuteChanged());
+            }
+            else
+            {
+                UndoCommand.NotifyCanExecuteChanged();
+            }
+        };
     }
 
     public void NotifyActivated()
@@ -496,7 +514,7 @@ public partial class FilePaneViewModel : ObservableObject
                 : new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
             // Clear view items immediately
-            Items.ReplaceAll(Array.Empty<FileItemViewModel>());
+            SafeReplaceItems(Array.Empty<FileItemViewModel>());
             UpdateSelectedItems(Array.Empty<FileItemViewModel>());
             OnPropertyChanged(nameof(SelectionStatusText));
 
@@ -513,7 +531,7 @@ public partial class FilePaneViewModel : ObservableObject
                 var batchVms = filteredBatch.Select(e => new FileItemViewModel(e, _iconService, ct)).ToList();
                 if (batchVms.Count > 0)
                 {
-                    Items.AddRange(batchVms);
+                    SafeAddItems(batchVms);
                 }
 
                 if (statusUpdateSw.ElapsedMilliseconds >= 100)
@@ -559,7 +577,7 @@ public partial class FilePaneViewModel : ObservableObject
             if (IsCurrent())
             {
                 ErrorMessage = $"Access denied: '{targetPath}'";
-                Items.ReplaceAll(Array.Empty<FileItemViewModel>());
+                SafeReplaceItems(Array.Empty<FileItemViewModel>());
             }
         }
         catch (DirectoryNotFoundException)
@@ -567,7 +585,7 @@ public partial class FilePaneViewModel : ObservableObject
             if (IsCurrent())
             {
                 ErrorMessage = $"Directory not found: '{targetPath}'";
-                Items.ReplaceAll(Array.Empty<FileItemViewModel>());
+                SafeReplaceItems(Array.Empty<FileItemViewModel>());
             }
         }
         catch (IOException ex)
@@ -575,7 +593,7 @@ public partial class FilePaneViewModel : ObservableObject
             if (IsCurrent())
             {
                 ErrorMessage = $"I/O Error: {ex.Message}";
-                Items.ReplaceAll(Array.Empty<FileItemViewModel>());
+                SafeReplaceItems(Array.Empty<FileItemViewModel>());
             }
         }
         catch (Exception ex)
@@ -583,7 +601,7 @@ public partial class FilePaneViewModel : ObservableObject
             if (IsCurrent())
             {
                 ErrorMessage = $"Error: {ex.Message}";
-                Items.ReplaceAll(Array.Empty<FileItemViewModel>());
+                SafeReplaceItems(Array.Empty<FileItemViewModel>());
             }
         }
         finally
@@ -647,7 +665,7 @@ public partial class FilePaneViewModel : ObservableObject
             return;
         }
 
-        Items.ReplaceAll(sortedVms);
+        SafeReplaceItems(sortedVms);
 
         // Restore ALL selections by FullPath
         if (selectedPaths.Count > 0)
@@ -657,8 +675,41 @@ public partial class FilePaneViewModel : ObservableObject
         }
     }
 
+    private void SafeReplaceItems(IEnumerable<FileItemViewModel> items)
+    {
+        var dispatcher = System.Windows.Application.Current?.Dispatcher;
+        if (dispatcher != null && !dispatcher.HasShutdownStarted && !dispatcher.CheckAccess())
+        {
+            dispatcher.Invoke(() => Items.ReplaceAll(items));
+        }
+        else
+        {
+            Items.ReplaceAll(items);
+        }
+    }
+
+    private void SafeAddItems(IEnumerable<FileItemViewModel> items)
+    {
+        var dispatcher = System.Windows.Application.Current?.Dispatcher;
+        if (dispatcher != null && !dispatcher.HasShutdownStarted && !dispatcher.CheckAccess())
+        {
+            dispatcher.Invoke(() => Items.AddRange(items));
+        }
+        else
+        {
+            Items.AddRange(items);
+        }
+    }
+
     private void UpdateHistoryCommandStates()
     {
+        var dispatcher = System.Windows.Application.Current?.Dispatcher;
+        if (dispatcher != null && !dispatcher.HasShutdownStarted && !dispatcher.CheckAccess())
+        {
+            _ = dispatcher.InvokeAsync(() => UpdateHistoryCommandStates());
+            return;
+        }
+
         OnPropertyChanged(nameof(CanGoBack));
         OnPropertyChanged(nameof(CanGoForward));
         OnPropertyChanged(nameof(CanGoUp));

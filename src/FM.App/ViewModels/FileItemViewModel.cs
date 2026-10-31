@@ -72,7 +72,15 @@ public partial class FileItemViewModel : ObservableObject
             var icon = await _iconService.GetIconAsync(FullPath, IsDirectory, isDrive: false, _cancellationToken);
             if (!_cancellationToken.IsCancellationRequested && icon != null)
             {
-                Icon = icon;
+                var dispatcher = System.Windows.Application.Current?.Dispatcher;
+                if (dispatcher != null && !dispatcher.HasShutdownStarted && !dispatcher.CheckAccess())
+                {
+                    _ = dispatcher.InvokeAsync(() => Icon = icon);
+                }
+                else
+                {
+                    Icon = icon;
+                }
             }
             else if (_cancellationToken.IsCancellationRequested)
             {
