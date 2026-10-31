@@ -1,8 +1,11 @@
 using System.IO;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Media.Animation;
+using System.Windows.Media.Effects;
 using FM.App.Helpers;
 using FM.App.ViewModels;
 using FM.App.Models;
@@ -27,6 +30,9 @@ public partial class FilePaneView : UserControl
     private static readonly Brush HighlightBrush = CreateFrozenBrush(Color.FromRgb(0xD9, 0x26, 0x62));
     private static readonly Brush ItemHoverHighlightBrush = CreateFrozenBrush(Color.FromArgb(0x40, 0x00, 0x78, 0xD4));
     private static readonly Brush InactivePaneBorderBrush = CreateFrozenBrush(Color.FromRgb(0xE5, 0xE7, 0xEB));
+
+    private DragAdorner? _currentTabAdorner;
+    private DragAdorner? _currentFileAdorner;
 
     private static Brush CreateFrozenBrush(Color color)
     {
@@ -278,6 +284,19 @@ public partial class FilePaneView : UserControl
         data.SetData("FM.App.PaneDrag", paneId);
         LastDropWasInternal = false;
 
+        Window? window = Window.GetWindow(this);
+        UIElement? rootElement = window?.Content as UIElement ?? window;
+        AdornerLayer? layer = rootElement != null ? AdornerLayer.GetAdornerLayer(rootElement) : null;
+
+        if (layer != null && rootElement != null)
+        {
+            var ghostBorder = CreateFileDragVisual(selected);
+            _currentFileAdorner = new DragAdorner(rootElement, ghostBorder);
+            layer.Add(_currentFileAdorner);
+            _currentFileAdorner.UpdatePosition(12, 12);
+            DragDrop.AddGiveFeedbackHandler(FileListView, OnFileGiveFeedback);
+        }
+
         try
         {
             DragDrop.DoDragDrop(FileListView, data, DragDropEffects.Copy | DragDropEffects.Move);
@@ -291,6 +310,13 @@ public partial class FilePaneView : UserControl
             _isDragging = false;
             _dragStartPoint = null;
             _deferredSelectionItem = null;
+
+            if (_currentFileAdorner != null)
+            {
+                DragDrop.RemoveGiveFeedbackHandler(FileListView, OnFileGiveFeedback);
+                layer?.Remove(_currentFileAdorner);
+                _currentFileAdorner = null;
+            }
         }
 
         // After DoDragDrop returns: refresh all panes for external drops (e.g. to Explorer).
@@ -549,6 +575,23 @@ public partial class FilePaneView : UserControl
     {
         if (ViewModel == null) return;
         _isTabDragging = true;
+
+        Window? window = Window.GetWindow(this);
+        UIElement? rootElement = window?.Content as UIElement ?? window;
+        AdornerLayer? layer = rootElement != null ? AdornerLayer.GetAdornerLayer(rootElement) : null;
+
+        if (layer != null && rootElement != null)
+        {
+            var ghostBorder = CreateTabDragVisual();
+            _currentTabAdorner = new DragAdorner(rootElement, ghostBorder);
+            layer.Add(_currentTabAdorner);
+            _currentTabAdorner.UpdatePosition(10, 10);
+            DragDrop.AddGiveFeedbackHandler(TabCapsuleBorder, OnTabGiveFeedback);
+        }
+
+        // Tactile "picked up" visual effect on the original tab capsule
+        TabCapsuleBorder.Opacity = 0.35;
+
         try
         {
             var data = new DataObject();
@@ -559,7 +602,194 @@ public partial class FilePaneView : UserControl
         {
             _isTabDragging = false;
             _tabDragStartPoint = null;
+            TabCapsuleBorder.Opacity = 1.0;
+
+            if (_currentTabAdorner != null)
+            {
+                DragDrop.RemoveGiveFeedbackHandler(TabCapsuleBorder, OnTabGiveFeedback);
+                layer?.Remove(_currentTabAdorner);
+                _currentTabAdorner = null;
+            }
         }
+    }
+
+    private void OnTabGiveFeedback(object sender, GiveFeedbackEventArgs e)
+    {
+        _currentTabAdorner?.UpdatePosition(10, 10);
+        e.UseDefaultCursors = true;
+        e.Handled = true;
+    }
+
+    private void OnFileGiveFeedback(object sender, GiveFeedbackEventArgs e)
+    {
+        _currentFileAdorner?.UpdatePosition(12, 12);
+        e.UseDefaultCursors = true;
+        e.Handled = true;
+    }
+
+    private Border CreateTabDragVisual()
+    {
+        var border = new Border
+        {
+            Background = Brushes.White,
+            BorderBrush = new SolidColorBrush(Color.FromRgb(0xD9, 0x26, 0x62)),
+            BorderThickness = new Thickness(1.5),
+            CornerRadius = new CornerRadius(6),
+            Padding = new Thickness(10, 4, 10, 4),
+            IsHitTestVisible = false,
+            Effect = new DropShadowEffect
+            {
+                Color = Colors.Black,
+                Direction = 270,
+                ShadowDepth = 5,
+                BlurRadius = 14,
+                Opacity = 0.28
+            }
+        };
+
+        var sp = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+        
+        // Rose folder icon
+        sp.Children.Add(new TextBlock
+        {
+            Text = "📁",
+            FontSize = 11,
+            Foreground = new SolidColorBrush(Color.FromRgb(0xD9, 0x26, 0x62)),
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(0, 0, 6, 0)
+        });
+
+        // Folder name
+        sp.Children.Add(new TextBlock
+        {
+            Text = ViewModel?.CurrentFolderName ?? "Folder",
+            FontWeight = FontWeights.SemiBold,
+            FontSize = 11,
+            Foreground = new SolidColorBrush(Color.FromRgb(0x1F, 0x29, 0x37)),
+            VerticalAlignment = VerticalAlignment.Center,
+            MaxWidth = 180,
+            TextTrimming = TextTrimming.CharacterEllipsis
+        });
+
+        // Close icon
+        sp.Children.Add(new TextBlock
+        {
+            Text = "✕",
+            FontSize = 9,
+            Foreground = new SolidColorBrush(Color.FromRgb(0x9C, 0xA3, 0xAF)),
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(8, 0, 0, 0)
+        });
+
+        border.Child = sp;
+
+        // Pop-up lift animation: subtle scale + slight rotation
+        var tg = new TransformGroup();
+        var scale = new ScaleTransform(0.92, 0.92);
+        var rotate = new RotateTransform(-2.5);
+        tg.Children.Add(scale);
+        tg.Children.Add(rotate);
+        border.RenderTransform = tg;
+        border.RenderTransformOrigin = new Point(0.5, 0.5);
+
+        var anim = new DoubleAnimation(0.92, 1.05, new Duration(TimeSpan.FromMilliseconds(130)))
+        {
+            EasingFunction = new BackEase { Amplitude = 0.35, EasingMode = EasingMode.EaseOut }
+        };
+        scale.BeginAnimation(ScaleTransform.ScaleXProperty, anim);
+        scale.BeginAnimation(ScaleTransform.ScaleYProperty, anim);
+
+        return border;
+    }
+
+    private Border CreateFileDragVisual(string[] selected)
+    {
+        var border = new Border
+        {
+            Background = Brushes.White,
+            BorderBrush = new SolidColorBrush(Color.FromRgb(0xE5, 0xE7, 0xEB)),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(6),
+            Padding = new Thickness(10, 6, 12, 6),
+            IsHitTestVisible = false,
+            Effect = new DropShadowEffect
+            {
+                Color = Colors.Black,
+                Direction = 270,
+                ShadowDepth = 5,
+                BlurRadius = 14,
+                Opacity = 0.25
+            }
+        };
+
+        var sp = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+
+        string firstName = Path.GetFileName(selected[0]);
+        bool isDir = Directory.Exists(selected[0]);
+
+        // File/Folder icon
+        sp.Children.Add(new TextBlock
+        {
+            Text = isDir ? "📁" : "📄",
+            FontSize = 13,
+            Foreground = isDir
+                ? new SolidColorBrush(Color.FromRgb(0xD9, 0x26, 0x62))
+                : new SolidColorBrush(Color.FromRgb(0x4B, 0x55, 0x63)),
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(0, 0, 8, 0)
+        });
+
+        // Item name
+        sp.Children.Add(new TextBlock
+        {
+            Text = string.IsNullOrEmpty(firstName) ? selected[0] : firstName,
+            FontWeight = FontWeights.Medium,
+            FontSize = 12,
+            Foreground = new SolidColorBrush(Color.FromRgb(0x1F, 0x29, 0x37)),
+            VerticalAlignment = VerticalAlignment.Center,
+            MaxWidth = 180,
+            TextTrimming = TextTrimming.CharacterEllipsis
+        });
+
+        // Count badge if > 1 item
+        if (selected.Length > 1)
+        {
+            var badge = new Border
+            {
+                Background = new SolidColorBrush(Color.FromRgb(0xD9, 0x26, 0x62)),
+                CornerRadius = new CornerRadius(8),
+                Padding = new Thickness(6, 1, 6, 1),
+                Margin = new Thickness(8, 0, 0, 0),
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            badge.Child = new TextBlock
+            {
+                Text = $"+{selected.Length - 1}",
+                FontSize = 10,
+                FontWeight = FontWeights.Bold,
+                Foreground = Brushes.White
+            };
+            sp.Children.Add(badge);
+        }
+
+        border.Child = sp;
+
+        var tg = new TransformGroup();
+        var scale = new ScaleTransform(0.92, 0.92);
+        var rotate = new RotateTransform(-2.0);
+        tg.Children.Add(scale);
+        tg.Children.Add(rotate);
+        border.RenderTransform = tg;
+        border.RenderTransformOrigin = new Point(0.5, 0.5);
+
+        var anim = new DoubleAnimation(0.92, 1.04, new Duration(TimeSpan.FromMilliseconds(120)))
+        {
+            EasingFunction = new BackEase { Amplitude = 0.35, EasingMode = EasingMode.EaseOut }
+        };
+        scale.BeginAnimation(ScaleTransform.ScaleXProperty, anim);
+        scale.BeginAnimation(ScaleTransform.ScaleYProperty, anim);
+
+        return border;
     }
 
     private void OnPaneDragEnter(object sender, DragEventArgs e)
@@ -600,40 +830,48 @@ public partial class FilePaneView : UserControl
 
             double minDist = Math.Min(Math.Min(distLeft, distRight), Math.Min(distTop, distBottom));
 
+            DockEdge newEdge = DockEdge.None;
             if (minDist == distRight && relX >= 0.45)
             {
-                _currentDockEdge = DockEdge.Right;
-                ShowDockPreview(DockEdge.Right);
+                newEdge = DockEdge.Right;
             }
             else if (minDist == distBottom && relY >= 0.45)
             {
-                _currentDockEdge = DockEdge.Bottom;
-                ShowDockPreview(DockEdge.Bottom);
+                newEdge = DockEdge.Bottom;
             }
             else if (minDist == distLeft && relX <= 0.55)
             {
-                _currentDockEdge = DockEdge.Left;
-                ShowDockPreview(DockEdge.Left);
+                newEdge = DockEdge.Left;
             }
             else if (minDist == distTop && relY <= 0.55)
             {
-                _currentDockEdge = DockEdge.Top;
-                ShowDockPreview(DockEdge.Top);
+                newEdge = DockEdge.Top;
             }
-            else
+
+            if (newEdge != _currentDockEdge)
             {
-                HideDockPreview();
+                _currentDockEdge = newEdge;
+                if (newEdge != DockEdge.None)
+                {
+                    ShowDockPreview(newEdge);
+                }
+                else
+                {
+                    HideDockPreview();
+                }
             }
         }
         else
         {
-            HideDockPreview();
+            if (_currentDockEdge != DockEdge.None)
+            {
+                HideDockPreview();
+            }
         }
     }
 
     private void ShowDockPreview(DockEdge edge)
     {
-        DockPreviewOverlay.Visibility = Visibility.Visible;
         double halfW = ActualWidth * 0.5;
         double halfH = ActualHeight * 0.5;
 
@@ -665,14 +903,36 @@ public partial class FilePaneView : UserControl
                 break;
             default:
                 HideDockPreview();
-                break;
+                return;
+        }
+
+        if (DockPreviewOverlay.Visibility != Visibility.Visible)
+        {
+            DockPreviewOverlay.Visibility = Visibility.Visible;
+            var anim = new DoubleAnimation(0.0, 1.0, new Duration(TimeSpan.FromMilliseconds(130)));
+            DockPreviewOverlay.BeginAnimation(UIElement.OpacityProperty, anim);
         }
     }
 
     private void HideDockPreview()
     {
-        _currentDockEdge = DockEdge.None;
-        DockPreviewOverlay.Visibility = Visibility.Collapsed;
+        if (DockPreviewOverlay.Visibility == Visibility.Visible)
+        {
+            _currentDockEdge = DockEdge.None;
+            var anim = new DoubleAnimation(1.0, 0.0, new Duration(TimeSpan.FromMilliseconds(100)));
+            anim.Completed += (s, e) =>
+            {
+                if (_currentDockEdge == DockEdge.None)
+                {
+                    DockPreviewOverlay.Visibility = Visibility.Collapsed;
+                }
+            };
+            DockPreviewOverlay.BeginAnimation(UIElement.OpacityProperty, anim);
+        }
+        else
+        {
+            _currentDockEdge = DockEdge.None;
+        }
     }
 
     private void OnPaneDragLeave(object sender, DragEventArgs e)

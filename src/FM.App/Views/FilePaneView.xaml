@@ -787,12 +787,17 @@
             <!-- Dock Preview Overlay (Visible during Tab Drag-to-Dock) -->
             <Border x:Name="DockPreviewOverlay"
                     Grid.Row="0" Grid.RowSpan="6"
-                    Background="#33D92662"
+                    Background="#26D92662"
                     BorderBrush="#D92662"
                     BorderThickness="2"
                     CornerRadius="8"
+                    Margin="3"
                     IsHitTestVisible="False"
-                    Visibility="Collapsed" />
+                    Visibility="Collapsed">
+                <Border.Effect>
+                    <DropShadowEffect Color="#D92662" BlurRadius="16" ShadowDepth="0" Opacity="0.35" />
+                </Border.Effect>
+            </Border>
         </Grid>
     </Border>
 </UserControl>
