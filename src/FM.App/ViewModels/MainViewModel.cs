@@ -3,6 +3,7 @@ using System.IO;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using FM.App.Helpers;
+using FM.App.Models;
 using FM.App.Services;
 using FM.Core.FileSystem;
 using FM.Core.Operations.Transfer;
@@ -11,13 +12,16 @@ using FM.Core.Services;
 namespace FM.App.ViewModels;
 
 /// <summary>
-/// Root ViewModel orchestrating dual file panes, the sidebar, active pane state, and settings persistence.
+/// Root ViewModel orchestrating multi-pane workspace, the sidebar, layout switching, and settings persistence.
 /// </summary>
 public partial class MainViewModel : ObservableObject
 {
+    private readonly IDirectoryService _directoryService;
     private readonly IIconService _iconService;
     private readonly ISettingsService _settingsService;
     private readonly IFileSystem _fileSystem;
+    private readonly IInputDialogService? _inputDialogService;
+    private readonly IShellLauncher? _shellLauncher;
     private readonly ITransferQueue _transferQueue;
     private readonly ITransferDialogService _dialogService;
     private readonly IUndoJournalStore? _journalStore;
@@ -26,12 +30,22 @@ public partial class MainViewModel : ObservableObject
     private readonly System.Collections.Concurrent.ConcurrentDictionary<Guid, Task> _completionTasks = new();
     private int _activeTransfersCount;
 
-    public FilePaneViewModel LeftPane { get; }
-    public FilePaneViewModel RightPane { get; }
+    public ObservableCollection<FilePaneViewModel> Panes { get; } = new();
+
+    public FilePaneViewModel LeftPane => Panes.Count > 0 ? Panes[0] : ActivePane;
+    public FilePaneViewModel RightPane => Panes.Count > 1 ? Panes[1] : (Panes.Count > 0 ? Panes[0] : ActivePane);
     public TransferDrawerViewModel TransferDrawer { get; }
 
     [ObservableProperty]
     private FilePaneViewModel _activePane;
+
+    private FilePaneViewModel? _lastActivePane;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanClosePanes))]
+    private PaneLayoutMode _layoutMode = PaneLayoutMode.DualVertical;
+
+    public bool CanClosePanes => Panes.Count > 1;
 
     [ObservableProperty]
     private bool _showHiddenFiles;
@@ -52,51 +66,82 @@ public partial class MainViewModel : ObservableObject
         IStagingBackupStore? stagingStore = null,
         TransferDrawerViewModel? transferDrawer = null)
     {
+        _directoryService = directoryService;
         _iconService = iconService;
         _settingsService = settingsService;
         _fileSystem = fileSystem ?? new PhysicalFileSystem();
+        _inputDialogService = inputDialogService;
+        _shellLauncher = shellLauncher;
         _stagingStore = stagingStore;
         _journalStore = journalStore;
         _transferQueue = transferQueue ?? new TransferQueue(_fileSystem, _stagingStore, _journalStore);
         _dialogService = transferDialogService ?? new TransferDialogService();
         TransferDrawer = transferDrawer ?? new TransferDrawerViewModel(_transferQueue);
 
-        LeftPane = new FilePaneViewModel(directoryService, iconService, _fileSystem, inputDialogService, shellLauncher: shellLauncher);
-        RightPane = new FilePaneViewModel(directoryService, iconService, _fileSystem, inputDialogService, shellLauncher: shellLauncher);
+        // Initialize with default 2 panes
+        var left = CreatePane();
+        var right = CreatePane();
+        Panes.Add(left);
+        Panes.Add(right);
 
-        LeftPane.Activated += OnPaneActivated;
-        RightPane.Activated += OnPaneActivated;
-
-        LeftPane.SelectionChanged += OnTransferCanExecuteChanged;
-        RightPane.SelectionChanged += OnTransferCanExecuteChanged;
-
-        LeftPane.PropertyChanged += (s, e) =>
-        {
-            if (e.PropertyName == nameof(FilePaneViewModel.CurrentPath))
-                OnTransferCanExecuteChanged();
-        };
-        RightPane.PropertyChanged += (s, e) =>
-        {
-            if (e.PropertyName == nameof(FilePaneViewModel.CurrentPath))
-                OnTransferCanExecuteChanged();
-        };
+        _activePane = left;
+        left.IsActive = true;
+        right.IsActive = false;
 
         _transferQueue.ProgressChanged += OnTransferQueueProgressChanged;
-
-        // Default to LeftPane active
-        _activePane = LeftPane;
-        LeftPane.IsActive = true;
-        RightPane.IsActive = false;
 
         _ = PopulateSidebarAsync();
     }
 
-    public FilePaneViewModel TargetPane => ActivePane == LeftPane ? RightPane : LeftPane;
+    public FilePaneViewModel CreatePane(string? initialPath = null)
+    {
+        var pane = new FilePaneViewModel(
+            _directoryService,
+            _iconService,
+            _fileSystem,
+            _inputDialogService,
+            shellLauncher: _shellLauncher);
+
+        pane.ShowHiddenFiles = ShowHiddenFiles;
+        pane.Activated += OnPaneActivated;
+        pane.SelectionChanged += OnTransferCanExecuteChanged;
+        pane.PropertyChanged += (s, e) =>
+        {
+            if (e.PropertyName == nameof(FilePaneViewModel.CurrentPath))
+                OnTransferCanExecuteChanged();
+        };
+
+        if (!string.IsNullOrWhiteSpace(initialPath))
+        {
+            pane.CurrentPath = initialPath;
+            pane.AddressText = initialPath;
+            pane.Navigate(initialPath);
+        }
+
+        return pane;
+    }
+
+    public FilePaneViewModel TargetPane
+    {
+        get
+        {
+            if (Panes.Count <= 1) return ActivePane;
+            if (_lastActivePane != null && _lastActivePane != ActivePane && Panes.Contains(_lastActivePane))
+            {
+                return _lastActivePane;
+            }
+            int idx = Panes.IndexOf(ActivePane);
+            int nextIdx = (idx >= 0 && idx + 1 < Panes.Count) ? idx + 1 : 0;
+            return Panes[nextIdx];
+        }
+    }
 
     public bool CanTransferToOtherPane =>
         ActivePane != null &&
         ActivePane.SelectedItems.Count > 0 &&
-        !string.IsNullOrWhiteSpace(TargetPane.CurrentPath);
+        Panes.Count > 1 &&
+        !string.IsNullOrWhiteSpace(TargetPane.CurrentPath) &&
+        !string.Equals(ActivePane.CurrentPath, TargetPane.CurrentPath, StringComparison.OrdinalIgnoreCase);
 
     private void OnTransferCanExecuteChanged()
     {
@@ -291,8 +336,7 @@ public partial class MainViewModel : ObservableObject
 
     private async Task RefreshPanesAfterTransferAsync()
     {
-        await LeftPane.RefreshAsync();
-        await RightPane.RefreshAsync();
+        await Task.WhenAll(Panes.Select(p => p.RefreshAsync()));
     }
 
     private void OnPaneActivated(FilePaneViewModel pane)
@@ -304,16 +348,144 @@ public partial class MainViewModel : ObservableObject
     {
         if (ActivePane == pane) return;
 
+        _lastActivePane = ActivePane;
         ActivePane = pane;
-        LeftPane.IsActive = (pane == LeftPane);
-        RightPane.IsActive = (pane == RightPane);
+
+        foreach (var p in Panes)
+        {
+            p.IsActive = (p == pane);
+        }
+
         OnTransferCanExecuteChanged();
     }
 
     [RelayCommand]
     public void SwitchActivePane()
     {
-        SetActivePane(ActivePane == LeftPane ? RightPane : LeftPane);
+        if (Panes.Count <= 1) return;
+        int idx = Panes.IndexOf(ActivePane);
+        int next = (idx >= 0 && idx + 1 < Panes.Count) ? idx + 1 : 0;
+        SetActivePane(Panes[next]);
+    }
+
+    [RelayCommand]
+    public void SplitVertical(FilePaneViewModel? targetPane = null)
+    {
+        var source = targetPane ?? ActivePane;
+        var newPane = CreatePane(source?.CurrentPath);
+        int insertIdx = source != null ? Panes.IndexOf(source) + 1 : Panes.Count;
+        if (insertIdx <= 0 || insertIdx > Panes.Count) insertIdx = Panes.Count;
+        Panes.Insert(insertIdx, newPane);
+
+        if (Panes.Count == 2) LayoutMode = PaneLayoutMode.DualVertical;
+        else if (Panes.Count == 3) LayoutMode = PaneLayoutMode.TripleLeft;
+        else if (Panes.Count >= 4) LayoutMode = PaneLayoutMode.QuadGrid;
+
+        SetActivePane(newPane);
+        OnPropertyChanged(nameof(CanClosePanes));
+        ClosePaneCommand.NotifyCanExecuteChanged();
+    }
+
+    [RelayCommand]
+    public void SplitHorizontal(FilePaneViewModel? targetPane = null)
+    {
+        var source = targetPane ?? ActivePane;
+        var newPane = CreatePane(source?.CurrentPath);
+        int insertIdx = source != null ? Panes.IndexOf(source) + 1 : Panes.Count;
+        if (insertIdx <= 0 || insertIdx > Panes.Count) insertIdx = Panes.Count;
+        Panes.Insert(insertIdx, newPane);
+
+        if (Panes.Count == 2) LayoutMode = PaneLayoutMode.DualHorizontal;
+        else if (Panes.Count == 3) LayoutMode = PaneLayoutMode.TripleLeft;
+        else if (Panes.Count >= 4) LayoutMode = PaneLayoutMode.QuadGrid;
+
+        SetActivePane(newPane);
+        OnPropertyChanged(nameof(CanClosePanes));
+        ClosePaneCommand.NotifyCanExecuteChanged();
+    }
+
+    [RelayCommand(CanExecute = nameof(CanClosePanes))]
+    public void ClosePane(FilePaneViewModel? targetPane = null)
+    {
+        if (Panes.Count <= 1) return;
+
+        var paneToClose = targetPane ?? ActivePane;
+        if (paneToClose == null || !Panes.Contains(paneToClose)) return;
+
+        int idx = Panes.IndexOf(paneToClose);
+        Panes.Remove(paneToClose);
+
+        paneToClose.Activated -= OnPaneActivated;
+        paneToClose.SelectionChanged -= OnTransferCanExecuteChanged;
+
+        if (Panes.Count == 1)
+        {
+            LayoutMode = PaneLayoutMode.Single;
+        }
+        else if (Panes.Count == 2 && (LayoutMode == PaneLayoutMode.TripleLeft || LayoutMode == PaneLayoutMode.QuadGrid))
+        {
+            LayoutMode = PaneLayoutMode.DualVertical;
+        }
+        else if (Panes.Count == 3 && LayoutMode == PaneLayoutMode.QuadGrid)
+        {
+            LayoutMode = PaneLayoutMode.TripleLeft;
+        }
+
+        if (ActivePane == paneToClose)
+        {
+            int nextActiveIdx = Math.Min(idx, Panes.Count - 1);
+            SetActivePane(Panes[nextActiveIdx]);
+        }
+
+        OnPropertyChanged(nameof(CanClosePanes));
+        ClosePaneCommand.NotifyCanExecuteChanged();
+        OnTransferCanExecuteChanged();
+    }
+
+    [RelayCommand]
+    public void SetLayout(string layoutStr)
+    {
+        if (Enum.TryParse<PaneLayoutMode>(layoutStr, ignoreCase: true, out var mode))
+        {
+            SetLayoutMode(mode);
+        }
+    }
+
+    public void SetLayoutMode(PaneLayoutMode mode)
+    {
+        LayoutMode = mode;
+        int required = mode switch
+        {
+            PaneLayoutMode.Single => 1,
+            PaneLayoutMode.DualVertical => 2,
+            PaneLayoutMode.DualHorizontal => 2,
+            PaneLayoutMode.TripleLeft => 3,
+            PaneLayoutMode.QuadGrid => 4,
+            _ => 2
+        };
+
+        while (Panes.Count < required)
+        {
+            var basePane = ActivePane ?? Panes.LastOrDefault();
+            var newPane = CreatePane(basePane?.CurrentPath);
+            Panes.Add(newPane);
+        }
+
+        while (Panes.Count > required && Panes.Count > 1)
+        {
+            int removeIdx = Panes.Count - 1;
+            var p = Panes[removeIdx];
+            if (p == ActivePane)
+            {
+                SetActivePane(Panes[0]);
+            }
+            Panes.RemoveAt(removeIdx);
+            p.Activated -= OnPaneActivated;
+            p.SelectionChanged -= OnTransferCanExecuteChanged;
+        }
+
+        OnPropertyChanged(nameof(CanClosePanes));
+        ClosePaneCommand.NotifyCanExecuteChanged();
     }
 
     [RelayCommand]
@@ -329,8 +501,10 @@ public partial class MainViewModel : ObservableObject
     public async Task ToggleHiddenFilesAsync()
     {
         ShowHiddenFiles = !ShowHiddenFiles;
-        LeftPane.ShowHiddenFiles = ShowHiddenFiles;
-        RightPane.ShowHiddenFiles = ShowHiddenFiles;
+        foreach (var p in Panes)
+        {
+            p.ShowHiddenFiles = ShowHiddenFiles;
+        }
 
         var settings = _settingsService.LoadSettings();
         settings.ShowHiddenFiles = ShowHiddenFiles;
@@ -339,7 +513,7 @@ public partial class MainViewModel : ObservableObject
         string status = ShowHiddenFiles ? "Hidden files: Shown" : "Hidden files: Hidden";
         ActivePane.SetStatusText(status, TimeSpan.FromSeconds(3));
 
-        await Task.WhenAll(LeftPane.RefreshAsync(), RightPane.RefreshAsync());
+        await Task.WhenAll(Panes.Select(p => p.RefreshAsync()));
     }
 
     public void ToggleHiddenFiles() => _ = ToggleHiddenFilesAsync();
@@ -349,12 +523,53 @@ public partial class MainViewModel : ObservableObject
         await _settingsService.ValidatePathsAsync(settings);
 
         ShowHiddenFiles = settings.ShowHiddenFiles;
-        LeftPane.ShowHiddenFiles = settings.ShowHiddenFiles;
-        RightPane.ShowHiddenFiles = settings.ShowHiddenFiles;
 
-        // Navigate both panes to their persisted or fallback paths
-        LeftPane.Navigate(settings.LeftPanePath);
-        RightPane.Navigate(settings.RightPanePath);
+        var pathsToLoad = (settings.PanePaths != null && settings.PanePaths.Count > 0)
+            ? settings.PanePaths
+            : new List<string> { settings.LeftPanePath, settings.RightPanePath };
+
+        while (Panes.Count < pathsToLoad.Count)
+        {
+            Panes.Add(CreatePane());
+        }
+        while (Panes.Count > pathsToLoad.Count && Panes.Count > 1)
+        {
+            var p = Panes[Panes.Count - 1];
+            Panes.RemoveAt(Panes.Count - 1);
+            p.Activated -= OnPaneActivated;
+            p.SelectionChanged -= OnTransferCanExecuteChanged;
+        }
+
+        for (int i = 0; i < Panes.Count && i < pathsToLoad.Count; i++)
+        {
+            Panes[i].ShowHiddenFiles = ShowHiddenFiles;
+            Panes[i].Navigate(pathsToLoad[i]);
+        }
+
+        if (Enum.TryParse<PaneLayoutMode>(settings.LayoutMode, ignoreCase: true, out var savedMode))
+        {
+            LayoutMode = savedMode;
+        }
+        else if (Panes.Count >= 4)
+        {
+            LayoutMode = PaneLayoutMode.QuadGrid;
+        }
+        else if (Panes.Count == 3)
+        {
+            LayoutMode = PaneLayoutMode.TripleLeft;
+        }
+        else if (Panes.Count == 2)
+        {
+            LayoutMode = PaneLayoutMode.DualVertical;
+        }
+        else
+        {
+            LayoutMode = PaneLayoutMode.Single;
+        }
+
+        SetActivePane(Panes[0]);
+        OnPropertyChanged(nameof(CanClosePanes));
+        ClosePaneCommand.NotifyCanExecuteChanged();
 
         // Recover interrupted operations and restore Undo stack from persistent journal
         if (_journalStore != null)
@@ -424,6 +639,8 @@ public partial class MainViewModel : ObservableObject
             WindowState = windowState,
             LeftPanePath = string.IsNullOrEmpty(LeftPane.CurrentPath) ? @"C:\" : LeftPane.CurrentPath,
             RightPanePath = string.IsNullOrEmpty(RightPane.CurrentPath) ? @"C:\" : RightPane.CurrentPath,
+            PanePaths = Panes.Select(p => string.IsNullOrEmpty(p.CurrentPath) ? @"C:\" : p.CurrentPath).ToList(),
+            LayoutMode = LayoutMode.ToString(),
             ShowHiddenFiles = ShowHiddenFiles
         };
 

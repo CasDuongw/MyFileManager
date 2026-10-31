@@ -61,17 +61,87 @@
 
     <Grid>
         <Grid.RowDefinitions>
-            <RowDefinition Height="*" />
-            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" /> <!-- Top Header / Layout Switcher Bar -->
+            <RowDefinition Height="*" />    <!-- Main Content (Sidebar + Panes Workspace) -->
+            <RowDefinition Height="Auto" /> <!-- Bottom Transfer Drawer -->
         </Grid.RowDefinitions>
 
-        <Grid Grid.Row="0">
+        <!-- Top Header / Layout Switcher Bar -->
+        <Border Grid.Row="0"
+                Background="#FFFFFF"
+                BorderBrush="#E5E7EB"
+                BorderThickness="0,0,0,1"
+                Padding="10,5">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" /> <!-- Title / Brand -->
+                    <ColumnDefinition Width="*" />    <!-- Spacer -->
+                    <ColumnDefinition Width="Auto" /> <!-- Layout Controls -->
+                </Grid.ColumnDefinitions>
+
+                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                    <TextBlock Text="📁 MyFileManager" FontWeight="SemiBold" FontSize="13" Foreground="#1F2937" VerticalAlignment="Center" />
+                </StackPanel>
+
+                <!-- Multi-Pane Layout Presets & Controls -->
+                <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
+                    <TextBlock Text="Layout:" FontSize="11" Foreground="#6B7280" VerticalAlignment="Center" Margin="0,0,6,0" />
+
+                    <!-- Presets -->
+                    <Button Command="{Binding SetLayoutCommand}" CommandParameter="Single"
+                            ToolTip="Single Pane (Ctrl+Shift+1)"
+                            Width="28" Height="26" Margin="1"
+                            Content="1" FontSize="11" FontWeight="SemiBold" />
+
+                    <Button Command="{Binding SetLayoutCommand}" CommandParameter="DualVertical"
+                            ToolTip="2 Columns (Ctrl+Shift+2)"
+                            Width="28" Height="26" Margin="1"
+                            Content="◫" FontSize="12" />
+
+                    <Button Command="{Binding SetLayoutCommand}" CommandParameter="DualHorizontal"
+                            ToolTip="2 Rows (Ctrl+Shift+3)"
+                            Width="28" Height="26" Margin="1"
+                            Content="⬒" FontSize="12" />
+
+                    <Button Command="{Binding SetLayoutCommand}" CommandParameter="TripleLeft"
+                            ToolTip="Triple Layout (1 Left, 2 Right)"
+                            Width="28" Height="26" Margin="1"
+                            Content="◫+" FontSize="10" />
+
+                    <Button Command="{Binding SetLayoutCommand}" CommandParameter="QuadGrid"
+                            ToolTip="Quad Grid 2x2 (Ctrl+Shift+4)"
+                            Width="28" Height="26" Margin="1"
+                            Content="⊞" FontSize="13" />
+
+                    <Separator Margin="6,4" Background="#E5E7EB" />
+
+                    <!-- Actions -->
+                    <Button Command="{Binding SplitVerticalCommand}"
+                            ToolTip="Add Split Pane (Ctrl+Shift+T)"
+                            Height="26" Padding="6,0" Margin="1"
+                            Content="+ Split" FontSize="11" />
+
+                    <Button Command="{Binding SwitchActivePaneCommand}"
+                            ToolTip="Switch Active Pane (Tab)"
+                            Height="26" Padding="6,0" Margin="2,1"
+                            Content="⇄ Switch" FontSize="11" />
+
+                    <Button Command="{Binding ToggleHiddenFilesCommand}"
+                            ToolTip="Toggle Hidden Files (Ctrl+H)"
+                            Height="26" Padding="6,0" Margin="1"
+                            Content="👁 Hidden" FontSize="11" />
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <!-- Main Workspace (Sidebar + Multi-Pane Workspace) -->
+        <Grid Grid.Row="1">
             <Grid.ColumnDefinitions>
                 <!-- Sidebar -->
                 <ColumnDefinition Width="190" MinWidth="130" MaxWidth="320" />
                 <!-- Splitter between Sidebar and File Panes -->
                 <ColumnDefinition Width="4" />
-                <!-- Dual Panes Content -->
+                <!-- Multi-Pane Content -->
                 <ColumnDefinition Width="*" />
             </Grid.ColumnDefinitions>
 
@@ -123,39 +193,13 @@
                           Background="#E5E7EB"
                           ShowsPreview="False" />
 
-            <!-- Dual Pane Workspace -->
-            <Grid Grid.Column="2" Margin="4">
-                <Grid.ColumnDefinitions>
-                    <!-- Left Pane -->
-                    <ColumnDefinition Width="*" MinWidth="200" />
-                    <!-- GridSplitter between Panes -->
-                    <ColumnDefinition Width="6" />
-                    <!-- Right Pane -->
-                    <ColumnDefinition Width="*" MinWidth="200" />
-                </Grid.ColumnDefinitions>
-
-                <!-- Left Pane -->
-                <views:FilePaneView x:Name="LeftPaneControl"
-                                    Grid.Column="0"
-                                    DataContext="{Binding LeftPane}" />
-
-                <!-- GridSplitter between Left and Right Panes -->
-                <GridSplitter Grid.Column="1"
-                              Width="6"
-                              HorizontalAlignment="Center"
-                              VerticalAlignment="Stretch"
-                              Background="#E5E7EB"
-                              ShowsPreview="False"
-                              Cursor="SizeWE" />
-
-                <!-- Right Pane -->
-                <views:FilePaneView x:Name="RightPaneControl"
-                                    Grid.Column="2"
-                                    DataContext="{Binding RightPane}" />
-            </Grid>
+            <!-- Dynamic Multi-Pane Workspace -->
+            <views:MultiPaneWorkspace x:Name="WorkspaceControl"
+                                      Grid.Column="2"
+                                      Margin="4" />
         </Grid>
 
         <!-- Bottom Transfer Drawer -->
-        <views:TransferDrawerView Grid.Row="1" DataContext="{Binding TransferDrawer}" />
+        <views:TransferDrawerView Grid.Row="2" DataContext="{Binding TransferDrawer}" />
     </Grid>
 </Window>

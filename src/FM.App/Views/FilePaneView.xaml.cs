@@ -243,7 +243,7 @@ public partial class FilePaneView : UserControl
         _isDragging = true;
 
         var mainVm = Window.GetWindow(this)?.DataContext as MainViewModel;
-        string paneId = (ViewModel == mainVm?.LeftPane) ? "Left" : "Right";
+        string paneId = (mainVm != null && ViewModel != null) ? mainVm.Panes.IndexOf(ViewModel).ToString() : "0";
 
         var data = new DataObject(DataFormats.FileDrop, selected);
         data.SetData("FM.App.PaneDrag", paneId);
@@ -264,12 +264,14 @@ public partial class FilePaneView : UserControl
             _deferredSelectionItem = null;
         }
 
-        // After DoDragDrop returns: refresh both panes for external drops (e.g. to Explorer).
+        // After DoDragDrop returns: refresh all panes for external drops (e.g. to Explorer).
         // For internal drops, the transfer completes asynchronously and refreshes upon completion.
         if (!LastDropWasInternal && mainVm != null)
         {
-            _ = mainVm.LeftPane.RefreshAsync();
-            _ = mainVm.RightPane.RefreshAsync();
+            foreach (var p in mainVm.Panes)
+            {
+                _ = p.RefreshAsync();
+            }
         }
     }
 
@@ -427,7 +429,11 @@ public partial class FilePaneView : UserControl
             if (e.Data.GetDataPresent("FM.App.PaneDrag"))
             {
                 var paneId = e.Data.GetData("FM.App.PaneDrag") as string;
-                if (paneId == "Left") ownerPane = mainVm.LeftPane;
+                if (int.TryParse(paneId, out int srcIdx) && srcIdx >= 0 && srcIdx < mainVm.Panes.Count)
+                {
+                    ownerPane = mainVm.Panes[srcIdx];
+                }
+                else if (paneId == "Left") ownerPane = mainVm.LeftPane;
                 else if (paneId == "Right") ownerPane = mainVm.RightPane;
             }
 

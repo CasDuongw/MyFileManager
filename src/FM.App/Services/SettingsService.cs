@@ -128,6 +128,17 @@ public class SettingsService : ISettingsService
             {
                 settings.RightPanePath = fallbackPath;
             }
+
+            if (settings.PanePaths != null)
+            {
+                for (int i = 0; i < settings.PanePaths.Count; i++)
+                {
+                    if (!CheckPath(settings.PanePaths[i]))
+                    {
+                        settings.PanePaths[i] = fallbackPath;
+                    }
+                }
+            }
         });
     }
 
@@ -144,6 +155,28 @@ public class SettingsService : ISettingsService
         if (string.IsNullOrWhiteSpace(settings.RightPanePath))
         {
             settings.RightPanePath = defaultPath;
+        }
+
+        settings.PanePaths ??= new List<string>();
+        if (settings.PanePaths.Count == 0)
+        {
+            settings.PanePaths.Add(settings.LeftPanePath);
+            settings.PanePaths.Add(settings.RightPanePath);
+        }
+        else
+        {
+            for (int i = 0; i < settings.PanePaths.Count; i++)
+            {
+                if (string.IsNullOrWhiteSpace(settings.PanePaths[i]))
+                {
+                    settings.PanePaths[i] = defaultPath;
+                }
+            }
+        }
+
+        if (string.IsNullOrWhiteSpace(settings.LayoutMode))
+        {
+            settings.LayoutMode = "DualVertical";
         }
 
         if (settings.WindowWidth < 600 || double.IsNaN(settings.WindowWidth) || double.IsInfinity(settings.WindowWidth))

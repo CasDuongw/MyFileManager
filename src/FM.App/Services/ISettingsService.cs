@@ -12,6 +12,8 @@ public class AppSettings
     public string WindowState { get; set; } = "Normal";
     public string LeftPanePath { get; set; } = string.Empty;
     public string RightPanePath { get; set; } = string.Empty;
+    public List<string> PanePaths { get; set; } = new();
+    public string LayoutMode { get; set; } = "DualVertical";
     public bool ShowHiddenFiles { get; set; } = false;
 }
 

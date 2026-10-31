@@ -178,33 +178,81 @@ public partial class MainWindow : Window
                 return;
             }
         }
+
+        // 12. Layout Presets: Ctrl+Shift+1..4
+        if (isCtrl && isShift)
+        {
+            if (e.Key == Key.D1 || e.Key == Key.NumPad1)
+            {
+                ViewModel?.SetLayoutMode(Models.PaneLayoutMode.Single);
+                e.Handled = true;
+                return;
+            }
+            if (e.Key == Key.D2 || e.Key == Key.NumPad2)
+            {
+                ViewModel?.SetLayoutMode(Models.PaneLayoutMode.DualVertical);
+                e.Handled = true;
+                return;
+            }
+            if (e.Key == Key.D3 || e.Key == Key.NumPad3)
+            {
+                ViewModel?.SetLayoutMode(Models.PaneLayoutMode.DualHorizontal);
+                e.Handled = true;
+                return;
+            }
+            if (e.Key == Key.D4 || e.Key == Key.NumPad4)
+            {
+                ViewModel?.SetLayoutMode(Models.PaneLayoutMode.QuadGrid);
+                e.Handled = true;
+                return;
+            }
+            if (e.Key == Key.T)
+            {
+                ViewModel?.SplitVerticalCommand.Execute(null);
+                e.Handled = true;
+                return;
+            }
+            if (e.Key == Key.W)
+            {
+                if (ViewModel?.CanClosePanes == true)
+                {
+                    ViewModel.ClosePaneCommand.Execute(null);
+                    e.Handled = true;
+                    return;
+                }
+            }
+        }
+
+        // 13. Alt+1..4: Focus specific pane
+        if (isAlt && !isCtrl && !isShift && ViewModel != null)
+        {
+            int paneIdx = -1;
+            if (actualKey == Key.D1 || actualKey == Key.NumPad1) paneIdx = 0;
+            else if (actualKey == Key.D2 || actualKey == Key.NumPad2) paneIdx = 1;
+            else if (actualKey == Key.D3 || actualKey == Key.NumPad3) paneIdx = 2;
+            else if (actualKey == Key.D4 || actualKey == Key.NumPad4) paneIdx = 3;
+
+            if (paneIdx >= 0 && paneIdx < ViewModel.Panes.Count)
+            {
+                ViewModel.SetActivePane(ViewModel.Panes[paneIdx]);
+                FocusActivePane();
+                e.Handled = true;
+                return;
+            }
+        }
     }
 
     private void FocusActivePane()
     {
-        if (ViewModel == null) return;
-
-        if (ViewModel.ActivePane == ViewModel.LeftPane)
-        {
-            LeftPaneControl.FocusFileList();
-        }
-        else
-        {
-            RightPaneControl.FocusFileList();
-        }
+        if (ViewModel?.ActivePane == null) return;
+        var view = WorkspaceControl.GetViewForPane(ViewModel.ActivePane);
+        view?.FocusFileList();
     }
 
     private void FocusActiveAddressBar()
     {
-        if (ViewModel == null) return;
-
-        if (ViewModel.ActivePane == ViewModel.LeftPane)
-        {
-            LeftPaneControl.FocusAddressBar();
-        }
-        else
-        {
-            RightPaneControl.FocusAddressBar();
-        }
+        if (ViewModel?.ActivePane == null) return;
+        var view = WorkspaceControl.GetViewForPane(ViewModel.ActivePane);
+        view?.FocusAddressBar();
     }
 }
