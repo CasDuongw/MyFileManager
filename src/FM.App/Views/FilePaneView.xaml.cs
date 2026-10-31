@@ -173,10 +173,19 @@ public partial class FilePaneView : UserControl
     {
         if (e.Key == Key.Enter)
         {
-            if (FileListView.SelectedItem is FileItemViewModel item)
+            if ((Keyboard.Modifiers & ModifierKeys.Alt) == ModifierKeys.Alt)
             {
-                ViewModel?.OpenItemCommand.Execute(item);
+                ViewModel?.OpenPropertiesCommand.Execute(null);
                 e.Handled = true;
+            }
+            else
+            {
+                var activeItem = (FileListView.IsVisible ? FileListView.SelectedItem : IconsListView.SelectedItem) as FileItemViewModel;
+                if (activeItem != null)
+                {
+                    ViewModel?.OpenItemCommand.Execute(activeItem);
+                    e.Handled = true;
+                }
             }
         }
         else if (e.Key == Key.Back)
@@ -186,6 +195,92 @@ public partial class FilePaneView : UserControl
                 ViewModel.GoUpCommand.Execute(null);
                 e.Handled = true;
             }
+        }
+        else if (e.Key == Key.Delete)
+        {
+            ViewModel?.DeleteToRecycleBinCommand.Execute(null);
+            e.Handled = true;
+        }
+        else if (e.Key == Key.F2)
+        {
+            ViewModel?.RenameCommand.Execute(null);
+            e.Handled = true;
+        }
+        else if (e.Key == Key.F5)
+        {
+            ViewModel?.RefreshCommand.Execute(null);
+            e.Handled = true;
+        }
+        else if (e.Key == Key.C && (Keyboard.Modifiers & ModifierKeys.Control) == ModifierKeys.Control)
+        {
+            if ((Keyboard.Modifiers & ModifierKeys.Shift) == ModifierKeys.Shift)
+            {
+                ViewModel?.CopyPathCommand.Execute(null);
+            }
+            else
+            {
+                ViewModel?.CopyCommand.Execute(null);
+            }
+            e.Handled = true;
+        }
+        else if (e.Key == Key.X && (Keyboard.Modifiers & ModifierKeys.Control) == ModifierKeys.Control)
+        {
+            ViewModel?.CutCommand.Execute(null);
+            e.Handled = true;
+        }
+        else if (e.Key == Key.V && (Keyboard.Modifiers & ModifierKeys.Control) == ModifierKeys.Control)
+        {
+            ViewModel?.PasteCommand.Execute(null);
+            e.Handled = true;
+        }
+    }
+
+    private void OnFileListViewPreviewMouseRightButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        var depObj = e.OriginalSource as DependencyObject;
+        var item = depObj?.FindVisualAncestor<ListViewItem>();
+        if (item?.DataContext is FileItemViewModel fileItem)
+        {
+            if (ViewModel != null && !ViewModel.SelectedItems.Contains(fileItem))
+            {
+                ViewModel.UpdateSelectedItems(new[] { fileItem });
+                item.IsSelected = true;
+            }
+        }
+    }
+
+    private void OnItemContextMenuOpening(object sender, ContextMenuEventArgs e)
+    {
+        if (sender is FrameworkElement fe && fe.ContextMenu != null)
+        {
+            fe.ContextMenu.DataContext = ViewModel;
+        }
+    }
+
+    private void OnListViewContextMenuOpening(object sender, ContextMenuEventArgs e)
+    {
+        // If clicking on a child ListViewItem, let the item's context menu handle it
+        var depObj = e.OriginalSource as DependencyObject;
+        var item = depObj?.FindVisualAncestor<ListViewItem>();
+        if (item != null)
+        {
+            // Item context menu will open
+            return;
+        }
+
+        if (sender is FrameworkElement fe && fe.ContextMenu != null)
+        {
+            fe.ContextMenu.DataContext = ViewModel;
+        }
+    }
+
+    private void OnTopActionButtonClick(object sender, RoutedEventArgs e)
+    {
+        var btn = sender as FrameworkElement;
+        var cm = btn?.FindVisualAncestor<ContextMenu>();
+        if (cm != null)
+        {
+            cm.IsOpen = false;
         }
     }
 

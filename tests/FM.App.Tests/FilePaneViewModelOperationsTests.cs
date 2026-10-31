@@ -146,5 +146,17 @@ public class FilePaneViewModelOperationsTests
         Assert.Contains("not empty", _viewModel.ErrorMessage);
         Assert.True(_fileSystem.DirectoryExists(folderPath));
     }
+
+    [Fact]
+    public void ContextCommands_WhenNoSelection_DoNotThrow()
+    {
+        // Assert executing commands without selection does not throw exceptions
+        _viewModel.CopyCommand.Execute(null);
+        _viewModel.CutCommand.Execute(null);
+        _viewModel.CopyPathCommand.Execute(null);
+        _viewModel.OpenPropertiesCommand.Execute(null);
+        _viewModel.OpenInTerminalCommand.Execute(null);
+        _viewModel.OpenWithCodeCommand.Execute(null);
+    }
 }
 

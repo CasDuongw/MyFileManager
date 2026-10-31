@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
+using System.Windows;
 using System.Windows.Media;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -13,6 +14,7 @@ using FM.Core.Helpers;
 using FM.Core.Models;
 using FM.Core.Navigation;
 using FM.Core.Operations;
+using FM.Core.Operations.Transfer;
 using FM.Core.Services;
 
 namespace FM.App.ViewModels;
@@ -504,6 +506,289 @@ public partial class FilePaneViewModel : ObservableObject
             }
         }
     }
+
+    #region Context Menu & Clipboard Commands
+
+    [RelayCommand]
+    public void Copy()
+    {
+        RunOnUi(() =>
+        {
+            var selected = SelectedItems.Select(x => x.FullPath).ToList();
+            if (selected.Count == 0 && SelectedItem != null)
+            {
+                selected.Add(SelectedItem.FullPath);
+            }
+            if (selected.Count == 0) return;
+
+            try
+            {
+                var data = new DataObject();
+                var sc = new System.Collections.Specialized.StringCollection();
+                sc.AddRange(selected.ToArray());
+                data.SetFileDropList(sc);
+                Clipboard.SetDataObject(data, true);
+                ShowToast($"Copied {selected.Count} item(s)");
+            }
+            catch (Exception ex)
+            {
+                ErrorMessage = $"Clipboard error: {ex.Message}";
+            }
+        });
+    }
+
+    [RelayCommand]
+    public void Cut()
+    {
+        RunOnUi(() =>
+        {
+            var selected = SelectedItems.Select(x => x.FullPath).ToList();
+            if (selected.Count == 0 && SelectedItem != null)
+            {
+                selected.Add(SelectedItem.FullPath);
+            }
+            if (selected.Count == 0) return;
+
+            try
+            {
+                var data = new DataObject();
+                var sc = new System.Collections.Specialized.StringCollection();
+                sc.AddRange(selected.ToArray());
+                data.SetFileDropList(sc);
+                byte[] moveEffect = new byte[] { 2, 0, 0, 0 }; // DROPEFFECT_MOVE = 2
+                var ms = new MemoryStream(moveEffect);
+                data.SetData("Preferred DropEffect", ms);
+                Clipboard.SetDataObject(data, true);
+                ShowToast($"Cut {selected.Count} item(s)");
+            }
+            catch (Exception ex)
+            {
+                ErrorMessage = $"Clipboard error: {ex.Message}";
+            }
+        });
+    }
+
+    [RelayCommand]
+    public async Task PasteAsync()
+    {
+        List<string>? sourcePaths = null;
+        bool isCut = false;
+
+        RunOnUi(() =>
+        {
+            try
+            {
+                if (Clipboard.ContainsFileDropList())
+                {
+                    var fileDropList = Clipboard.GetFileDropList();
+                    if (fileDropList != null && fileDropList.Count > 0)
+                    {
+                        sourcePaths = fileDropList.Cast<string>().ToList();
+
+                        var data = Clipboard.GetDataObject();
+                        if (data != null && data.GetDataPresent("Preferred DropEffect"))
+                        {
+                            if (data.GetData("Preferred DropEffect") is MemoryStream ms)
+                            {
+                                int dropEffect = ms.ReadByte();
+                                isCut = (dropEffect == 2);
+                            }
+                        }
+                    }
+                }
+            }
+            catch
+            {
+                // Ignore clipboard access errors
+            }
+        });
+
+        if (sourcePaths == null || sourcePaths.Count == 0 || string.IsNullOrEmpty(CurrentPath)) return;
+
+        var mainVm = System.Windows.Application.Current?.MainWindow?.DataContext as MainViewModel;
+        if (mainVm != null)
+        {
+            var job = mainVm.EnqueueTransfer(
+                isCut ? TransferKind.Move : TransferKind.Copy,
+                sourcePaths,
+                CurrentPath,
+                this);
+
+            if (job != null)
+            {
+                await mainVm.WaitForJobCompletionAsync(job);
+                if (isCut)
+                {
+                    RunOnUi(() => Clipboard.Clear());
+                }
+            }
+        }
+    }
+
+    [RelayCommand]
+    public void CopyPath()
+    {
+        RunOnUi(() =>
+        {
+            var selected = SelectedItems.Select(x => x.FullPath).ToList();
+            if (selected.Count == 0 && SelectedItem != null)
+            {
+                selected.Add(SelectedItem.FullPath);
+            }
+            if (selected.Count == 0 && !string.IsNullOrEmpty(CurrentPath))
+            {
+                selected.Add(CurrentPath);
+            }
+            if (selected.Count == 0) return;
+
+            try
+            {
+                string text = string.Join(Environment.NewLine, selected.Select(p => $"\"{p}\""));
+                Clipboard.SetText(text);
+                ShowToast("Copied path to clipboard");
+            }
+            catch (Exception ex)
+            {
+                ErrorMessage = $"Clipboard error: {ex.Message}";
+            }
+        });
+    }
+
+    [RelayCommand]
+    public async Task DeleteToRecycleBinAsync()
+    {
+        var selected = SelectedItems.Select(x => x.FullPath).ToList();
+        if (selected.Count == 0 && SelectedItem != null)
+        {
+            selected.Add(SelectedItem.FullPath);
+        }
+        if (selected.Count == 0) return;
+
+        bool ok = ShellInterop.MoveToRecycleBin(selected);
+        if (ok)
+        {
+            ShowToast($"Deleted {selected.Count} item(s) to Recycle Bin");
+            await RefreshAsync();
+        }
+        else
+        {
+            ErrorMessage = "Could not move item(s) to Recycle Bin";
+        }
+    }
+
+    [RelayCommand]
+    public async Task CompressToZipAsync()
+    {
+        var selected = SelectedItems.Select(x => x.FullPath).ToList();
+        if (selected.Count == 0 && SelectedItem != null)
+        {
+            selected.Add(SelectedItem.FullPath);
+        }
+        if (selected.Count == 0 || string.IsNullOrEmpty(CurrentPath)) return;
+
+        string zipBaseName = selected.Count == 1 ? Path.GetFileNameWithoutExtension(selected[0]) : Path.GetFileName(CurrentPath);
+        if (string.IsNullOrEmpty(zipBaseName)) zipBaseName = "Archive";
+        string zipPath = Path.Combine(CurrentPath, $"{zipBaseName}.zip");
+
+        int counter = 1;
+        while (File.Exists(zipPath))
+        {
+            zipPath = Path.Combine(CurrentPath, $"{zipBaseName} ({counter++}).zip");
+        }
+
+        try
+        {
+            await Task.Run(() => ShellInterop.CreateZipArchive(selected, zipPath));
+            ShowToast($"Created '{Path.GetFileName(zipPath)}'");
+            await RefreshAsync();
+        }
+        catch (Exception ex)
+        {
+            ErrorMessage = $"Compression error: {ex.Message}";
+        }
+    }
+
+    [RelayCommand]
+    public void OpenProperties()
+    {
+        string? path = SelectedItem?.FullPath ?? CurrentPath;
+        if (!string.IsNullOrEmpty(path))
+        {
+            ShellInterop.ShowProperties(path);
+        }
+    }
+
+    [RelayCommand]
+    public void OpenInTerminal()
+    {
+        string? path = (SelectedItem?.IsDirectory == true ? SelectedItem.FullPath : null) ?? CurrentPath;
+        if (!string.IsNullOrEmpty(path))
+        {
+            ShellInterop.OpenInTerminal(path);
+        }
+    }
+
+    [RelayCommand]
+    public void OpenWithCode()
+    {
+        string? path = SelectedItem?.FullPath ?? CurrentPath;
+        if (!string.IsNullOrEmpty(path))
+        {
+            ShellInterop.OpenWithCode(path);
+        }
+    }
+
+    [RelayCommand]
+    public void OpenInNewTab()
+    {
+        string? targetPath = (SelectedItem?.IsDirectory == true ? SelectedItem.FullPath : null) ?? CurrentPath;
+        if (string.IsNullOrEmpty(targetPath)) return;
+
+        var mainVm = System.Windows.Application.Current?.MainWindow?.DataContext as MainViewModel;
+        if (mainVm != null)
+        {
+            mainVm.SplitVertical(this);
+            var newPane = mainVm.ActivePane;
+            if (newPane != null && newPane != this)
+            {
+                newPane.Navigate(targetPath);
+            }
+        }
+    }
+
+    [RelayCommand]
+    public void OpenInNewWindow()
+    {
+        string? targetPath = (SelectedItem?.IsDirectory == true ? SelectedItem.FullPath : null) ?? CurrentPath;
+        if (string.IsNullOrEmpty(targetPath)) return;
+
+        try
+        {
+            Process.Start(new ProcessStartInfo("explorer.exe", $"\"{targetPath}\"") { UseShellExecute = true });
+        }
+        catch (Exception ex)
+        {
+            ErrorMessage = $"Cannot open explorer: {ex.Message}";
+        }
+    }
+
+    [RelayCommand]
+    public void PinToQuickAccess()
+    {
+        string? targetPath = (SelectedItem?.IsDirectory == true ? SelectedItem.FullPath : null) ?? CurrentPath;
+        if (string.IsNullOrEmpty(targetPath)) return;
+
+        var mainVm = System.Windows.Application.Current?.MainWindow?.DataContext as MainViewModel;
+        if (mainVm != null)
+        {
+            string name = Path.GetFileName(targetPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+            if (string.IsNullOrEmpty(name)) name = targetPath;
+            mainVm.AddFavorite(name, targetPath);
+            ShowToast($"Pinned '{name}' to Quick access");
+        }
+    }
+
+    #endregion
 
     private long _navigationVersion;
 

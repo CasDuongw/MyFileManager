@@ -764,6 +764,33 @@ public partial class MainViewModel : ObservableObject
         _ = LoadSidebarIconsAsync();
     }
 
+    public void AddFavorite(string name, string path)
+    {
+        if (string.IsNullOrWhiteSpace(path)) return;
+        if (!SidebarFavorites.Any(f => string.Equals(f.Path, path, StringComparison.OrdinalIgnoreCase)))
+        {
+            var item = new SidebarItemViewModel(name, path, SidebarItemCategory.Favorite);
+            SidebarFavorites.Add(item);
+            _ = LoadSingleSidebarIconAsync(item);
+        }
+    }
+
+    private async Task LoadSingleSidebarIconAsync(SidebarItemViewModel item)
+    {
+        try
+        {
+            var icon = await _iconService.GetIconAsync(item.Path, isDirectory: true, isDrive: false);
+            if (icon != null)
+            {
+                item.Icon = icon;
+            }
+        }
+        catch
+        {
+            // Non-critical if individual sidebar item icon cannot be retrieved
+        }
+    }
+
     private async Task LoadSidebarIconsAsync()
     {
         foreach (var item in SidebarFavorites)
