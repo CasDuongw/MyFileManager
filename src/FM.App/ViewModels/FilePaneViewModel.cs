@@ -44,6 +44,7 @@ public partial class FilePaneViewModel : ObservableObject
     public IUndoStack UndoStack { get; }
     public IFileSystem FileSystem => _fileSystem;
 
+    private readonly object _itemsLock = new();
     public BulkObservableCollection<FileItemViewModel> Items { get; } = new();
 
     [ObservableProperty]
@@ -161,15 +162,7 @@ public partial class FilePaneViewModel : ObservableObject
     public void SetStatusText(string? message, TimeSpan? autoDismissAfter = null)
     {
         _toastMessage = message;
-        var dispatcher = System.Windows.Application.Current?.Dispatcher;
-        if (dispatcher != null && !dispatcher.HasShutdownStarted && !dispatcher.CheckAccess())
-        {
-            _ = dispatcher.InvokeAsync(() => OnPropertyChanged(nameof(SelectionStatusText)));
-        }
-        else
-        {
-            OnPropertyChanged(nameof(SelectionStatusText));
-        }
+        RunOnUi(() => OnPropertyChanged(nameof(SelectionStatusText)));
 
         _toastTimer?.Dispose();
         if (autoDismissAfter.HasValue)
@@ -177,15 +170,7 @@ public partial class FilePaneViewModel : ObservableObject
             _toastTimer = new System.Threading.Timer(_ =>
             {
                 _toastMessage = null;
-                var disp = System.Windows.Application.Current?.Dispatcher;
-                if (disp != null && !disp.HasShutdownStarted)
-                {
-                    _ = disp.InvokeAsync(() => OnPropertyChanged(nameof(SelectionStatusText)));
-                }
-                else
-                {
-                    OnPropertyChanged(nameof(SelectionStatusText));
-                }
+                RunOnUi(() => OnPropertyChanged(nameof(SelectionStatusText)));
             }, null, autoDismissAfter.Value, Timeout.InfiniteTimeSpan);
         }
     }
@@ -202,7 +187,11 @@ public partial class FilePaneViewModel : ObservableObject
             }
 
             int selectedCount = SelectedItems.Count;
-            int totalCount = Items.Count;
+            int totalCount;
+            lock (_itemsLock)
+            {
+                totalCount = Items.Count;
+            }
             if (selectedCount == 0)
             {
                 return $"{totalCount} items";
@@ -219,16 +208,12 @@ public partial class FilePaneViewModel : ObservableObject
 
     public void UpdateSelectedItems(IEnumerable<FileItemViewModel> selected)
     {
-        var dispatcher = System.Windows.Application.Current?.Dispatcher;
-        if (dispatcher != null && !dispatcher.HasShutdownStarted && !dispatcher.CheckAccess())
+        RunOnUi(() =>
         {
-            dispatcher.Invoke(() => UpdateSelectedItems(selected));
-            return;
-        }
-
-        SelectedItems = selected.ToList();
-        SelectedItem = SelectedItems.Count > 0 ? SelectedItems[0] : null;
-        SelectionChanged?.Invoke();
+            SelectedItems = selected.ToList();
+            SelectedItem = SelectedItems.Count > 0 ? SelectedItems[0] : null;
+            SelectionChanged?.Invoke();
+        });
     }
 
     [ObservableProperty]
@@ -264,16 +249,13 @@ public partial class FilePaneViewModel : ObservableObject
 
         UndoStack.CanUndoChanged += () =>
         {
-            var dispatcher = System.Windows.Application.Current?.Dispatcher;
-            if (dispatcher != null && !dispatcher.HasShutdownStarted && !dispatcher.CheckAccess())
-            {
-                _ = dispatcher.InvokeAsync(() => UndoCommand.NotifyCanExecuteChanged());
-            }
-            else
-            {
-                UndoCommand.NotifyCanExecuteChanged();
-            }
+            RunOnUi(() => UndoCommand.NotifyCanExecuteChanged());
         };
+
+        if (System.Windows.Application.Current != null)
+        {
+            System.Windows.Data.BindingOperations.EnableCollectionSynchronization(Items, _itemsLock);
+        }
     }
 
     public void NotifyActivated()
@@ -558,24 +540,27 @@ public partial class FilePaneViewModel : ObservableObject
                 if (historyCommitted) return;
                 historyCommitted = true;
 
-                switch (phaseType)
+                RunOnUi(() =>
                 {
-                    case NavigationPhaseType.New:
-                        _history.CommitNavigate(resolvedPath);
-                        break;
-                    case NavigationPhaseType.Back:
-                        _history.CommitBack();
-                        break;
-                    case NavigationPhaseType.Forward:
-                        _history.CommitForward();
-                        break;
-                    case NavigationPhaseType.Refresh:
-                        break;
-                }
+                    switch (phaseType)
+                    {
+                        case NavigationPhaseType.New:
+                            _history.CommitNavigate(resolvedPath);
+                            break;
+                        case NavigationPhaseType.Back:
+                            _history.CommitBack();
+                            break;
+                        case NavigationPhaseType.Forward:
+                            _history.CommitForward();
+                            break;
+                        case NavigationPhaseType.Refresh:
+                            break;
+                    }
 
-                CurrentPath = resolvedPath;
-                AddressText = resolvedPath;
-                UpdateHistoryCommandStates();
+                    CurrentPath = resolvedPath;
+                    AddressText = resolvedPath;
+                    UpdateHistoryCommandStates();
+                });
             }
 
             var previousSelectedPaths = phaseType == NavigationPhaseType.Refresh
@@ -605,7 +590,7 @@ public partial class FilePaneViewModel : ObservableObject
 
                 if (statusUpdateSw.ElapsedMilliseconds >= 100)
                 {
-                    OnPropertyChanged(nameof(SelectionStatusText));
+                    RunOnUi(() => OnPropertyChanged(nameof(SelectionStatusText)));
                     statusUpdateSw.Restart();
                 }
 
@@ -623,19 +608,29 @@ public partial class FilePaneViewModel : ObservableObject
             if (!IsCurrent()) return;
             EnsureHistoryCommitted();
 
-            // Apply folders-first sort order once enumeration completes
-            await ApplySortAsync(currentVersion, ct);
-
-            if (!IsCurrent()) return;
-
-            // Restore all selected items by FullPath on Refresh
-            if (previousSelectedPaths.Count > 0)
+            // Switch to UI thread for sorting, selection restoration and final status update
+            await RunOnUiAsync(async () =>
             {
-                var restored = Items.Where(i => previousSelectedPaths.Contains(i.FullPath)).ToList();
-                UpdateSelectedItems(restored);
-            }
+                if (!IsCurrent()) return;
 
-            OnPropertyChanged(nameof(SelectionStatusText));
+                // Apply folders-first sort order once enumeration completes
+                await ApplySortAsync(currentVersion, ct);
+
+                if (!IsCurrent()) return;
+
+                // Restore all selected items by FullPath on Refresh
+                if (previousSelectedPaths.Count > 0)
+                {
+                    List<FileItemViewModel> restored;
+                    lock (_itemsLock)
+                    {
+                        restored = Items.Where(i => previousSelectedPaths.Contains(i.FullPath)).ToList();
+                    }
+                    UpdateSelectedItems(restored);
+                }
+
+                OnPropertyChanged(nameof(SelectionStatusText));
+            });
         }
         catch (OperationCanceledException)
         {
@@ -645,40 +640,55 @@ public partial class FilePaneViewModel : ObservableObject
         {
             if (IsCurrent())
             {
-                ErrorMessage = $"Access denied: '{targetPath}'";
-                SafeReplaceItems(Array.Empty<FileItemViewModel>());
+                RunOnUi(() =>
+                {
+                    ErrorMessage = $"Access denied: '{targetPath}'";
+                    SafeReplaceItems(Array.Empty<FileItemViewModel>());
+                });
             }
         }
         catch (DirectoryNotFoundException)
         {
             if (IsCurrent())
             {
-                ErrorMessage = $"Directory not found: '{targetPath}'";
-                SafeReplaceItems(Array.Empty<FileItemViewModel>());
+                RunOnUi(() =>
+                {
+                    ErrorMessage = $"Directory not found: '{targetPath}'";
+                    SafeReplaceItems(Array.Empty<FileItemViewModel>());
+                });
             }
         }
         catch (IOException ex)
         {
             if (IsCurrent())
             {
-                ErrorMessage = $"I/O Error: {ex.Message}";
-                SafeReplaceItems(Array.Empty<FileItemViewModel>());
+                RunOnUi(() =>
+                {
+                    ErrorMessage = $"I/O Error: {ex.Message}";
+                    SafeReplaceItems(Array.Empty<FileItemViewModel>());
+                });
             }
         }
         catch (Exception ex)
         {
             if (IsCurrent())
             {
-                ErrorMessage = $"Error: {ex.Message}";
-                SafeReplaceItems(Array.Empty<FileItemViewModel>());
+                RunOnUi(() =>
+                {
+                    ErrorMessage = $"Error: {ex.Message}";
+                    SafeReplaceItems(Array.Empty<FileItemViewModel>());
+                });
             }
         }
         finally
         {
             if (IsCurrent())
             {
-                IsLoading = false;
-                OnPropertyChanged(nameof(SelectionStatusText));
+                RunOnUi(() =>
+                {
+                    IsLoading = false;
+                    OnPropertyChanged(nameof(SelectionStatusText));
+                });
             }
         }
     }
@@ -698,7 +708,12 @@ public partial class FilePaneViewModel : ObservableObject
 
         var selectedPaths = new HashSet<string>(SelectedItems.Select(i => i.FullPath), StringComparer.OrdinalIgnoreCase);
 
-        var currentItems = Items.ToList();
+        List<FileItemViewModel> currentItems;
+        lock (_itemsLock)
+        {
+            if (Items.Count <= 1) return;
+            currentItems = Items.ToList();
+        }
         var map = currentItems.ToDictionary(i => i.FullPath, StringComparer.OrdinalIgnoreCase);
         var entries = currentItems.Select(i => i.Entry).ToList();
 
@@ -739,53 +754,75 @@ public partial class FilePaneViewModel : ObservableObject
         // Restore ALL selections by FullPath
         if (selectedPaths.Count > 0)
         {
-            var restored = Items.Where(i => selectedPaths.Contains(i.FullPath)).ToList();
+            List<FileItemViewModel> restored;
+            lock (_itemsLock)
+            {
+                restored = Items.Where(i => selectedPaths.Contains(i.FullPath)).ToList();
+            }
             UpdateSelectedItems(restored);
+        }
+    }
+
+    private void RunOnUi(Action action)
+    {
+        var dispatcher = System.Windows.Application.Current?.Dispatcher;
+        if (dispatcher != null && !dispatcher.HasShutdownStarted && !dispatcher.CheckAccess())
+        {
+            dispatcher.Invoke(action);
+        }
+        else
+        {
+            action();
+        }
+    }
+
+    private async Task RunOnUiAsync(Func<Task> action)
+    {
+        var dispatcher = System.Windows.Application.Current?.Dispatcher;
+        if (dispatcher != null && !dispatcher.HasShutdownStarted && !dispatcher.CheckAccess())
+        {
+            await dispatcher.InvokeAsync(action).Task.Unwrap();
+        }
+        else
+        {
+            await action();
         }
     }
 
     private void SafeReplaceItems(IEnumerable<FileItemViewModel> items)
     {
-        var dispatcher = System.Windows.Application.Current?.Dispatcher;
-        if (dispatcher != null && !dispatcher.HasShutdownStarted && !dispatcher.CheckAccess())
+        RunOnUi(() =>
         {
-            dispatcher.Invoke(() => Items.ReplaceAll(items));
-        }
-        else
-        {
-            Items.ReplaceAll(items);
-        }
+            lock (_itemsLock)
+            {
+                Items.ReplaceAll(items);
+            }
+        });
     }
 
     private void SafeAddItems(IEnumerable<FileItemViewModel> items)
     {
-        var dispatcher = System.Windows.Application.Current?.Dispatcher;
-        if (dispatcher != null && !dispatcher.HasShutdownStarted && !dispatcher.CheckAccess())
+        RunOnUi(() =>
         {
-            dispatcher.Invoke(() => Items.AddRange(items));
-        }
-        else
-        {
-            Items.AddRange(items);
-        }
+            lock (_itemsLock)
+            {
+                Items.AddRange(items);
+            }
+        });
     }
 
     private void UpdateHistoryCommandStates()
     {
-        var dispatcher = System.Windows.Application.Current?.Dispatcher;
-        if (dispatcher != null && !dispatcher.HasShutdownStarted && !dispatcher.CheckAccess())
+        RunOnUi(() =>
         {
-            _ = dispatcher.InvokeAsync(() => UpdateHistoryCommandStates());
-            return;
-        }
+            OnPropertyChanged(nameof(CanGoBack));
+            OnPropertyChanged(nameof(CanGoForward));
+            OnPropertyChanged(nameof(CanGoUp));
 
-        OnPropertyChanged(nameof(CanGoBack));
-        OnPropertyChanged(nameof(CanGoForward));
-        OnPropertyChanged(nameof(CanGoUp));
-
-        GoBackCommand.NotifyCanExecuteChanged();
-        GoForwardCommand.NotifyCanExecuteChanged();
-        GoUpCommand.NotifyCanExecuteChanged();
+            GoBackCommand.NotifyCanExecuteChanged();
+            GoForwardCommand.NotifyCanExecuteChanged();
+            GoUpCommand.NotifyCanExecuteChanged();
+        });
     }
 
     public static List<BreadcrumbItem> GenerateBreadcrumbs(string? path)
