@@ -44,6 +44,7 @@ public sealed class InMemoryFileSystem : IFileSystem
     private readonly Dictionary<string, FileData> _files = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, long> _volumeFreeSpace = new(StringComparer.OrdinalIgnoreCase);
     private readonly List<FailureRule> _failureRules = new();
+    private readonly Dictionary<string, Exception> _enumerationFailures = new(StringComparer.OrdinalIgnoreCase);
     private readonly object _lock = new();
 
     public InMemoryFileSystem()
@@ -438,11 +439,23 @@ public sealed class InMemoryFileSystem : IFileSystem
         }
     }
 
+    public void InjectEnumerationFailure(string path, Exception ex)
+    {
+        lock (_lock)
+        {
+            _enumerationFailures[Normalize(path)] = ex;
+        }
+    }
+
     public IEnumerable<string> EnumerateEntries(string path)
     {
         lock (_lock)
         {
             string n = Normalize(path);
+            if (_enumerationFailures.TryGetValue(n, out var ex))
+            {
+                throw ex;
+            }
             var directDirs = _directories.Keys.Where(d => IsDirectChild(n, d));
             var directFiles = _files.Keys.Where(f => IsDirectChild(n, f));
             return directDirs.Concat(directFiles).ToList();

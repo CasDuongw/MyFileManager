@@ -1,3 +1,4 @@
+using FM.Core.Helpers;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Text;
@@ -37,22 +38,7 @@ public sealed class PhysicalFileSystem : IFileSystem
         out ulong lpTotalNumberOfBytes,
         out ulong lpTotalNumberOfFreeBytes);
 
-    public static string NormalizePath(string path)
-    {
-        if (string.IsNullOrWhiteSpace(path)) return string.Empty;
-        string fullPath = Path.GetFullPath(path);
-
-        if (OperatingSystem.IsWindows() && fullPath.Length >= 240 && !fullPath.StartsWith(@"\\?\") && !fullPath.StartsWith(@"\\.\"))
-        {
-            if (fullPath.StartsWith(@"\\"))
-            {
-                return @"\\?\UNC\" + fullPath.Substring(2);
-            }
-            return @"\\?\" + fullPath;
-        }
-
-        return fullPath;
-    }
+    public static string NormalizePath(string path) => PathHelper.NormalizePath(path);
 
     public bool FileExists(string path) => File.Exists(NormalizePath(path));
 

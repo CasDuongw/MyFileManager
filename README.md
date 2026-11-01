@@ -35,7 +35,7 @@ cd MyFileManager
 # Build entire solution (zero warnings, zero errors)
 dotnet build MyFileManager.sln
 
-# Run all test suites (269 tests)
+# Run all test suites (276 tests)
 dotnet test MyFileManager.sln
 
 # Run synthetic directory streaming benchmark
@@ -68,6 +68,13 @@ MyFileManager/
 │   │   │   └── FileSortColumn.cs        # Sort column enumeration
 │   │   ├── Navigation/
 │   │   │   └── NavigationHistory.cs     # Two-phase Back/Forward navigation stack manager
+│   │   ├── Search/
+│   │   │   ├── NameMatcher.cs           # Diacritic- & case-insensitive matching & ranking
+│   │   │   ├── SearchQuery.cs           # Immutable search parameters & root scopes
+│   │   │   ├── SearchResult.cs          # Entry reference with parent folder & relevance score
+│   │   │   ├── SearchScope.cs           # Scope enumeration (CurrentFolder, OpenPanes, ThisPC)
+│   │   │   ├── ISearchService.cs        # Core search engine contract
+│   │   │   └── SearchService.cs         # Recursive engine with loop avoidance & Channel batching
 │   │   ├── Operations/
 │   │   │   ├── IFileOperation.cs        # Undoable operation contract
 │   │   │   ├── UndoStack.cs             # In-memory undo history stack
@@ -132,7 +139,7 @@ MyFileManager/
 ├── tests/
 │   ├── Common/
 │   │   └── TestWorkspace.cs             # Bounded %TEMP%\FM_* workspace manager (max 200 files / 1 MiB)
-│   ├── FM.Core.Tests/           # Core library xUnit test suite (152 tests)
+│   ├── FM.Core.Tests/           # Core library xUnit test suite (159 tests)
 │   ├── FM.App.Tests/            # App-level xUnit test suite (117 tests)
 │   └── FM.Benchmarks/           # Performance benchmark harness
 │       └── Program.cs                   # Navigation and 2 GB transfer benchmarks

@@ -1,3 +1,4 @@
+using FM.Core.Helpers;
 using System.Runtime.CompilerServices;
 using System.Threading.Channels;
 using FM.Core.Models;
@@ -199,19 +200,5 @@ public class DirectoryService : IDirectoryService
         }
     }
 
-    private static string NormalizePath(string path)
-    {
-        string fullPath = Path.GetFullPath(path);
-
-        if (OperatingSystem.IsWindows() && fullPath.Length >= 240 && !fullPath.StartsWith(@"\\?\") && !fullPath.StartsWith(@"\\.\"))
-        {
-            if (fullPath.StartsWith(@"\\"))
-            {
-                return @"\\?\UNC\" + fullPath.Substring(2);
-            }
-            return @"\\?\" + fullPath;
-        }
-
-        return fullPath;
-    }
+    private static string NormalizePath(string path) => PathHelper.NormalizePath(path);
 }
