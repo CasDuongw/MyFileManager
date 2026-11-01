@@ -138,7 +138,10 @@ public partial class MainViewModel : ObservableObject
 
         _transferQueue.ProgressChanged += OnTransferQueueProgressChanged;
 
-        _ = PopulateSidebarAsync();
+        if (_fileSystem is not InMemoryFileSystem)
+        {
+            _ = PopulateSidebarAsync();
+        }
     }
 
     public FilePaneViewModel CreatePane(string? initialPath = null)

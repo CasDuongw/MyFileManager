@@ -222,5 +222,119 @@ public class QuickOpenPlacesTests
         Assert.False(missingItem.IsAvailable);
         Assert.True(existingItem.IsAvailable);
     }
+
+    [Fact]
+    public void Scenario1_LoadedPane_DU_AN_NHAN_Finds_DU_AN_CA_NHAN_AtTop()
+    {
+        string fptPath = @"C:\Users\User\Desktop\FPT_student";
+        _fileSystem.CreateDirectory(fptPath);
+        _fileSystem.CreateDirectory(System.IO.Path.Combine(fptPath, "DU_AN_CA_NHAN"));
+        _fileSystem.CreateDirectory(System.IO.Path.Combine(fptPath, "ky_1"));
+        _fileSystem.CreateDirectory(System.IO.Path.Combine(fptPath, "ky_2"));
+        _fileSystem.CreateDirectory(System.IO.Path.Combine(fptPath, "sinh viên"));
+        _fileSystem.CreateDirectory(System.IO.Path.Combine(fptPath, "thi_that"));
+
+        var pane = _mainViewModel.ActivePane;
+        pane.Navigate(fptPath);
+
+        var vm = CreateViewModel();
+
+        // 1. DU_AN_NHAN (subsequence match) -> DU_AN_CA_NHAN must be row 1
+        vm.Open("DU_AN_NHAN");
+        Assert.NotEmpty(vm.Results);
+        Assert.Equal("DU_AN_CA_NHAN", vm.Results[0].Title);
+
+        // 2. du an -> returns DU_AN_CA_NHAN
+        vm.Open("du an");
+        Assert.NotEmpty(vm.Results);
+        Assert.Contains(vm.Results.Take(3), r => r.Title == "DU_AN_CA_NHAN");
+
+        // 3. dacn (initials) -> returns DU_AN_CA_NHAN
+        vm.Open("dacn");
+        Assert.NotEmpty(vm.Results);
+        Assert.Contains(vm.Results.Take(3), r => r.Title == "DU_AN_CA_NHAN");
+
+        // 4. ca nhan -> returns DU_AN_CA_NHAN
+        vm.Open("ca nhan");
+        Assert.NotEmpty(vm.Results);
+        Assert.Contains(vm.Results.Take(3), r => r.Title == "DU_AN_CA_NHAN");
+    }
+
+    [Fact]
+    public void Scenario2_LoadedPane_VietnameseDiacriticsAndInitials()
+    {
+        string fptPath = @"C:\Users\User\Desktop\FPT_student";
+        _fileSystem.CreateDirectory(fptPath);
+        _fileSystem.CreateDirectory(System.IO.Path.Combine(fptPath, "sinh viên"));
+        _fileSystem.CreateDirectory(System.IO.Path.Combine(fptPath, "Đồ án"));
+
+        var pane = _mainViewModel.ActivePane;
+        pane.Navigate(fptPath);
+
+        var vm = CreateViewModel();
+
+        // 1. 'sinh vien' finds 'sinh viên'
+        vm.Open("sinh vien");
+        Assert.NotEmpty(vm.Results);
+        Assert.Equal("sinh viên", vm.Results[0].Title);
+
+        // 2. 'sv' (initials) finds 'sinh viên'
+        vm.Open("sv");
+        Assert.NotEmpty(vm.Results);
+        Assert.Contains(vm.Results.Take(3), r => r.Title == "sinh viên");
+
+        // 3. 'do an' finds 'Đồ án' (maps đ/Đ to d)
+        vm.Open("do an");
+        Assert.NotEmpty(vm.Results);
+        Assert.Equal("Đồ án", vm.Results[0].Title);
+    }
+
+    [Fact]
+    public void Scenario4_QueryWithNoMatch_ShowsExplicitEmptyState()
+    {
+        var vm = CreateViewModel();
+        vm.Open("xyzNonExistentQuery999");
+
+        Assert.True(vm.IsOpen);
+        Assert.Empty(vm.Results);
+        Assert.True(vm.HasNoMatches);
+        Assert.Equal("No matching folders", vm.EmptyStateTitle);
+        Assert.False(string.IsNullOrEmpty(vm.StatusMessage));
+    }
+
+    [Fact]
+    public void Scenario5_EnterOpensInActivePaneAtOpenTime()
+    {
+        string fptPath = @"C:\Users\User\Desktop\FPT_student";
+        _fileSystem.CreateDirectory(fptPath);
+        string targetDir = System.IO.Path.Combine(fptPath, "DU_AN_CA_NHAN");
+        _fileSystem.CreateDirectory(targetDir);
+
+        var activePane = _mainViewModel.ActivePane;
+        activePane.Navigate(fptPath);
+
+        var vm = CreateViewModel();
+        vm.Open("DU_AN_NHAN");
+
+        Assert.Equal("DU_AN_CA_NHAN", vm.SelectedItem?.Title);
+        vm.ExecuteSelected();
+
+        Assert.False(vm.IsOpen);
+        Assert.Equal(targetDir, activePane.CurrentPath);
+    }
+
+    [Fact]
+    public void Scenario6_StaleKeystrokeQuery_NeverOverwritesNewerResults()
+    {
+        var vm = CreateViewModel();
+        vm.Open("doc");
+        Assert.NotEmpty(vm.Results);
+        Assert.Equal("Documents", vm.Results[0].Title);
+
+        // Rapid keystroke update
+        vm.Open("down");
+        Assert.NotEmpty(vm.Results);
+        Assert.Equal("Downloads", vm.Results[0].Title);
+    }
 }
 

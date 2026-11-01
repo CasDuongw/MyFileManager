@@ -29,13 +29,14 @@ public class QuickOpenSourceProvider : IQuickOpenSourceProvider
     {
         var vm = _mainViewModel;
         var results = new List<QuickOpenItemViewModel>();
-        var favoritePaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var seenPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var activePane = vm.ActivePane;
 
         // 1. Sidebar Favorites
         foreach (var fav in vm.SidebarFavorites)
         {
             if (string.IsNullOrWhiteSpace(fav.Path)) continue;
-            favoritePaths.Add(fav.Path);
+            seenPaths.Add(fav.Path);
 
             results.Add(new QuickOpenItemViewModel
             {
@@ -46,35 +47,11 @@ public class QuickOpenSourceProvider : IQuickOpenSourceProvider
                 Kind = QuickOpenItemKind.Place,
                 TargetPath = fav.Path,
                 Priority = 2,
-                ExecuteAction = () => vm.ActivePane?.Navigate(fav.Path)
+                ExecuteAction = () => (activePane ?? vm.ActivePane)?.Navigate(fav.Path)
             });
         }
 
-        // 2. Recent Folders (Deduplicate: Favorite badge wins over Recent for identical paths)
-        foreach (var path in vm.RecentFolders.Items)
-        {
-            if (string.IsNullOrWhiteSpace(path)) continue;
-            if (favoritePaths.Contains(path)) continue;
-
-            string title = Path.GetFileName(path);
-            if (string.IsNullOrEmpty(title))
-            {
-                title = path; // e.g. "C:\"
-            }
-
-            results.Add(new QuickOpenItemViewModel
-            {
-                Title = title,
-                Subtitle = path,
-                Badge = "Recent",
-                Kind = QuickOpenItemKind.Place,
-                TargetPath = path,
-                Priority = 3,
-                ExecuteAction = () => vm.ActivePane?.Navigate(path)
-            });
-        }
-
-        // 3. Open Panes (the app's "tabs")
+        // 2. Open Panes (the app's "tabs")
         foreach (var pane in vm.Panes)
         {
             string title = string.IsNullOrWhiteSpace(pane.CurrentFolderName)
@@ -93,13 +70,96 @@ public class QuickOpenSourceProvider : IQuickOpenSourceProvider
                 Priority = 1,
                 ExecuteAction = () => vm.SetActivePane(pane)
             });
+
+            // 3. Open Pane Content: directories already loaded in this pane!
+            var items = pane.UnfilteredItems;
+            if (items.Count == 0)
+            {
+                items = pane.Items.ToList();
+            }
+
+            foreach (var item in items)
+            {
+                if (!item.IsDirectory) continue;
+                if (string.IsNullOrWhiteSpace(item.FullPath)) continue;
+                if (!seenPaths.Add(item.FullPath)) continue;
+
+                results.Add(new QuickOpenItemViewModel
+                {
+                    Title = item.Name,
+                    Subtitle = item.FullPath,
+                    Badge = "Folder",
+                    Icon = item.Icon,
+                    Kind = QuickOpenItemKind.Place,
+                    TargetPath = item.FullPath,
+                    Priority = 2,
+                    ExecuteAction = () => (activePane ?? vm.ActivePane)?.Navigate(item.FullPath)
+                });
+            }
+
+            // 4. Open Pane Ancestor Folders
+            if (!string.IsNullOrWhiteSpace(pane.CurrentPath))
+            {
+                try
+                {
+                    string? parent = Path.GetDirectoryName(pane.CurrentPath);
+                    while (!string.IsNullOrEmpty(parent))
+                    {
+                        if (seenPaths.Add(parent))
+                        {
+                            string pTitle = Path.GetFileName(parent);
+                            if (string.IsNullOrEmpty(pTitle)) pTitle = parent;
+
+                            results.Add(new QuickOpenItemViewModel
+                            {
+                                Title = pTitle,
+                                Subtitle = parent,
+                                Badge = "Folder",
+                                Kind = QuickOpenItemKind.Place,
+                                TargetPath = parent,
+                                Priority = 2,
+                                ExecuteAction = () => (activePane ?? vm.ActivePane)?.Navigate(parent)
+                            });
+                        }
+                        parent = Path.GetDirectoryName(parent);
+                    }
+                }
+                catch
+                {
+                    // Ignore malformed paths
+                }
+            }
         }
 
-        // 4. Sidebar Drives
+        // 5. Recent Folders (Deduplicate: Favorite badge wins over Recent for identical paths)
+        foreach (var path in vm.RecentFolders.Items)
+        {
+            if (string.IsNullOrWhiteSpace(path)) continue;
+            if (!seenPaths.Add(path)) continue;
+
+            string title = Path.GetFileName(path);
+            if (string.IsNullOrEmpty(title))
+            {
+                title = path; // e.g. "C:\"
+            }
+
+            results.Add(new QuickOpenItemViewModel
+            {
+                Title = title,
+                Subtitle = path,
+                Badge = "Recent",
+                Kind = QuickOpenItemKind.Place,
+                TargetPath = path,
+                Priority = 3,
+                ExecuteAction = () => (activePane ?? vm.ActivePane)?.Navigate(path)
+            });
+        }
+
+        // 6. Sidebar Drives
         foreach (var drive in vm.SidebarDrives)
         {
             if (string.IsNullOrWhiteSpace(drive.Path)) continue;
-            if (favoritePaths.Contains(drive.Path)) continue;
+            if (!seenPaths.Add(drive.Path)) continue;
 
             results.Add(new QuickOpenItemViewModel
             {
@@ -110,11 +170,16 @@ public class QuickOpenSourceProvider : IQuickOpenSourceProvider
                 Kind = QuickOpenItemKind.Place,
                 TargetPath = drive.Path,
                 Priority = 4,
-                ExecuteAction = () => vm.ActivePane?.Navigate(drive.Path)
+                ExecuteAction = () => (activePane ?? vm.ActivePane)?.Navigate(drive.Path)
             });
         }
 
         return results;
+    }
+
+    public string GetStatusMessage()
+    {
+        return "Search open tabs, favorites, and recents";
     }
 
     public IReadOnlyList<QuickOpenItemViewModel> GetCommands()

@@ -18,6 +18,10 @@ public partial class QuickOpenViewModel : ObservableObject
     private readonly IQuickOpenSourceProvider _sourceProvider;
     private readonly Action<Action> _uiDispatcher;
     private CancellationTokenSource? _availabilityCts;
+    private CancellationTokenSource? _searchCts;
+    private int _searchVersion;
+
+    public Task? CurrentSearchTask { get; private set; }
 
     public const string DefaultPlaceholder = "Folders, tabs and workspaces — type > for commands";
     public const string CommandPlaceholder = "Type a command name...";
@@ -37,11 +41,19 @@ public partial class QuickOpenViewModel : ObservableObject
     [ObservableProperty]
     private int _selectedIndex = -1;
 
+    [ObservableProperty]
+    private string _statusMessage = string.Empty;
+
+    [ObservableProperty]
+    private string _emptyStateTitle = "No matching folders";
+
     public BulkObservableCollection<QuickOpenItemViewModel> Results { get; } = new();
 
     public string PlaceholderText => Mode == QuickOpenMode.Commands ? CommandPlaceholder : DefaultPlaceholder;
 
     public bool HasResults => Results.Count > 0;
+
+    public bool HasNoMatches => IsOpen && !string.IsNullOrWhiteSpace(QueryText) && Results.Count == 0;
 
     public QuickOpenViewModel(
         IQuickOpenSourceProvider sourceProvider,
@@ -73,12 +85,15 @@ public partial class QuickOpenViewModel : ObservableObject
     [RelayCommand]
     public void Close()
     {
+        _searchCts?.Cancel();
         _availabilityCts?.Cancel();
         IsOpen = false;
         QueryText = string.Empty;
         Results.Clear();
         SelectedIndex = -1;
         SelectedItem = null;
+        OnPropertyChanged(nameof(HasNoMatches));
+        OnPropertyChanged(nameof(HasResults));
     }
 
     [RelayCommand]
@@ -145,13 +160,15 @@ public partial class QuickOpenViewModel : ObservableObject
 
         Mode = isCommandMode ? QuickOpenMode.Commands : QuickOpenMode.Places;
 
-        List<QuickOpenItemViewModel> matched;
-
         if (isCommandMode)
         {
+            EmptyStateTitle = "No matching commands";
+            StatusMessage = "Try typing another command name or press Esc to exit";
+
             string cmdQuery = raw.Length > 1 ? raw.Substring(1).TrimStart() : string.Empty;
             var commands = _sourceProvider.GetCommands();
 
+            List<QuickOpenItemViewModel> matched;
             if (string.IsNullOrWhiteSpace(cmdQuery))
             {
                 matched = commands.Take(50).ToList();
@@ -172,76 +189,145 @@ public partial class QuickOpenViewModel : ObservableObject
                     .Take(50)
                     .ToList();
             }
+
+            _uiDispatcher(() =>
+            {
+                Results.ReplaceAll(matched);
+                OnPropertyChanged(nameof(HasResults));
+                OnPropertyChanged(nameof(HasNoMatches));
+
+                if (Results.Count > 0)
+                {
+                    SelectedIndex = 0;
+                    SelectedItem = Results[0];
+                }
+                else
+                {
+                    SelectedIndex = -1;
+                    SelectedItem = null;
+                }
+            });
         }
         else
         {
+            EmptyStateTitle = "No matching folders";
+            StatusMessage = _sourceProvider.GetStatusMessage();
+
             string placeQuery = raw.Trim();
             var places = _sourceProvider.GetPlaces();
 
+            int version = Interlocked.Increment(ref _searchVersion);
+            _searchCts?.Cancel();
+
             if (string.IsNullOrWhiteSpace(placeQuery))
             {
-                // In empty query: show in natural priority order (Open Panes -> Favorites -> Recents -> Drives)
-                matched = places
+                var matched = places
                     .OrderBy(p => p.Priority)
                     .Take(50)
                     .ToList();
+
+                _uiDispatcher(() =>
+                {
+                    if (version != _searchVersion) return;
+                    Results.ReplaceAll(matched);
+                    OnPropertyChanged(nameof(HasResults));
+                    OnPropertyChanged(nameof(HasNoMatches));
+
+                    if (Results.Count > 0)
+                    {
+                        SelectedIndex = 0;
+                        SelectedItem = Results[0];
+                    }
+                    else
+                    {
+                        SelectedIndex = -1;
+                        SelectedItem = null;
+                    }
+                });
+
+                TriggerAvailabilityCheck(matched);
             }
             else
             {
-                matched = places
-                    .Select(p =>
-                    {
-                        var titleMatch = FuzzyMatcher.Match(p.Title, placeQuery);
-                        var subMatch = FuzzyMatcher.Match(p.Subtitle, placeQuery);
+                _searchCts = new CancellationTokenSource();
+                var token = _searchCts.Token;
 
-                        if (titleMatch != null)
+                Action runSearch = () =>
+                {
+                    var prepQuery = PreparedQuery.Create(placeQuery);
+                    var topK = PreparedMatcher.SelectTopK(
+                        places,
+                        prepQuery,
+                        50,
+                        p => (p.Title, p.NormTitle, p.Bitmask, p.RawParent, p.NormParent),
+                        p => GetPlacePriorityBoost(p));
+
+                    if (token.IsCancellationRequested || version != _searchVersion) return;
+
+                    var matched = topK.Select(r =>
+                    {
+                        r.Item.Score = r.Score;
+                        return r.Item;
+                    }).ToList();
+
+                    _uiDispatcher(() =>
+                    {
+                        if (version != _searchVersion) return;
+                        Results.ReplaceAll(matched);
+                        OnPropertyChanged(nameof(HasResults));
+                        OnPropertyChanged(nameof(HasNoMatches));
+
+                        if (Results.Count > 0)
                         {
-                            p.Score = titleMatch.Score;
-                        }
-                        else if (subMatch != null)
-                        {
-                            p.Score = subMatch.Score * 0.7; // slight penalty for subtitle match
+                            SelectedIndex = 0;
+                            SelectedItem = Results[0];
                         }
                         else
                         {
-                            p.Score = -1.0;
+                            SelectedIndex = -1;
+                            SelectedItem = null;
                         }
+                    });
 
-                        return p;
-                    })
-                    .Where(p => p.Score >= 0)
-                    .OrderByDescending(p => p.Score)
-                    .ThenBy(p => p.Priority)
-                    .Take(50)
-                    .ToList();
+                    if (matched.Count > 0 && !token.IsCancellationRequested)
+                    {
+                        TriggerAvailabilityCheck(matched);
+                    }
+                };
+
+                if (places.Count <= 200)
+                {
+                    CurrentSearchTask = Task.CompletedTask;
+                    runSearch();
+                }
+                else
+                {
+                    CurrentSearchTask = Task.Run(runSearch, token);
+                }
             }
         }
+    }
 
-        _uiDispatcher(() =>
+    private void TriggerAvailabilityCheck(List<QuickOpenItemViewModel> items)
+    {
+        if (items.Count == 0) return;
+        _availabilityCts?.Cancel();
+        _availabilityCts = new CancellationTokenSource();
+        var token = _availabilityCts.Token;
+        _ = _sourceProvider.CheckAvailabilityAsync(items, token);
+    }
+
+    private static double GetPlacePriorityBoost(QuickOpenItemViewModel p)
+    {
+        return p.Badge switch
         {
-            Results.ReplaceAll(matched);
-            OnPropertyChanged(nameof(HasResults));
-
-            if (Results.Count > 0)
-            {
-                SelectedIndex = 0;
-                SelectedItem = Results[0];
-            }
-            else
-            {
-                SelectedIndex = -1;
-                SelectedItem = null;
-            }
-        });
-
-        // Background availability check for places
-        if (!isCommandMode && matched.Count > 0)
-        {
-            _availabilityCts?.Cancel();
-            _availabilityCts = new CancellationTokenSource();
-            var token = _availabilityCts.Token;
-            _ = _sourceProvider.CheckAvailabilityAsync(matched, token);
-        }
+            "Open pane" => 50.0,
+            "Folder" => 40.0,
+            "Favorite" => 30.0,
+            "Recent" => 20.0,
+            "Drive" => 10.0,
+            _ => 0.0
+        };
     }
 }
 
