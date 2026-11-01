@@ -109,6 +109,47 @@ public partial class FilePaneView : UserControl
         FileListView.Focus();
     }
 
+    private void OnPreviewTextInput(object sender, TextCompositionEventArgs e)
+    {
+        if ((Keyboard.Modifiers & (ModifierKeys.Control | ModifierKeys.Alt)) != 0)
+        {
+            return;
+        }
+
+        var focused = Keyboard.FocusedElement as DependencyObject;
+        if (focused is TextBoxBase)
+        {
+            return;
+        }
+
+        if (ViewModel?.IsEditingAddress == true)
+        {
+            return;
+        }
+
+        if (string.IsNullOrEmpty(e.Text) || char.IsControl(e.Text[0]))
+        {
+            return;
+        }
+
+        if (ViewModel != null)
+        {
+            var match = ViewModel.TypeToSelect(e.Text);
+            if (match != null)
+            {
+                if (FileListView.IsVisible)
+                {
+                    FileListView.ScrollIntoView(match);
+                }
+                else if (IconsListView?.IsVisible == true)
+                {
+                    IconsListView.ScrollIntoView(match);
+                }
+            }
+            e.Handled = true;
+        }
+    }
+
     private void OnPanePreviewMouseDown(object sender, MouseButtonEventArgs e)
     {
         ViewModel?.NotifyActivated();

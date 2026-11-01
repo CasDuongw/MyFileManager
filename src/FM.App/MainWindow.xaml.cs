@@ -133,6 +133,15 @@ public partial class MainWindow : Window
             }
         }
 
+        // Ctrl+Shift+F: Focus toolbar filter box
+        if (isCtrl && isShift && e.Key == Key.F)
+        {
+            ToolbarFilterBox.Focus();
+            ToolbarFilterBox.SelectAll();
+            e.Handled = true;
+            return;
+        }
+
         if (isCtrl && isShift && e.Key == Key.N)
         {
             if (ViewModel?.ActivePane?.NewFolderCommand.CanExecute(null) == true)
@@ -268,6 +277,25 @@ public partial class MainWindow : Window
         view?.FocusFileList();
     }
 
+    private void OnToolbarFilterBoxPreviewKeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key == Key.Escape)
+        {
+            ToolbarFilterBox.Text = string.Empty;
+            FocusActivePaneList();
+            e.Handled = true;
+        }
+    }
+
+    public void FocusActivePaneList()
+    {
+        if (ViewModel?.ActivePane != null)
+        {
+            var activeView = WorkspaceControl.GetViewForPane(ViewModel.ActivePane);
+            activeView?.FocusFileList();
+        }
+    }
+
     private void FocusActiveAddressBar()
     {
         if (ViewModel?.ActivePane == null) return;

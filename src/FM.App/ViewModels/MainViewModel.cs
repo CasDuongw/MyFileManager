@@ -51,14 +51,18 @@ public partial class MainViewModel : ObservableObject
 
     public string ActiveFolderName => _activePane?.CurrentFolderName ?? "MyFileManager";
 
+    private bool _isSyncingFilter;
+
     [ObservableProperty]
     private string _searchText = string.Empty;
 
     partial void OnSearchTextChanged(string value)
     {
-        if (ActivePane != null)
+        if (_isSyncingFilter) return;
+
+        if (ActivePane != null && !string.Equals(ActivePane.FilterText, value, StringComparison.Ordinal))
         {
-            ActivePane.SearchText = value;
+            ActivePane.FilterText = value;
         }
     }
 
@@ -137,6 +141,7 @@ public partial class MainViewModel : ObservableObject
         pane.ShowHiddenFiles = ShowHiddenFiles;
         pane.Activated += OnPaneActivated;
         pane.SelectionChanged += OnTransferCanExecuteChanged;
+        pane.PropertyChanged += OnPanePropertyChanged;
         pane.PropertyChanged += (s, e) =>
         {
             if (e.PropertyName == nameof(FilePaneViewModel.CurrentPath))
@@ -376,12 +381,42 @@ public partial class MainViewModel : ObservableObject
         SetActivePane(pane);
     }
 
+    private void OnPanePropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(FilePaneViewModel.FilterText) && sender == ActivePane)
+        {
+            if (!_isSyncingFilter)
+            {
+                _isSyncingFilter = true;
+                try
+                {
+                    SearchText = ActivePane.FilterText;
+                }
+                finally
+                {
+                    _isSyncingFilter = false;
+                }
+            }
+        }
+    }
+
+
     public void SetActivePane(FilePaneViewModel? pane)
     {
         if (_activePane == pane) return;
 
         _lastActivePane = _activePane;
         _activePane = pane;
+
+        _isSyncingFilter = true;
+        try
+        {
+            SearchText = pane?.FilterText ?? string.Empty;
+        }
+        finally
+        {
+            _isSyncingFilter = false;
+        }
 
         OnPropertyChanged(nameof(ActivePane));
         OnPropertyChanged(nameof(ActiveFolderName));
@@ -670,6 +705,7 @@ public partial class MainViewModel : ObservableObject
             Panes.RemoveAt(removeIdx);
             p.Activated -= OnPaneActivated;
             p.SelectionChanged -= OnTransferCanExecuteChanged;
+            p.PropertyChanged -= OnPanePropertyChanged;
         }
 
         OnPropertyChanged(nameof(CanClosePanes));
@@ -739,6 +775,7 @@ public partial class MainViewModel : ObservableObject
             Panes.RemoveAt(Panes.Count - 1);
             p.Activated -= OnPaneActivated;
             p.SelectionChanged -= OnTransferCanExecuteChanged;
+            p.PropertyChanged -= OnPanePropertyChanged;
         }
 
         for (int i = 0; i < Panes.Count && i < pathsToLoad.Count; i++)

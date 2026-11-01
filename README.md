@@ -35,7 +35,7 @@ cd MyFileManager
 # Build entire solution (zero warnings, zero errors)
 dotnet build MyFileManager.sln
 
-# Run all test suites (199 tests)
+# Run all test suites (269 tests)
 dotnet test MyFileManager.sln
 
 # Run synthetic directory streaming benchmark
@@ -132,8 +132,8 @@ MyFileManager/
 ├── tests/
 │   ├── Common/
 │   │   └── TestWorkspace.cs             # Bounded %TEMP%\FM_* workspace manager (max 200 files / 1 MiB)
-│   ├── FM.Core.Tests/           # Core library xUnit test suite (126 tests)
-│   ├── FM.App.Tests/            # App-level xUnit test suite (73 tests)
+│   ├── FM.Core.Tests/           # Core library xUnit test suite (152 tests)
+│   ├── FM.App.Tests/            # App-level xUnit test suite (117 tests)
 │   └── FM.Benchmarks/           # Performance benchmark harness
 │       └── Program.cs                   # Navigation and 2 GB transfer benchmarks
 │
@@ -161,6 +161,9 @@ MyFileManager/
 | **`Alt + Right`** | Navigate forward in history | Active pane |
 | **`Ctrl + L`** | Focus and select text in the address bar | Active pane |
 | **`F5`** | Refresh file listing | Active pane |
+| **`Ctrl + Shift + F`** | Focus folder filter box | Toolbar / Active pane |
+| **`Esc`** | Clear filter and return focus to list (or cancel address editing) | Filter box / Active pane |
+| **Printable chars** | Type-to-select matching item (prefix preferred, 1s idle timeout) | Active file list |
 | **Mouse Drag** | Drag selected items between panes or to/from Windows Explorer | Multi-selection preserved |
 | **`Ctrl + Drag`** | Force Copy operation during drag | Drag & Drop |
 | **`Shift + Drag`** | Force Move operation during drag | Drag & Drop |

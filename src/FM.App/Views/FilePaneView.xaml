@@ -10,7 +10,8 @@
              d:DataContext="{d:DesignInstance Type=vm:FilePaneViewModel}"
              d:DesignHeight="600" d:DesignWidth="700"
              Focusable="True"
-             PreviewMouseDown="OnPanePreviewMouseDown">
+             PreviewMouseDown="OnPanePreviewMouseDown"
+             PreviewTextInput="OnPreviewTextInput">
 
     <UserControl.Resources>
         <BooleanToVisibilityConverter x:Key="BoolToVis" />

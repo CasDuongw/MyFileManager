@@ -15,7 +15,9 @@ using FM.Core.Models;
 using FM.Core.Navigation;
 using FM.Core.Operations;
 using FM.Core.Operations.Transfer;
+using FM.Core.Search;
 using FM.Core.Services;
+using System.Text;
 
 namespace FM.App.ViewModels;
 
@@ -49,6 +51,24 @@ public partial class FilePaneViewModel : ObservableObject
 
     private readonly object _itemsLock = new();
     public BulkObservableCollection<FileItemViewModel> Items { get; } = new();
+
+    private readonly List<FileItemViewModel> _unfilteredItems = new();
+    public IReadOnlyList<FileItemViewModel> UnfilteredItems
+    {
+        get
+        {
+            lock (_itemsLock)
+            {
+                return _unfilteredItems.ToList();
+            }
+        }
+    }
+    private long _filterVersion;
+    private CancellationTokenSource? _filterCts;
+
+    private readonly StringBuilder _typeToSelectBuffer = new();
+    private DateTimeOffset _lastTypeToSelectTime = DateTimeOffset.MinValue;
+    public TimeProvider TimeProvider { get; set; } = TimeProvider.System;
 
     [ObservableProperty]
     private string _currentPath = string.Empty;
@@ -108,7 +128,190 @@ public partial class FilePaneViewModel : ObservableObject
     }
 
     [ObservableProperty]
-    private string _searchText = string.Empty;
+    [NotifyPropertyChangedFor(nameof(SelectionStatusText))]
+    [NotifyPropertyChangedFor(nameof(IsFiltering))]
+    private string _filterText = string.Empty;
+
+    public bool IsFiltering => !string.IsNullOrWhiteSpace(FilterText);
+
+    public string SearchText
+    {
+        get => FilterText;
+        set => FilterText = value;
+    }
+
+    private bool _suppressFilterDebounce;
+
+    partial void OnFilterTextChanged(string value)
+    {
+        if (_suppressFilterDebounce) return;
+        _ = ApplyFilterDebouncedAsync(value);
+    }
+
+    public async Task ApplyFilterDebouncedAsync(string filterText)
+    {
+        _filterCts?.Cancel();
+        _filterCts?.Dispose();
+        _filterCts = new CancellationTokenSource();
+        var ct = _filterCts.Token;
+
+        try
+        {
+            await Task.Delay(150, ct);
+            await ApplyFilterInternalAsync(filterText, ct);
+        }
+        catch (OperationCanceledException)
+        {
+            // Superseded
+        }
+    }
+
+    public async Task ApplyFilterImmediateAsync(string filterText, CancellationToken ct = default)
+    {
+        _filterCts?.Cancel();
+        _suppressFilterDebounce = true;
+        try
+        {
+            FilterText = filterText ?? string.Empty;
+        }
+        finally
+        {
+            _suppressFilterDebounce = false;
+        }
+        await ApplyFilterInternalAsync(FilterText, ct);
+    }
+
+    private async Task ApplyFilterInternalAsync(string filterText, CancellationToken ct)
+    {
+        long currentVersion = Interlocked.Increment(ref _filterVersion);
+        bool IsCurrent() => currentVersion == Interlocked.Read(ref _filterVersion)
+                         && !ct.IsCancellationRequested
+                         && (_loadCts == null || !_loadCts.IsCancellationRequested);
+
+        if (!IsCurrent()) return;
+
+        List<FileItemViewModel> sourceItems;
+        lock (_itemsLock)
+        {
+            sourceItems = _unfilteredItems.ToList();
+        }
+
+        var selectedPaths = new HashSet<string>(SelectedItems.Select(i => i.FullPath), StringComparer.OrdinalIgnoreCase);
+
+        List<FileItemViewModel> filteredItems;
+        if (string.IsNullOrWhiteSpace(filterText))
+        {
+            filteredItems = sourceItems;
+        }
+        else
+        {
+            if (sourceItems.Count > 500)
+            {
+                filteredItems = await Task.Run(() =>
+                    sourceItems.Where(item => NameMatcher.Matches(item.Name, filterText)).ToList(),
+                    ct);
+            }
+            else
+            {
+                filteredItems = sourceItems.Where(item => NameMatcher.Matches(item.Name, filterText)).ToList();
+            }
+        }
+
+        if (!IsCurrent()) return;
+
+        var sortCol = CurrentSortColumn;
+        var isAsc = IsSortAscending;
+        if (filteredItems.Count > 1)
+        {
+            var map = filteredItems.ToDictionary(i => i.FullPath, StringComparer.OrdinalIgnoreCase);
+            var entries = filteredItems.Select(i => i.Entry).ToList();
+            if (filteredItems.Count > 500)
+            {
+                var sortedEntries = await Task.Run(() => entries.OrderEntries(sortCol, isAsc), ct);
+                filteredItems = sortedEntries.Select(e => map[e.FullPath]).ToList();
+            }
+            else
+            {
+                var sortedEntries = entries.OrderEntries(sortCol, isAsc);
+                filteredItems = sortedEntries.Select(e => map[e.FullPath]).ToList();
+            }
+        }
+
+        if (!IsCurrent()) return;
+
+        RunOnUi(() =>
+        {
+            if (!IsCurrent()) return;
+
+            SafeReplaceItems(filteredItems);
+
+            if (selectedPaths.Count > 0)
+            {
+                var restored = filteredItems.Where(i => selectedPaths.Contains(i.FullPath)).ToList();
+                UpdateSelectedItems(restored);
+            }
+            else
+            {
+                UpdateSelectedItems(Array.Empty<FileItemViewModel>());
+            }
+
+            OnPropertyChanged(nameof(SelectionStatusText));
+        });
+    }
+
+    public void ResetTypeToSelect()
+    {
+        _typeToSelectBuffer.Clear();
+        _lastTypeToSelectTime = DateTimeOffset.MinValue;
+    }
+
+    public FileItemViewModel? TypeToSelect(string text)
+    {
+        if (string.IsNullOrEmpty(text)) return null;
+
+        var now = TimeProvider.GetUtcNow();
+        if (_lastTypeToSelectTime != DateTimeOffset.MinValue)
+        {
+            double elapsed = (now - _lastTypeToSelectTime).TotalSeconds;
+            if (elapsed > 1.0)
+            {
+                _typeToSelectBuffer.Clear();
+            }
+        }
+        _lastTypeToSelectTime = now;
+
+        _typeToSelectBuffer.Append(text);
+        string query = _typeToSelectBuffer.ToString();
+
+        List<FileItemViewModel> currentItems;
+        lock (_itemsLock)
+        {
+            currentItems = Items.ToList();
+        }
+
+        if (currentItems.Count == 0) return null;
+
+        string normQuery = NameMatcher.Normalize(query);
+        if (string.IsNullOrEmpty(normQuery)) return null;
+
+        var match = currentItems.FirstOrDefault(item =>
+            NameMatcher.Normalize(item.Name).StartsWith(normQuery, StringComparison.Ordinal));
+
+        if (match == null)
+        {
+            match = currentItems.FirstOrDefault(item =>
+                NameMatcher.Normalize(item.Name).Contains(normQuery, StringComparison.Ordinal));
+        }
+
+        if (match != null)
+        {
+            UpdateSelectedItems(new[] { match });
+        }
+
+        return match;
+    }
+
+    public FileItemViewModel? TypeToSelect(char c) => TypeToSelect(c.ToString());
 
     [ObservableProperty]
     private string _addressText = string.Empty;
@@ -189,21 +392,37 @@ public partial class FilePaneViewModel : ObservableObject
                 return _toastMessage;
             }
 
-            int selectedCount = SelectedItems.Count;
+            int visibleCount;
             int totalCount;
             lock (_itemsLock)
             {
-                totalCount = Items.Count;
+                visibleCount = Items.Count;
+                totalCount = _unfilteredItems.Count > 0 ? _unfilteredItems.Count : visibleCount;
             }
-            if (selectedCount == 0)
+
+            if (IsFiltering)
             {
-                return $"{totalCount} items";
+                int selectedCount = SelectedItems.Count;
+                if (selectedCount == 0)
+                {
+                    return $"{visibleCount} of {totalCount} items";
+                }
+
+                long totalSelectedBytes = SelectedItems.Where(i => !i.IsDirectory).Sum(i => i.Size);
+                string formattedBytes = FormatHelper.FormatFileSize(totalSelectedBytes, isDirectory: false);
+                return $"{selectedCount} of {visibleCount} selected ({visibleCount} of {totalCount} items)";
             }
 
-            long totalSelectedBytes = SelectedItems.Where(i => !i.IsDirectory).Sum(i => i.Size);
-            string formattedBytes = FormatHelper.FormatFileSize(totalSelectedBytes, isDirectory: false);
+            int selCount = SelectedItems.Count;
+            if (selCount == 0)
+            {
+                return $"{visibleCount} items";
+            }
 
-            return $"{selectedCount} of {totalCount} selected ({formattedBytes})";
+            long selBytes = SelectedItems.Where(i => !i.IsDirectory).Sum(i => i.Size);
+            string formatted = FormatHelper.FormatFileSize(selBytes, isDirectory: false);
+
+            return $"{selCount} of {visibleCount} selected ({formatted})";
         }
     }
 
@@ -974,6 +1193,17 @@ public partial class FilePaneViewModel : ObservableObject
                 ? new HashSet<string>(SelectedItems.Select(i => i.FullPath), StringComparer.OrdinalIgnoreCase)
                 : new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
+            if (phaseType == NavigationPhaseType.New)
+            {
+                FilterText = string.Empty;
+            }
+
+            lock (_itemsLock)
+            {
+                _unfilteredItems.Clear();
+            }
+            ResetTypeToSelect();
+
             // Clear view items immediately
             SafeReplaceItems(Array.Empty<FileItemViewModel>());
             UpdateSelectedItems(Array.Empty<FileItemViewModel>());
@@ -992,7 +1222,19 @@ public partial class FilePaneViewModel : ObservableObject
                 var batchVms = filteredBatch.Select(e => new FileItemViewModel(e, _iconService, ct)).ToList();
                 if (batchVms.Count > 0)
                 {
-                    SafeAddItems(batchVms);
+                    lock (_itemsLock)
+                    {
+                        _unfilteredItems.AddRange(batchVms);
+                    }
+
+                    var visibleBatch = !string.IsNullOrWhiteSpace(FilterText)
+                        ? batchVms.Where(item => NameMatcher.Matches(item.Name, FilterText)).ToList()
+                        : batchVms;
+
+                    if (visibleBatch.Count > 0)
+                    {
+                        SafeAddItems(visibleBatch);
+                    }
                 }
 
                 if (statusUpdateSw.ElapsedMilliseconds >= 100)
