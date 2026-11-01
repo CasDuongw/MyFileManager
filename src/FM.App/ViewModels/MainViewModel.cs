@@ -595,36 +595,25 @@ public partial class MainViewModel : ObservableObject
             }
         }
 
-        int origSourceIdx = Panes.IndexOf(sourcePane);
-        int origTargetIdx = Panes.IndexOf(targetPane);
-
-        Panes.Remove(sourcePane);
-        int targetIdx = Panes.IndexOf(targetPane);
-
+        int targetDest;
         if (edge == DockEdge.Right || edge == DockEdge.Bottom)
         {
-            Panes.Insert(targetIdx + 1, sourcePane);
+            targetDest = (sIdx < tIdx) ? tIdx : tIdx + 1;
         }
         else
         {
-            Panes.Insert(targetIdx, sourcePane);
+            targetDest = (sIdx < tIdx) ? tIdx - 1 : tIdx;
         }
 
-        // If the resulting index did not change (no-op because source was already at that relative position),
-        // swap them so user drag ALWAYS produces a visible move!
-        int newSourceIdx = Panes.IndexOf(sourcePane);
-        if (newSourceIdx == origSourceIdx && Panes.Count > 1)
+        targetDest = Math.Clamp(targetDest, 0, Panes.Count - 1);
+
+        if (targetDest == sIdx)
         {
-            Panes.Remove(sourcePane);
-            int swapTargetIdx = Panes.IndexOf(targetPane);
-            if (edge == DockEdge.Right || edge == DockEdge.Bottom)
-            {
-                Panes.Insert(swapTargetIdx, sourcePane);
-            }
-            else
-            {
-                Panes.Insert(swapTargetIdx + 1, sourcePane);
-            }
+            SwapPanes(sIdx, tIdx);
+        }
+        else
+        {
+            Panes.Move(sIdx, targetDest);
         }
 
         if (Panes.Count == 2)

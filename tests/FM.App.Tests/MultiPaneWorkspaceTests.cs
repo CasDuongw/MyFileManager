@@ -342,6 +342,30 @@ public class MultiPaneWorkspaceTests
     }
 
     [Fact]
+    public void DockPane_ReordersPanesAtomicallyWithMove()
+    {
+        var vm = new MainViewModel(_dirService, _iconService, _settingsService, _fs);
+        // MainViewModel starts with 2 panes; split twice to get 4
+        vm.SplitVertical();
+        vm.SplitHorizontal();
+        Assert.Equal(4, vm.Panes.Count);
+
+        var p0 = vm.Panes[0];
+        var p1 = vm.Panes[1];
+        var p2 = vm.Panes[2];
+        var p3 = vm.Panes[3];
+
+        // Dock p0 after p2 (edge Right)
+        vm.DockPane(p0, p2, DockEdge.Right);
+
+        // p0 should now be right after p2
+        Assert.Equal(p1, vm.Panes[0]);
+        Assert.Equal(p2, vm.Panes[1]);
+        Assert.Equal(p0, vm.Panes[2]);
+        Assert.Equal(p3, vm.Panes[3]);
+    }
+
+    [Fact]
     public void DockPane_EdgeWhenAlreadyAdjacent_SwapsPanesInsteadOfNoOp()
     {
         var vm = new MainViewModel(_dirService, _iconService, _settingsService, _fs);
