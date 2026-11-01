@@ -1,0 +1,232 @@
+<UserControl x:Class="FM.App.Views.QuickOpenView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" 
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008" 
+             xmlns:vm="clr-namespace:FM.App.ViewModels"
+             mc:Ignorable="d" 
+             d:DataContext="{d:DesignInstance Type=vm:QuickOpenViewModel}"
+             Visibility="{Binding IsOpen, Converter={StaticResource BoolToVis}}"
+             Focusable="False">
+
+    <UserControl.Resources>
+        <!-- Subtle ListBoxItem Style for modern Fluent look -->
+        <Style x:Key="QuickOpenItemStyle" TargetType="ListBoxItem">
+            <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+            <Setter Property="Padding" Value="12,7" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ListBoxItem">
+                        <Border x:Name="ItemBorder"
+                                CornerRadius="6"
+                                Margin="4,1"
+                                Padding="{TemplateBinding Padding}"
+                                Background="Transparent"
+                                SnapsToDevicePixels="True">
+                            <ContentPresenter HorizontalAlignment="Stretch" VerticalAlignment="Center" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="ItemBorder" Property="Background" Value="#F3F4F6" />
+                            </Trigger>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter TargetName="ItemBorder" Property="Background" Value="#E5E7EB" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </UserControl.Resources>
+
+    <!-- Full-window Scrim Container -->
+    <Grid>
+        <!-- Dimmed Backdrop (clicking dismisses) -->
+        <Border Background="#40000000"
+                MouseDown="OnScrimMouseDown"
+                Focusable="False" />
+
+        <!-- Floating Centered Palette Panel -->
+        <Border Width="620"
+                MaxHeight="460"
+                VerticalAlignment="Top"
+                Margin="0,55,0,0"
+                CornerRadius="10"
+                Background="White"
+                BorderBrush="#D1D5DB"
+                BorderThickness="1"
+                SnapsToDevicePixels="True">
+            <Border.Effect>
+                <DropShadowEffect BlurRadius="25"
+                                  ShadowDepth="8"
+                                  Direction="270"
+                                  Opacity="0.22"
+                                  Color="#000000" />
+            </Border.Effect>
+
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" /> <!-- Search Bar -->
+                    <RowDefinition Height="Auto" /> <!-- Divider -->
+                    <RowDefinition Height="*" />    <!-- Results List -->
+                </Grid.RowDefinitions>
+
+                <!-- Search Input Row -->
+                <Grid Grid.Row="0" Margin="14,10,14,10">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+
+                    <!-- Search Icon / Prefix Glyph -->
+                    <TextBlock Grid.Column="0"
+                               Text="🔍"
+                               FontSize="14"
+                               VerticalAlignment="Center"
+                               Margin="0,0,10,0"
+                               Foreground="#9CA3AF" />
+
+                    <!-- Search Box & Placeholder -->
+                    <Grid Grid.Column="1">
+                        <TextBlock Text="{Binding PlaceholderText}"
+                                   Foreground="#9CA3AF"
+                                   FontSize="13.5"
+                                   VerticalAlignment="Center"
+                                   IsHitTestVisible="False"
+                                   Visibility="{Binding QueryText, Converter={StaticResource StringEmptyToVis}}" />
+
+                        <TextBox x:Name="SearchBox"
+                                 Text="{Binding QueryText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                 FontSize="13.5"
+                                 Background="Transparent"
+                                 BorderThickness="0"
+                                 VerticalContentAlignment="Center"
+                                 PreviewKeyDown="OnSearchBoxPreviewKeyDown"
+                                 CaretBrush="#1F2937"
+                                 Foreground="#111827" />
+                    </Grid>
+
+                    <!-- Clear (X) Button -->
+                    <Button Grid.Column="2"
+                            Content="✕"
+                            Command="{Binding ClearCommand}"
+                            Visibility="{Binding QueryText, Converter={StaticResource StringNotEmptyToVis}}"
+                            Style="{StaticResource SubtleToolButton}"
+                            Width="22" Height="22"
+                            FontSize="11"
+                            Padding="0"
+                            Margin="4,0,0,0"
+                            ToolTip="Clear search text" />
+                </Grid>
+
+                <!-- Subtle Separator -->
+                <Rectangle Grid.Row="1" Height="1" Fill="#F3F4F6" HorizontalAlignment="Stretch" />
+
+                <!-- Results List -->
+                <ListBox Grid.Row="2"
+                         x:Name="ResultsList"
+                         ItemsSource="{Binding Results}"
+                         SelectedItem="{Binding SelectedItem, Mode=TwoWay}"
+                         SelectedIndex="{Binding SelectedIndex, Mode=TwoWay}"
+                         ItemContainerStyle="{StaticResource QuickOpenItemStyle}"
+                         BorderThickness="0"
+                         Background="Transparent"
+                         MaxHeight="380"
+                         Padding="4,6"
+                         ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                         ScrollViewer.VerticalScrollBarVisibility="Auto"
+                         SelectionChanged="OnResultsListSelectionChanged"
+                         MouseLeftButtonUp="OnResultsListItemClicked">
+                    <ListBox.ItemTemplate>
+                        <DataTemplate>
+                            <Grid Margin="0,1">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="26" />
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+
+                                <!-- Icon or Glyph -->
+                                <Grid Grid.Column="0" VerticalAlignment="Center" HorizontalAlignment="Left">
+                                    <Image Source="{Binding Icon}"
+                                           Width="18" Height="18"
+                                           RenderOptions.BitmapScalingMode="HighQuality">
+                                        <Image.Style>
+                                            <Style TargetType="Image">
+                                                <Setter Property="Visibility" Value="Visible" />
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding Icon}" Value="{x:Null}">
+                                                        <Setter Property="Visibility" Value="Collapsed" />
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </Image.Style>
+                                    </Image>
+                                    <TextBlock Text="{Binding Glyph, FallbackValue='📁'}"
+                                               FontSize="14"
+                                               VerticalAlignment="Center"
+                                               HorizontalAlignment="Center"
+                                               Foreground="#4B5563">
+                                        <TextBlock.Style>
+                                            <Style TargetType="TextBlock">
+                                                <Setter Property="Visibility" Value="Collapsed" />
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding Icon}" Value="{x:Null}">
+                                                        <Setter Property="Visibility" Value="Visible" />
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </TextBlock.Style>
+                                    </TextBlock>
+                                </Grid>
+
+                                <!-- Title and Subtitle -->
+                                <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="6,0,8,0">
+                                    <TextBlock Text="{Binding Title}"
+                                               FontWeight="SemiBold"
+                                               FontSize="13"
+                                               Foreground="#1F2937"
+                                               TextTrimming="CharacterEllipsis" />
+                                    <TextBlock Text="{Binding Subtitle}"
+                                               FontSize="11"
+                                               Foreground="#6B7280"
+                                               Margin="0,1,0,0"
+                                               TextTrimming="CharacterEllipsis" />
+                                </StackPanel>
+
+                                <!-- Right-Aligned Badge -->
+                                <Border Grid.Column="2"
+                                        Background="#F3F4F6"
+                                        BorderBrush="#E5E7EB"
+                                        BorderThickness="1"
+                                        CornerRadius="4"
+                                        Padding="6,2"
+                                        VerticalAlignment="Center"
+                                        Visibility="{Binding Badge, Converter={StaticResource StringNotEmptyToVis}}">
+                                    <TextBlock Text="{Binding Badge}"
+                                               FontSize="10.5"
+                                               Foreground="#4B5563"
+                                               FontWeight="Medium" />
+                                </Border>
+
+                                <!-- Dimmed when unavailable -->
+                                <Grid.Style>
+                                    <Style TargetType="Grid">
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding IsAvailable}" Value="False">
+                                                <Setter Property="Opacity" Value="0.45" />
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Grid.Style>
+                            </Grid>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+            </Grid>
+        </Border>
+    </Grid>
+</UserControl>

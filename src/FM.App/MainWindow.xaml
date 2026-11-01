@@ -287,5 +287,8 @@
 
         <!-- Bottom Transfer Drawer -->
         <views:TransferDrawerView Grid.Row="2" DataContext="{Binding TransferDrawer}" />
+
+        <!-- Quick Open / Command Palette Overlay (Top Z-Index) -->
+        <views:QuickOpenView Grid.Row="0" Grid.RowSpan="3" DataContext="{Binding QuickOpen}" Panel.ZIndex="1000" />
     </Grid>
 </Window>

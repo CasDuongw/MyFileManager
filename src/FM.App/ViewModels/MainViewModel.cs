@@ -5,6 +5,7 @@ using CommunityToolkit.Mvvm.Input;
 using FM.App.Helpers;
 using FM.App.Models;
 using FM.App.Services;
+using FM.App.Services.QuickOpen;
 using FM.Core.FileSystem;
 using FM.Core.Operations.Transfer;
 using FM.Core.Search;
@@ -45,6 +46,7 @@ public partial class MainViewModel : ObservableObject
     public FilePaneViewModel LeftPane => (Panes.Count > 0 ? Panes[0] : ActivePane);
     public FilePaneViewModel RightPane => (Panes.Count > 1 ? Panes[1] : (Panes.Count > 0 ? Panes[0] : ActivePane));
     public TransferDrawerViewModel TransferDrawer { get; }
+    public QuickOpenViewModel QuickOpen { get; }
 
     private FilePaneViewModel? _activePane;
 
@@ -121,6 +123,7 @@ public partial class MainViewModel : ObservableObject
         _transferQueue = transferQueue ?? new TransferQueue(_fileSystem, _stagingStore, _journalStore);
         _dialogService = transferDialogService ?? new TransferDialogService();
         TransferDrawer = transferDrawer ?? new TransferDrawerViewModel(_transferQueue);
+        QuickOpen = new QuickOpenViewModel(new QuickOpenSourceProvider(this, _fileSystem));
         _timeProvider = timeProvider ?? TimeProvider.System;
 
         // Initialize with default 2 panes

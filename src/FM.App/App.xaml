@@ -7,6 +7,8 @@
         <BooleanToVisibilityConverter x:Key="BoolToVis" />
         <conv:EqualityToVisibilityConverter x:Key="EqToVis" />
         <conv:InverseBooleanToVisibilityConverter x:Key="InvBoolToVis" />
+        <conv:StringNotEmptyToVisibilityConverter x:Key="StringNotEmptyToVis" />
+        <conv:StringEmptyToVisibilityConverter x:Key="StringEmptyToVis" />
 
         <!-- Windows 11 / Modern Fluent typography default -->
         <Style TargetType="Window">
