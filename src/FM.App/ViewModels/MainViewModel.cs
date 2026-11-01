@@ -477,6 +477,55 @@ public partial class MainViewModel : ObservableObject
             return;
         }
 
+        if (Panes.Count == 3 && LayoutMode == PaneLayoutMode.TripleLeft)
+        {
+            // In TripleLeft: Panes[0] is Left, Panes[1] is Top-Right, Panes[2] is Bottom-Right.
+            // 1. Any drop onto Panes[0] (the Left pane) moves the dragged pane to the Left!
+            if (tIdx == 0)
+            {
+                SwapPanes(sIdx, 0);
+                SetActivePane(sourcePane);
+                OnPropertyChanged(nameof(CanClosePanes));
+                return;
+            }
+
+            // 2. Dragging from Panes[0] (Left) to a right pane:
+            if (sIdx == 0)
+            {
+                SwapPanes(0, tIdx);
+                SetActivePane(sourcePane);
+                OnPropertyChanged(nameof(CanClosePanes));
+                return;
+            }
+
+            // 3. Dragging between the two right panes (Panes[1] and Panes[2]):
+            if (sIdx != 0 && tIdx != 0)
+            {
+                if (edge == DockEdge.Top)
+                {
+                    if (sIdx != 1)
+                    {
+                        SwapPanes(1, 2);
+                    }
+                }
+                else if (edge == DockEdge.Bottom)
+                {
+                    if (sIdx != 2)
+                    {
+                        SwapPanes(1, 2);
+                    }
+                }
+                else
+                {
+                    SwapPanes(sIdx, tIdx);
+                }
+
+                SetActivePane(sourcePane);
+                OnPropertyChanged(nameof(CanClosePanes));
+                return;
+            }
+        }
+
         int origSourceIdx = Panes.IndexOf(sourcePane);
         int origTargetIdx = Panes.IndexOf(targetPane);
 

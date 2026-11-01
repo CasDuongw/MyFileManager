@@ -952,8 +952,17 @@ public partial class FilePaneView : UserControl
 
             double minDist = Math.Min(Math.Min(distLeft, distRight), Math.Min(distTop, distBottom));
 
+            var mainVm = Window.GetWindow(this)?.DataContext as MainViewModel;
             DockEdge newEdge;
-            if (minDist <= threshold)
+
+            // In TripleLeft layout: the Left pane (Panes[0]) is a single full-height column.
+            // Any tab dropped on it moves to the Left (taking position 0).
+            // Highlight the entire pane to clearly indicate that dropping anywhere here docks to the Left!
+            if (mainVm != null && mainVm.LayoutMode == PaneLayoutMode.TripleLeft && ViewModel == mainVm.Panes.FirstOrDefault())
+            {
+                newEdge = DockEdge.Center;
+            }
+            else if (minDist <= threshold)
             {
                 if (minDist == distLeft)
                     newEdge = DockEdge.Left;

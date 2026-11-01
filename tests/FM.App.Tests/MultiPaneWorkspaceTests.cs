@@ -321,6 +321,27 @@ public class MultiPaneWorkspaceTests
     }
 
     [Fact]
+    public void DockPane_InTripleLeft_DroppingBottomRightPaneOnLeftPane_MovesDraggedPaneToLeft()
+    {
+        var vm = new MainViewModel(_dirService, _iconService, _settingsService, _fs);
+        vm.SetLayoutCommand.Execute("TripleLeft");
+        Assert.Equal(3, vm.Panes.Count);
+
+        var p0_left = vm.Panes[0];
+        var p1_topRight = vm.Panes[1];
+        var p2_bottomRight = vm.Panes[2];
+
+        // Drag bottom-right pane (Downloads) onto left pane (p0) with DockEdge.Right
+        vm.DockPane(p2_bottomRight, p0_left, DockEdge.Right);
+
+        // The dragged pane must now be at index 0 (the Left pane), NOT jumping to top-right!
+        Assert.Equal(p2_bottomRight, vm.Panes[0]);
+        Assert.Equal(p1_topRight, vm.Panes[1]);
+        Assert.Equal(p0_left, vm.Panes[2]);
+        Assert.Same(p2_bottomRight, vm.ActivePane);
+    }
+
+    [Fact]
     public void DockPane_EdgeWhenAlreadyAdjacent_SwapsPanesInsteadOfNoOp()
     {
         var vm = new MainViewModel(_dirService, _iconService, _settingsService, _fs);
