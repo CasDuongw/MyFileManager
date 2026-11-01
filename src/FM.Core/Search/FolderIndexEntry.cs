@@ -63,3 +63,4 @@ public sealed class FolderIndexEntry
         return new FolderIndexEntry(fullPath, name, normName, bitmask, depth, rawParent, normParent);
     }
 }
+

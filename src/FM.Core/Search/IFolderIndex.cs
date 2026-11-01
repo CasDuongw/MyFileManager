@@ -31,3 +31,4 @@ public interface IFolderIndex
     IReadOnlyList<FolderIndexEntry> Snapshot();
     List<ScoredResult<FolderIndexEntry>> Search(PreparedQuery query, int maxResults);
 }
+

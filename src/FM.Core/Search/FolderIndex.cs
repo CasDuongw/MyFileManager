@@ -158,3 +158,4 @@ public sealed class FolderIndex : IFolderIndex
             e => Math.Max(-40.0, -e.Depth * 2.0)); // Slight shallower-is-better boost
     }
 }
+
