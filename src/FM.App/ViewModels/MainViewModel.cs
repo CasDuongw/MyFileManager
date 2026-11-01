@@ -7,6 +7,7 @@ using FM.App.Models;
 using FM.App.Services;
 using FM.Core.FileSystem;
 using FM.Core.Operations.Transfer;
+using FM.Core.Search;
 using FM.Core.Services;
 
 namespace FM.App.ViewModels;
@@ -27,6 +28,12 @@ public partial class MainViewModel : ObservableObject
     private readonly IUndoJournalStore? _journalStore;
     private readonly IStagingBackupStore? _stagingStore;
     private readonly object _transferStatusLock = new();
+    private readonly TimeProvider _timeProvider;
+    private readonly RecentFolderList _recentFolders = new();
+    public RecentFolderList RecentFolders => _recentFolders;
+    private bool _isRestoringSession;
+    private ITimer? _recentSaveTimer;
+    private readonly object _recentFoldersSaveLock = new();
     private readonly System.Collections.Concurrent.ConcurrentDictionary<Guid, Task> _completionTasks = new();
     private int _activeTransfersCount;
 
@@ -100,7 +107,8 @@ public partial class MainViewModel : ObservableObject
         ITransferDialogService? transferDialogService = null,
         IUndoJournalStore? journalStore = null,
         IStagingBackupStore? stagingStore = null,
-        TransferDrawerViewModel? transferDrawer = null)
+        TransferDrawerViewModel? transferDrawer = null,
+        TimeProvider? timeProvider = null)
     {
         _directoryService = directoryService;
         _iconService = iconService;
@@ -113,6 +121,7 @@ public partial class MainViewModel : ObservableObject
         _transferQueue = transferQueue ?? new TransferQueue(_fileSystem, _stagingStore, _journalStore);
         _dialogService = transferDialogService ?? new TransferDialogService();
         TransferDrawer = transferDrawer ?? new TransferDrawerViewModel(_transferQueue);
+        _timeProvider = timeProvider ?? TimeProvider.System;
 
         // Initialize with default 2 panes
         var left = CreatePane();
@@ -142,6 +151,7 @@ public partial class MainViewModel : ObservableObject
         pane.Activated += OnPaneActivated;
         pane.SelectionChanged += OnTransferCanExecuteChanged;
         pane.PropertyChanged += OnPanePropertyChanged;
+        pane.FolderOpened += OnPaneFolderOpened;
         pane.PropertyChanged += (s, e) =>
         {
             if (e.PropertyName == nameof(FilePaneViewModel.CurrentPath))
@@ -633,6 +643,7 @@ public partial class MainViewModel : ObservableObject
 
         paneToClose.Activated -= OnPaneActivated;
         paneToClose.SelectionChanged -= OnTransferCanExecuteChanged;
+        paneToClose.FolderOpened -= OnPaneFolderOpened;
 
         if (ActivePane == paneToClose)
         {
@@ -706,6 +717,7 @@ public partial class MainViewModel : ObservableObject
             p.Activated -= OnPaneActivated;
             p.SelectionChanged -= OnTransferCanExecuteChanged;
             p.PropertyChanged -= OnPanePropertyChanged;
+            p.FolderOpened -= OnPaneFolderOpened;
         }
 
         OnPropertyChanged(nameof(CanClosePanes));
@@ -757,7 +769,15 @@ public partial class MainViewModel : ObservableObject
 
     public async Task InitializeSettingsAsync(AppSettings settings)
     {
-        await _settingsService.ValidatePathsAsync(settings);
+        _isRestoringSession = true;
+        try
+        {
+            if (settings.RecentFolders != null)
+            {
+                _recentFolders.Load(settings.RecentFolders);
+            }
+
+            await _settingsService.ValidatePathsAsync(settings);
 
         ShowHiddenFiles = settings.ShowHiddenFiles;
 
@@ -776,6 +796,7 @@ public partial class MainViewModel : ObservableObject
             p.Activated -= OnPaneActivated;
             p.SelectionChanged -= OnTransferCanExecuteChanged;
             p.PropertyChanged -= OnPanePropertyChanged;
+            p.FolderOpened -= OnPaneFolderOpened;
         }
 
         for (int i = 0; i < Panes.Count && i < pathsToLoad.Count; i++)
@@ -864,23 +885,68 @@ public partial class MainViewModel : ObservableObject
                 // Best effort recovery on startup
             }
         }
+        }
+        finally
+        {
+            _isRestoringSession = false;
+        }
+    }
+
+    private void OnPaneFolderOpened(FilePaneViewModel pane, string path)
+    {
+        if (_isRestoringSession) return;
+        if (string.IsNullOrWhiteSpace(path)) return;
+        _recentFolders.Add(path);
+        ScheduleSaveRecentFolders();
+    }
+
+    public void ScheduleSaveRecentFolders()
+    {
+        lock (_recentFoldersSaveLock)
+        {
+            _recentSaveTimer ??= _timeProvider.CreateTimer(_ => SaveRecentFoldersInternal(), null, Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
+            _recentSaveTimer.Change(TimeSpan.FromMilliseconds(1500), Timeout.InfiniteTimeSpan);
+        }
+    }
+
+    public void SaveRecentFoldersInternal()
+    {
+        lock (_recentFoldersSaveLock)
+        {
+            _recentSaveTimer?.Change(Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
+        }
+
+        try
+        {
+            var settings = _settingsService.LoadSettings();
+            settings.RecentFolders = _recentFolders.Items.ToList();
+            _settingsService.SaveSettings(settings);
+        }
+        catch
+        {
+            // Best effort
+        }
     }
 
     public void PersistSettings(double left, double top, double width, double height, string windowState)
     {
-        var settings = new AppSettings
+        lock (_recentFoldersSaveLock)
         {
-            WindowLeft = left,
-            WindowTop = top,
-            WindowWidth = width,
-            WindowHeight = height,
-            WindowState = windowState,
-            LeftPanePath = string.IsNullOrEmpty(LeftPane.CurrentPath) ? @"C:\" : LeftPane.CurrentPath,
-            RightPanePath = string.IsNullOrEmpty(RightPane.CurrentPath) ? @"C:\" : RightPane.CurrentPath,
-            PanePaths = Panes.Select(p => string.IsNullOrEmpty(p.CurrentPath) ? @"C:\" : p.CurrentPath).ToList(),
-            LayoutMode = LayoutMode.ToString(),
-            ShowHiddenFiles = ShowHiddenFiles
-        };
+            _recentSaveTimer?.Change(Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
+        }
+
+        var settings = _settingsService.LoadSettings();
+        settings.WindowLeft = left;
+        settings.WindowTop = top;
+        settings.WindowWidth = width;
+        settings.WindowHeight = height;
+        settings.WindowState = windowState;
+        settings.LeftPanePath = string.IsNullOrEmpty(LeftPane.CurrentPath) ? @"C:\" : LeftPane.CurrentPath;
+        settings.RightPanePath = string.IsNullOrEmpty(RightPane.CurrentPath) ? @"C:\" : RightPane.CurrentPath;
+        settings.PanePaths = Panes.Select(p => string.IsNullOrEmpty(p.CurrentPath) ? @"C:\" : p.CurrentPath).ToList();
+        settings.LayoutMode = LayoutMode.ToString();
+        settings.ShowHiddenFiles = ShowHiddenFiles;
+        settings.RecentFolders = _recentFolders.Items.ToList();
 
         _settingsService.SaveSettings(settings);
     }

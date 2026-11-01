@@ -19,9 +19,30 @@ public sealed class RecentFolderList
         _capacity = Math.Max(1, capacity);
         if (initialItems != null)
         {
-            foreach (var item in initialItems)
+            Load(initialItems);
+        }
+    }
+
+    /// <summary>
+    /// Loads an ordered sequence of folders (most recent first), replacing current items.
+    /// Deduplicates case-insensitively and respects capacity.
+    /// </summary>
+    public void Load(IEnumerable<string>? items)
+    {
+        if (items == null) return;
+
+        lock (_lock)
+        {
+            _items.Clear();
+            foreach (var item in items)
             {
-                AddInternal(item);
+                if (string.IsNullOrWhiteSpace(item)) continue;
+                string normalized = NormalizeFolderPath(item);
+                if (string.IsNullOrEmpty(normalized)) continue;
+                if (_items.Any(x => string.Equals(x, normalized, StringComparison.OrdinalIgnoreCase))) continue;
+
+                _items.Add(normalized);
+                if (_items.Count >= _capacity) break;
             }
         }
     }

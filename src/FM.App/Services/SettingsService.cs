@@ -158,6 +158,19 @@ public class SettingsService : ISettingsService
         }
 
         settings.PanePaths ??= new List<string>();
+
+        if (settings.RecentFolders == null)
+        {
+            settings.RecentFolders = new List<string>();
+        }
+        else
+        {
+            settings.RecentFolders = settings.RecentFolders
+                .Where(p => !string.IsNullOrWhiteSpace(p))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Take(10)
+                .ToList();
+        }
         if (settings.PanePaths.Count == 0)
         {
             settings.PanePaths.Add(settings.LeftPanePath);

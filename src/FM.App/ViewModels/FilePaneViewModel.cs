@@ -453,6 +453,7 @@ public partial class FilePaneViewModel : ObservableObject
     public bool CanGoUp => !string.IsNullOrEmpty(_history.GetParentPath());
 
     public event Action<FilePaneViewModel>? Activated;
+    public event Action<FilePaneViewModel, string>? FolderOpened;
 
     public FilePaneViewModel(
         IDirectoryService directoryService,
@@ -1186,6 +1187,11 @@ public partial class FilePaneViewModel : ObservableObject
                     CurrentPath = resolvedPath;
                     AddressText = resolvedPath;
                     UpdateHistoryCommandStates();
+
+                    if (phaseType != NavigationPhaseType.Refresh)
+                    {
+                        FolderOpened?.Invoke(this, resolvedPath);
+                    }
                 });
             }
 

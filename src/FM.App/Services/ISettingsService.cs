@@ -15,6 +15,7 @@ public class AppSettings
     public List<string> PanePaths { get; set; } = new();
     public string LayoutMode { get; set; } = "DualVertical";
     public bool ShowHiddenFiles { get; set; } = false;
+    public List<string> RecentFolders { get; set; } = new();
 }
 
 public interface ISettingsService
