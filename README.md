@@ -35,7 +35,7 @@ cd MyFileManager
 # Build entire solution (zero warnings, zero errors)
 dotnet build MyFileManager.sln
 
-# Run all test suites (287 tests)
+# Run all test suites (306 tests)
 dotnet test MyFileManager.sln
 
 # Run synthetic directory streaming benchmark
@@ -142,7 +142,7 @@ MyFileManager/
 │   ├── Common/
 │   │   └── TestWorkspace.cs             # Bounded %TEMP%\FM_* workspace manager (max 200 files / 1 MiB)
 │   ├── FM.Core.Tests/           # Core library xUnit test suite (170 tests)
-│   ├── FM.App.Tests/            # App-level xUnit test suite (117 tests)
+│   ├── FM.App.Tests/            # App-level xUnit test suite (136 tests)
 │   └── FM.Benchmarks/           # Performance benchmark harness
 │       └── Program.cs                   # Navigation and 2 GB transfer benchmarks
 │
@@ -170,6 +170,8 @@ MyFileManager/
 | **`Alt + Right`** | Navigate forward in history | Active pane |
 | **`Ctrl + L`** | Focus and select text in the address bar | Active pane |
 | **`F5`** | Refresh file listing | Active pane |
+| **`Ctrl + P`** | Quick Open (jump to folders, tabs, favorites, recents, drives) | Global overlay |
+| **`Ctrl + Shift + P`** | Command Palette (menu-style app actions, or type `>` in Quick Open) | Global overlay |
 | **`Ctrl + Shift + F`** | Focus folder filter box | Toolbar / Active pane |
 | **`Esc`** | Clear filter and return focus to list (or cancel address editing) | Filter box / Active pane |
 | **Printable chars** | Type-to-select matching item (prefix preferred, 1s idle timeout) | Active file list |
@@ -236,6 +238,19 @@ Command: dotnet run --project tests/FM.Benchmarks/FM.Benchmarks.csproj -c Releas
 | **Working Set Initial** | **25.78 MiB** |
 | **Working Set Final** | **38.06 MiB (Delta: +12.29 MiB)** |
 | **Physical Disk Writes** | **0 bytes** (Pure in-memory virtual stream) |
+
+#### C. Quick Open & Command Palette Fuzzy Ranking (500 Places + 80 Commands, 0 Disk Files):
+```
+Command: dotnet run --project tests/FM.Benchmarks/FM.Benchmarks.csproj -c Release -- --quickopen
+```
+| Metric | Measured Value | Target |
+| :--- | :--- | :--- |
+| **Total Queries Tested** | **1,300 queries** | |
+| **Average Latency** | **0.009 ms** | < 5.0 ms |
+| **Median Latency (P50)** | **0.000 ms** | < 5.0 ms |
+| **95th Percentile (P95)** | **0.000 ms** | < 5.0 ms |
+| **Maximum Keystroke Latency** | **2.166 ms** | < 5.0 ms |
+| **Disk Generation** | **0 bytes** (In-memory fuzzy matcher & catalog) | 0 bytes |
 
 ---
 

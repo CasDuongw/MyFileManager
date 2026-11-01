@@ -6,6 +6,7 @@ using System.Threading.Channels;
 using System.Windows;
 using System.Windows.Threading;
 using FM.App.Services;
+using FM.App.Services.QuickOpen;
 using FM.App.ViewModels;
 using FM.App.Views;
 using FM.Core.Models;
@@ -109,6 +110,11 @@ public static class Program
         string? realDiskPath = null;
         int syntheticCount = 10_000; // Default smoke mode
         bool isTransferMode = false;
+
+        if (args.Any(a => a.Equals("--quickopen", StringComparison.OrdinalIgnoreCase)))
+        {
+            return RunQuickOpenBenchmark();
+        }
 
         for (int i = 0; i < args.Length; i++)
         {
@@ -380,6 +386,117 @@ public static class Program
         Console.WriteLine("=============================================================\n");
 
         return 0;
+    }
+
+    private static int RunQuickOpenBenchmark()
+    {
+        Console.WriteLine("=============================================================");
+        Console.WriteLine("    MyFileManager Quick Open & Command Palette Benchmark     ");
+        Console.WriteLine("=============================================================");
+        Console.WriteLine("Dataset : 500 Places + 80 Commands (Zero Disk Generation)");
+        Console.WriteLine("Target  : < 5.0 ms per keystroke fuzzy ranking");
+        Console.WriteLine("=============================================================\n");
+
+        var places = new List<QuickOpenItemViewModel>(500);
+        for (int i = 0; i < 500; i++)
+        {
+            string folderName = i switch
+            {
+                0 => "Documents",
+                1 => "Downloads",
+                2 => "Desktop",
+                3 => "Projects",
+                4 => "MyFileManager",
+                _ => $"Folder_{i:D4}_Project_Subfolder"
+            };
+            places.Add(new QuickOpenItemViewModel
+            {
+                Title = folderName,
+                Subtitle = $@"C:\Workspace\{folderName}",
+                Badge = (i < 10) ? "Favorite" : (i < 20) ? "Recent" : "Drive",
+                Kind = QuickOpenItemKind.Place,
+                Priority = (i < 10) ? 2 : (i < 20) ? 3 : 4
+            });
+        }
+
+        var commands = new List<QuickOpenItemViewModel>(80);
+        for (int i = 0; i < 80; i++)
+        {
+            commands.Add(new QuickOpenItemViewModel
+            {
+                Title = i switch
+                {
+                    0 => "View: Icons",
+                    1 => "View: Details",
+                    2 => "Toggle Hidden Files",
+                    3 => "Split Horizontal",
+                    4 => "Split Vertical",
+                    _ => $"Command {i}: Action Option {i:D3}"
+                },
+                Subtitle = "Category",
+                Badge = "Ctrl+Shift+X",
+                Kind = QuickOpenItemKind.Command,
+                Priority = 0
+            });
+        }
+
+        var provider = new BenchmarkQuickOpenProvider(places, commands);
+        var vm = new QuickOpenViewModel(provider, uiDispatcher: a => a());
+
+        // Warm-up runs
+        for (int w = 0; w < 30; w++)
+        {
+            vm.QueryText = "doc";
+            vm.QueryText = ">icon";
+        }
+
+        string[] queries = ["d", "do", "doc", "down", "proj", "file", ">", ">i", ">ic", ">ico", ">icon", ">split", ">view"];
+        var latencies = new List<double>();
+
+        var totalSw = Stopwatch.StartNew();
+        foreach (var query in queries)
+        {
+            for (int iter = 0; iter < 100; iter++)
+            {
+                var sw = Stopwatch.StartNew();
+                vm.QueryText = query;
+                sw.Stop();
+                latencies.Add(sw.Elapsed.TotalMilliseconds);
+            }
+        }
+        totalSw.Stop();
+
+        latencies.Sort();
+        double p50 = latencies[latencies.Count / 2];
+        double p95 = latencies[(int)(latencies.Count * 0.95)];
+        double max = latencies[^1];
+        double avg = latencies.Average();
+
+        Console.WriteLine($"Total Queries Tested: {latencies.Count:N0}");
+        Console.WriteLine($"Average Latency     : {avg:F3} ms");
+        Console.WriteLine($"Median (P50)        : {p50:F3} ms");
+        Console.WriteLine($"P95 Latency         : {p95:F3} ms");
+        Console.WriteLine($"Max Latency         : {max:F3} ms");
+        Console.WriteLine($"Target Status       : {(p95 < 5.0 ? "PASSED (< 5.0 ms)" : "FAILED (>= 5.0 ms)")}");
+        Console.WriteLine("=============================================================\n");
+
+        return p95 < 5.0 ? 0 : 1;
+    }
+
+    private sealed class BenchmarkQuickOpenProvider : IQuickOpenSourceProvider
+    {
+        private readonly IReadOnlyList<QuickOpenItemViewModel> _places;
+        private readonly IReadOnlyList<QuickOpenItemViewModel> _commands;
+
+        public BenchmarkQuickOpenProvider(IReadOnlyList<QuickOpenItemViewModel> places, IReadOnlyList<QuickOpenItemViewModel> commands)
+        {
+            _places = places;
+            _commands = commands;
+        }
+
+        public IReadOnlyList<QuickOpenItemViewModel> GetPlaces() => _places;
+        public IReadOnlyList<QuickOpenItemViewModel> GetCommands() => _commands;
+        public Task CheckAvailabilityAsync(IEnumerable<QuickOpenItemViewModel> items, CancellationToken cancellationToken = default) => Task.CompletedTask;
     }
 
     private static T GetMedian<T>(List<T> values) where T : IComparable<T>

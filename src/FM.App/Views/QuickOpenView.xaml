@@ -106,7 +106,9 @@
                                  VerticalContentAlignment="Center"
                                  PreviewKeyDown="OnSearchBoxPreviewKeyDown"
                                  CaretBrush="#1F2937"
-                                 Foreground="#111827" />
+                                 Foreground="#111827"
+                                 AutomationProperties.Name="Quick Open and Command Palette search"
+                                 AutomationProperties.HelpText="Type a place name or start with > for commands" />
                     </Grid>
 
                     <!-- Clear (X) Button -->
@@ -139,7 +141,8 @@
                          ScrollViewer.HorizontalScrollBarVisibility="Disabled"
                          ScrollViewer.VerticalScrollBarVisibility="Auto"
                          SelectionChanged="OnResultsListSelectionChanged"
-                         MouseLeftButtonUp="OnResultsListItemClicked">
+                         MouseLeftButtonUp="OnResultsListItemClicked"
+                         AutomationProperties.Name="Quick Open search results">
                     <ListBox.ItemTemplate>
                         <DataTemplate>
                             <Grid Margin="0,1">
