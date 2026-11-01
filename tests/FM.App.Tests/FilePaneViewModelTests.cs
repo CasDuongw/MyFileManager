@@ -361,4 +361,67 @@ public class FilePaneViewModelTests
         Assert.Equal(2, _viewModel.Items.Count);
         Assert.All(_viewModel.Items, item => Assert.StartsWith("fileB", item.Name));
     }
+
+    [Fact]
+    public void GetSubfolders_WithInMemoryFileSystem_ReturnsSortedSubfolders()
+    {
+        var memFs = new FM.Core.FileSystem.InMemoryFileSystem();
+        string root = @"C:\Showcase";
+        memFs.CreateDirectory(root);
+        memFs.CreateDirectory(Path.Combine(root, "Projects 2026"));
+        memFs.CreateDirectory(Path.Combine(root, "Clients"));
+        memFs.CreateDirectory(Path.Combine(root, "Apps & Packages"));
+
+        var vm = new FilePaneViewModel(_fakeDirService, _fakeIconService, fileSystem: memFs);
+        var subfolders = vm.GetSubfolders(root);
+
+        Assert.Equal(3, subfolders.Count);
+        Assert.Equal("Apps & Packages", subfolders[0].Name);
+        Assert.Equal("Clients", subfolders[1].Name);
+        Assert.Equal("Projects 2026", subfolders[2].Name);
+    }
+
+    [Fact]
+    public void GetSubfolders_WhenPathDoesNotExist_ReturnsEmptyList()
+    {
+        var subfolders = _viewModel.GetSubfolders(@"C:\NonExistent\Folder_98765");
+        Assert.NotNull(subfolders);
+        Assert.Empty(subfolders);
+    }
+
+    [Fact]
+    public void OpenSegmentInNewTab_InvokesCallbackWithExpectedPath()
+    {
+        string? opened = null;
+        _viewModel.OnOpenInNewTabRequested = path => opened = path;
+
+        _viewModel.OpenSegmentInNewTabCommand.Execute(@"C:\Showcase\Clients");
+
+        Assert.Equal(@"C:\Showcase\Clients", opened);
+    }
+
+    [Fact]
+    public async Task Breadcrumbs_ClickingAncestorSegment_NavigatesDirectlyToIt()
+    {
+        string baseDir = Path.Combine(MockRoot, "Showcase");
+        string projectsDir = Path.Combine(baseDir, "Projects 2026");
+        string websiteDir = Path.Combine(projectsDir, "Website Redesign");
+
+        _fakeDirService.AddDirectory(websiteDir, Array.Empty<FileEntry>());
+        _fakeDirService.AddDirectory(projectsDir, Array.Empty<FileEntry>());
+
+        await _viewModel.NavigateInternalAsync(websiteDir, NavigationPhaseType.New);
+
+        var crumbs = _viewModel.Breadcrumbs;
+        Assert.NotEmpty(crumbs);
+
+        // Find the 'Projects 2026' crumb
+        var projectCrumb = crumbs.FirstOrDefault(c => c.Name == "Projects 2026");
+        Assert.NotNull(projectCrumb);
+
+        // Click crumb (navigate to its full path)
+        await _viewModel.NavigateInternalAsync(projectCrumb.FullPath, NavigationPhaseType.New);
+
+        Assert.Equal(projectsDir, _viewModel.CurrentPath);
+    }
 }

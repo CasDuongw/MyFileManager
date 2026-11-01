@@ -407,9 +407,20 @@ public partial class MainViewModel : ObservableObject
     [RelayCommand]
     public void SplitVertical(FilePaneViewModel? targetPane = null)
     {
+        SplitVerticalInternal(targetPane, null);
+    }
+
+    public void SplitVertical(FilePaneViewModel? targetPane, string? initialPath)
+    {
+        SplitVerticalInternal(targetPane, initialPath);
+    }
+
+    private void SplitVerticalInternal(FilePaneViewModel? targetPane, string? initialPath)
+    {
         if (Panes.Count >= 16) return;
         var source = targetPane ?? ActivePane;
-        var newPane = CreatePane(source?.CurrentPath);
+        var startPath = !string.IsNullOrWhiteSpace(initialPath) ? initialPath : source?.CurrentPath;
+        var newPane = CreatePane(startPath);
         int insertIdx = source != null ? Panes.IndexOf(source) + 1 : Panes.Count;
         if (insertIdx <= 0 || insertIdx > Panes.Count) insertIdx = Panes.Count;
         Panes.Insert(insertIdx, newPane);
@@ -419,6 +430,10 @@ public partial class MainViewModel : ObservableObject
         else if (Panes.Count >= 4) LayoutMode = PaneLayoutMode.QuadGrid;
 
         SetActivePane(newPane);
+        if (!string.IsNullOrWhiteSpace(initialPath) && newPane.CurrentPath != initialPath)
+        {
+            newPane.Navigate(initialPath);
+        }
         OnPropertyChanged(nameof(CanClosePanes));
         ClosePaneCommand.NotifyCanExecuteChanged();
     }
@@ -664,11 +679,7 @@ public partial class MainViewModel : ObservableObject
     [RelayCommand]
     public void OpenNewTab(string? initialPath = null)
     {
-        SplitVertical(ActivePane);
-        if (!string.IsNullOrWhiteSpace(initialPath) && ActivePane != null)
-        {
-            ActivePane.Navigate(initialPath);
-        }
+        SplitVerticalInternal(ActivePane, initialPath);
     }
 
     [RelayCommand]

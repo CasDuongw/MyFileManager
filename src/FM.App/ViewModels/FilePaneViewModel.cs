@@ -45,6 +45,7 @@ public partial class FilePaneViewModel : ObservableObject
 
     public IUndoStack UndoStack { get; }
     public IFileSystem FileSystem => _fileSystem;
+    public Action<string>? OnOpenInNewTabRequested { get; set; }
 
     private readonly object _itemsLock = new();
     public BulkObservableCollection<FileItemViewModel> Items { get; } = new();
@@ -739,6 +740,39 @@ public partial class FilePaneViewModel : ObservableObject
     }
 
     [RelayCommand]
+    public void OpenSegmentInNewTab(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path)) return;
+
+        if (OnOpenInNewTabRequested != null)
+        {
+            OnOpenInNewTabRequested.Invoke(path);
+            return;
+        }
+
+        var mainVm = System.Windows.Application.Current?.MainWindow?.DataContext as MainViewModel;
+        if (mainVm != null)
+        {
+            mainVm.OpenNewTab(path);
+        }
+    }
+
+    [RelayCommand]
+    public void CopyPathname(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path)) return;
+        try
+        {
+            Clipboard.SetText(path);
+            ShowToast("Copied path to clipboard");
+        }
+        catch (Exception ex)
+        {
+            ErrorMessage = $"Clipboard error: {ex.Message}";
+        }
+    }
+
+    [RelayCommand]
     public void OpenInNewTab()
     {
         string? targetPath = (SelectedItem?.IsDirectory == true ? SelectedItem.FullPath : null) ?? CurrentPath;
@@ -1149,5 +1183,67 @@ public partial class FilePaneViewModel : ObservableObject
         }
 
         return result;
+    }
+
+    public IReadOnlyList<BreadcrumbFolderItem> GetSubfolders(string? path)
+    {
+        var list = new List<BreadcrumbFolderItem>();
+        if (string.IsNullOrWhiteSpace(path)) return list;
+
+        try
+        {
+            if (_fileSystem is PhysicalFileSystem)
+            {
+                if (Directory.Exists(path))
+                {
+                    var options = new EnumerationOptions
+                    {
+                        IgnoreInaccessible = true,
+                        RecurseSubdirectories = false,
+                        ReturnSpecialDirectories = false
+                    };
+                    var dirs = Directory.EnumerateDirectories(path, "*", options);
+                    foreach (var d in dirs)
+                    {
+                        if (!ShowHiddenFiles)
+                        {
+                            try
+                            {
+                                var di = new DirectoryInfo(d);
+                                if (di.Attributes.HasFlag(FileAttributes.Hidden) || di.Attributes.HasFlag(FileAttributes.System))
+                                    continue;
+                            }
+                            catch { }
+                        }
+
+                        string name = Path.GetFileName(d);
+                        if (!string.IsNullOrEmpty(name))
+                        {
+                            list.Add(new BreadcrumbFolderItem(name, d));
+                        }
+                    }
+                }
+            }
+            else if (_fileSystem.DirectoryExists(path))
+            {
+                var entries = _fileSystem.EnumerateEntries(path);
+                foreach (var entry in entries)
+                {
+                    var info = _fileSystem.GetInfo(entry);
+                    if (info?.IsDirectory == true || _fileSystem.DirectoryExists(entry))
+                    {
+                        string name = Path.GetFileName(entry);
+                        if (string.IsNullOrEmpty(name)) name = entry;
+                        list.Add(new BreadcrumbFolderItem(name, entry));
+                    }
+                }
+            }
+        }
+        catch
+        {
+            // Ignore access errors
+        }
+
+        return list.OrderBy(x => x.Name, StringComparer.CurrentCultureIgnoreCase).ToList();
     }
 }

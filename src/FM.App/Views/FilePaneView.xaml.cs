@@ -1,3 +1,4 @@
+using System.Windows.Controls.Primitives;
 using System.IO;
 using System.Windows;
 using System.Windows.Controls;
@@ -1090,6 +1091,97 @@ public partial class FilePaneView : UserControl
                 }
             }
         }
+    }
+
+    #endregion
+    #region Location Bar Breadcrumb & Chevron Navigation
+
+    private BreadcrumbItem? GetCrumbFromSender(object sender)
+    {
+        if (sender is FrameworkElement fe)
+        {
+            if (fe.DataContext is BreadcrumbItem crumb) return crumb;
+
+            var cm = fe.FindVisualAncestor<ContextMenu>() ?? (fe.Parent as ContextMenu);
+            if (cm?.PlacementTarget is FrameworkElement target && target.DataContext is BreadcrumbItem targetCrumb)
+            {
+                return targetCrumb;
+            }
+        }
+        return null;
+    }
+
+    private void OnOpenSegmentClick(object sender, RoutedEventArgs e)
+    {
+        var crumb = GetCrumbFromSender(sender);
+        if (crumb != null && !string.IsNullOrEmpty(crumb.FullPath))
+        {
+            ViewModel?.Navigate(crumb.FullPath);
+        }
+    }
+
+    private void OnOpenSegmentInNewTabClick(object sender, RoutedEventArgs e)
+    {
+        var crumb = GetCrumbFromSender(sender);
+        if (crumb != null && !string.IsNullOrEmpty(crumb.FullPath))
+        {
+            ViewModel?.OpenSegmentInNewTab(crumb.FullPath);
+        }
+    }
+
+    private void OnCopySegmentPathnameClick(object sender, RoutedEventArgs e)
+    {
+        var crumb = GetCrumbFromSender(sender);
+        if (crumb != null && !string.IsNullOrEmpty(crumb.FullPath))
+        {
+            ViewModel?.CopyPathname(crumb.FullPath);
+        }
+    }
+
+    private void OnBreadcrumbChevronClick(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button btn) return;
+        if (btn.DataContext is not BreadcrumbItem crumb) return;
+
+        var menu = new ContextMenu
+        {
+            PlacementTarget = btn,
+            Placement = PlacementMode.Bottom,
+            Style = (Style)FindResource("BreadcrumbSubfolderContextMenuStyle")
+        };
+
+        var subfolders = ViewModel?.GetSubfolders(crumb.FullPath) ?? new List<BreadcrumbFolderItem>();
+        var itemStyle = (Style)FindResource("BreadcrumbSubfolderMenuItemStyle");
+
+        if (subfolders.Count == 0)
+        {
+            var emptyItem = new MenuItem
+            {
+                Header = "(Empty)",
+                IsEnabled = false,
+                Style = itemStyle
+            };
+            menu.Items.Add(emptyItem);
+        }
+        else
+        {
+            foreach (var sub in subfolders)
+            {
+                var mi = new MenuItem
+                {
+                    Header = sub.Name,
+                    Tag = sub.FullPath,
+                    Style = itemStyle
+                };
+                mi.Click += (s, args) =>
+                {
+                    ViewModel?.Navigate(sub.FullPath);
+                };
+                menu.Items.Add(mi);
+            }
+        }
+
+        menu.IsOpen = true;
     }
 
     #endregion
