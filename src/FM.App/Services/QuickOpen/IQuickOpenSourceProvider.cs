@@ -10,3 +10,4 @@ public interface IQuickOpenSourceProvider
     IReadOnlyList<QuickOpenItemViewModel> GetCommands();
     Task CheckAvailabilityAsync(IEnumerable<QuickOpenItemViewModel> items, CancellationToken cancellationToken = default);
 }
+

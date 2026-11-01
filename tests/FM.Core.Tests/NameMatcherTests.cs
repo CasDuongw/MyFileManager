@@ -10,6 +10,9 @@ public class NameMatcherTests
     [InlineData("café", "cafe")]
     [InlineData("München", "Munchen")]
     [InlineData("Hà Nội Mùa Thu", "Ha Noi Mua Thu")]
+    [InlineData("Đồ án", "Do an")]
+    [InlineData("đồ án môn học", "do an mon hoc")]
+    [InlineData("Đại học", "Dai hoc")]
     public void RemoveDiacritics_RemovesAccentsProperly(string input, string expected)
     {
         string result = NameMatcher.RemoveDiacritics(input);
@@ -23,6 +26,9 @@ public class NameMatcherTests
     [InlineData("tài liệu quan trọng.docx", "bao cao", false)]
     [InlineData("simple_file.txt", "FILE SIMPLE", true)]
     [InlineData("simple_file.txt", "file notfound", false)]
+    [InlineData("Đồ án tốt nghiệp.docx", "do an", true)]
+    [InlineData("Đồ án tốt nghiệp.docx", "đo an", true)]
+    [InlineData("Đại học Bách Khoa", "dai hoc", true)]
     [InlineData("Anything.pdf", "", true)]
     [InlineData("Anything.pdf", "   ", true)]
     [InlineData(null, "test", false)]

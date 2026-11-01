@@ -34,6 +34,9 @@ public class FuzzyMatcherTests
     [InlineData("tài liệu dự án", "tai lieu", true)]
     [InlineData("Café Corner", "cafe", true)]
     [InlineData("München Reports", "munchen", true)]
+    [InlineData("Đồ án", "do an", true)]
+    [InlineData("Đồ án", "đo an", true)]
+    [InlineData("Đại học", "dai hoc", true)]
     public void Match_DiacriticsAndCase_Insensitive(string candidate, string query, bool shouldMatch)
     {
         var result = FuzzyMatcher.Match(candidate, query);

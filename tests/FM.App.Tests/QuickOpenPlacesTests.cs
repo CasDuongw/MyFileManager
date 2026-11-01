@@ -138,6 +138,24 @@ public class QuickOpenPlacesTests
     }
 
     [Fact]
+    public void ExecuteSelected_WhenItemUnavailable_StillExecutesAction()
+    {
+        var vm = CreateViewModel();
+        vm.Open("doc");
+
+        Assert.NotNull(vm.SelectedItem);
+        vm.SelectedItem.IsAvailable = false; // Simulated offline or timed-out drive
+
+        bool executed = false;
+        vm.SelectedItem.ExecuteAction = () => executed = true;
+
+        vm.ExecuteSelected();
+
+        Assert.False(vm.IsOpen);
+        Assert.True(executed, "Enter on an unavailable row must still attempt navigation");
+    }
+
+    [Fact]
     public void ExecuteSelected_OpenPaneItem_ActivatesTargetPane()
     {
         // Add a 2nd pane navigated to MyApp
@@ -205,3 +223,4 @@ public class QuickOpenPlacesTests
         Assert.True(existingItem.IsAvailable);
     }
 }
+

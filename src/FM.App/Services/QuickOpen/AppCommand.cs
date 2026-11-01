@@ -12,3 +12,4 @@ public class AppCommand
     public Action Execute { get; init; } = () => { };
     public string? Glyph { get; init; }
 }
+

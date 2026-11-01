@@ -7,6 +7,7 @@ using System.Threading.Tasks;
 using System.Windows;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using FM.App.Collections;
 using FM.App.Services.QuickOpen;
 using FM.Core.Search;
 
@@ -36,7 +37,7 @@ public partial class QuickOpenViewModel : ObservableObject
     [ObservableProperty]
     private int _selectedIndex = -1;
 
-    public ObservableCollection<QuickOpenItemViewModel> Results { get; } = new();
+    public BulkObservableCollection<QuickOpenItemViewModel> Results { get; } = new();
 
     public string PlaceholderText => Mode == QuickOpenMode.Commands ? CommandPlaceholder : DefaultPlaceholder;
 
@@ -112,7 +113,7 @@ public partial class QuickOpenViewModel : ObservableObject
     [RelayCommand]
     public void ExecuteSelected()
     {
-        if (SelectedItem == null || !SelectedItem.IsAvailable) return;
+        if (SelectedItem == null) return;
 
         var action = SelectedItem.ExecuteAction;
         Close();
@@ -218,12 +219,7 @@ public partial class QuickOpenViewModel : ObservableObject
 
         _uiDispatcher(() =>
         {
-            Results.Clear();
-            foreach (var item in matched)
-            {
-                Results.Add(item);
-            }
-
+            Results.ReplaceAll(matched);
             OnPropertyChanged(nameof(HasResults));
 
             if (Results.Count > 0)
@@ -248,3 +244,4 @@ public partial class QuickOpenViewModel : ObservableObject
         }
     }
 }
+

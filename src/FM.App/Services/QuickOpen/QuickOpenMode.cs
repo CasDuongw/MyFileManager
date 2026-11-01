@@ -5,3 +5,4 @@ public enum QuickOpenMode
     Places,
     Commands
 }
+

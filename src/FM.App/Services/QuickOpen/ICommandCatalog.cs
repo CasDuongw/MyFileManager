@@ -6,3 +6,4 @@ public interface ICommandCatalog
 {
     IReadOnlyList<AppCommand> GetCommands();
 }
+

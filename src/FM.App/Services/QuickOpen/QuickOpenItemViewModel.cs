@@ -23,3 +23,4 @@ public partial class QuickOpenItemViewModel : ObservableObject
     [ObservableProperty]
     private bool _isSelected;
 }
+

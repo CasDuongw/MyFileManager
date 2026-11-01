@@ -23,7 +23,15 @@ public static class NameMatcher
         for (int i = 0; i < normalizedString.Length; i++)
         {
             char c = normalizedString[i];
-            if (CharUnicodeInfo.GetUnicodeCategory(c) != UnicodeCategory.NonSpacingMark)
+            if (c == 'đ')
+            {
+                sb.Append('d');
+            }
+            else if (c == 'Đ')
+            {
+                sb.Append('D');
+            }
+            else if (CharUnicodeInfo.GetUnicodeCategory(c) != UnicodeCategory.NonSpacingMark)
             {
                 sb.Append(c);
             }
