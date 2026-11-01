@@ -806,6 +806,94 @@ public partial class FilePaneViewModel : ObservableObject
         }
     }
 
+
+    public bool IsWinRarInstalled => ShellInterop.IsWinRarInstalled;
+
+    public bool IsSelectedArchive
+    {
+        get
+        {
+            if (SelectedItem == null || SelectedItem.IsDirectory) return false;
+            string ext = Path.GetExtension(SelectedItem.FullPath).ToLowerInvariant();
+            return ext is ".zip" or ".rar" or ".7z" or ".tar" or ".gz" or ".iso";
+        }
+    }
+
+    [RelayCommand]
+    public void PinToStart()
+    {
+        string? path = SelectedItem?.FullPath ?? CurrentPath;
+        if (!string.IsNullOrEmpty(path))
+        {
+            ShellInterop.PinToStart(path);
+            ShowToast("Pinned to Start");
+        }
+    }
+
+    [RelayCommand]
+    public void OpenWith()
+    {
+        string? path = SelectedItem?.FullPath;
+        if (!string.IsNullOrEmpty(path))
+        {
+            ShellInterop.ShowOpenWithDialog(path);
+        }
+    }
+
+    [RelayCommand]
+    public void RunAsAdmin()
+    {
+        string? path = SelectedItem?.FullPath;
+        if (!string.IsNullOrEmpty(path))
+        {
+            ShellInterop.RunAsAdministrator(path);
+        }
+    }
+
+    [RelayCommand]
+    public void WinRarAdd()
+    {
+        var paths = SelectedItems.Select(x => x.FullPath).ToList();
+        if (paths.Count == 0 && SelectedItem != null) paths.Add(SelectedItem.FullPath);
+        if (paths.Count > 0)
+        {
+            ShellInterop.WinRarAddGui(paths);
+        }
+    }
+
+    [RelayCommand]
+    public void WinRarAddToRar()
+    {
+        var paths = SelectedItems.Select(x => x.FullPath).ToList();
+        if (paths.Count == 0 && SelectedItem != null) paths.Add(SelectedItem.FullPath);
+        if (paths.Count > 0)
+        {
+            string first = paths[0];
+            string dir = Path.GetDirectoryName(first) ?? CurrentPath;
+            string name = Path.GetFileNameWithoutExtension(first);
+            string dest = Path.Combine(dir, $"{name}.rar");
+            ShellInterop.WinRarAddToRar(paths, dest);
+        }
+    }
+
+    [RelayCommand]
+    public void WinRarExtractHere()
+    {
+        if (SelectedItem != null)
+        {
+            ShellInterop.WinRarExtractHere(SelectedItem.FullPath);
+        }
+    }
+
+    [RelayCommand]
+    public void WinRarExtractToFolder()
+    {
+        if (SelectedItem != null)
+        {
+            ShellInterop.WinRarExtractToFolder(SelectedItem.FullPath);
+        }
+    }
+
     [RelayCommand]
     public void PinToQuickAccess()
     {

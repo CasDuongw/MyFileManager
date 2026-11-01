@@ -1,3 +1,4 @@
+using System.Windows.Interop;
 using System.Windows.Controls.Primitives;
 using System.IO;
 using System.Windows;
@@ -197,6 +198,19 @@ public partial class FilePaneView : UserControl
                 e.Handled = true;
             }
         }
+        else if (e.Key == Key.F10 && Keyboard.Modifiers.HasFlag(ModifierKeys.Shift))
+        {
+            ShowNativeItemContextMenu();
+            e.Handled = true;
+        }
+        else if (e.Key == Key.Apps)
+        {
+            if (ViewModel?.SelectedItem != null)
+                ShowNativeItemContextMenu();
+            else
+                ShowNativeBackgroundContextMenu();
+            e.Handled = true;
+        }
         else if (e.Key == Key.Delete)
         {
             ViewModel?.DeleteToRecycleBinCommand.Execute(null);
@@ -252,6 +266,13 @@ public partial class FilePaneView : UserControl
 
     private void OnItemContextMenuOpening(object sender, ContextMenuEventArgs e)
     {
+        if (Keyboard.Modifiers.HasFlag(ModifierKeys.Shift))
+        {
+            e.Handled = true;
+            ShowNativeItemContextMenu();
+            return;
+        }
+
         if (sender is FrameworkElement fe && fe.ContextMenu != null)
         {
             fe.ContextMenu.DataContext = ViewModel;
@@ -269,10 +290,69 @@ public partial class FilePaneView : UserControl
             return;
         }
 
+        if (Keyboard.Modifiers.HasFlag(ModifierKeys.Shift))
+        {
+            e.Handled = true;
+            ShowNativeBackgroundContextMenu();
+            return;
+        }
+
         if (sender is FrameworkElement fe && fe.ContextMenu != null)
         {
             fe.ContextMenu.DataContext = ViewModel;
         }
+    }
+
+    private void OnShowMoreOptionsClick(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement fe)
+        {
+            var cm = fe.FindVisualAncestor<ContextMenu>();
+            if (cm != null) cm.IsOpen = false;
+        }
+        ShowNativeItemContextMenu();
+    }
+
+    private void OnShowMoreBackgroundOptionsClick(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement fe)
+        {
+            var cm = fe.FindVisualAncestor<ContextMenu>();
+            if (cm != null) cm.IsOpen = false;
+        }
+        ShowNativeBackgroundContextMenu();
+    }
+
+    public void ShowNativeItemContextMenu()
+    {
+        var selected = ViewModel?.SelectedItems.Select(x => x.FullPath).ToList();
+        if (selected == null || selected.Count == 0)
+        {
+            if (ViewModel?.SelectedItem != null)
+            {
+                selected = new List<string> { ViewModel.SelectedItem.FullPath };
+            }
+        }
+        if (selected == null || selected.Count == 0) return;
+
+        var window = Window.GetWindow(this);
+        if (window == null) return;
+        var hwnd = new WindowInteropHelper(window).Handle;
+        var pt = PointToScreen(Mouse.GetPosition(this));
+
+        ShellContextMenu.ShowContextMenu(selected, pt, hwnd);
+    }
+
+    public void ShowNativeBackgroundContextMenu()
+    {
+        if (string.IsNullOrEmpty(ViewModel?.CurrentPath)) return;
+
+        var window = Window.GetWindow(this);
+        if (window == null) return;
+        var hwnd = new WindowInteropHelper(window).Handle;
+        var pt = PointToScreen(Mouse.GetPosition(this));
+
+        ShellContextMenu.ShowBackgroundContextMenu(ViewModel.CurrentPath, pt, hwnd);
     }
 
     private void OnTopActionButtonClick(object sender, RoutedEventArgs e)

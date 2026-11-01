@@ -216,5 +216,139 @@ public static class ShellInterop
             zip.CreateEntryFromFile(file, entryName, CompressionLevel.Optimal);
         }
     }
-}
 
+    /// <summary>
+    /// Displays the Windows "Open With" dialog for the specified file.
+    /// </summary>
+    public static void ShowOpenWithDialog(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path) || !File.Exists(path)) return;
+
+        try
+        {
+            var info = new SHELLEXECUTEINFO
+            {
+                cbSize = Marshal.SizeOf<SHELLEXECUTEINFO>(),
+                lpVerb = "openas",
+                lpFile = path,
+                nShow = SW_SHOW,
+                fMask = SEE_MASK_INVOKEIDLIST
+            };
+            ShellExecuteEx(ref info);
+        }
+        catch
+        {
+            try
+            {
+                Process.Start(new ProcessStartInfo("rundll32.exe", $"shell32.dll,OpenAs_RunDLL \"{path}\"") { UseShellExecute = true });
+            }
+            catch { }
+        }
+    }
+
+    /// <summary>
+    /// Runs the specified executable or file as Administrator (UAC prompt).
+    /// </summary>
+    public static void RunAsAdministrator(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path)) return;
+        try
+        {
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = path,
+                UseShellExecute = true,
+                Verb = "runas"
+            });
+        }
+        catch { }
+    }
+
+    /// <summary>
+    /// Pins the specified file or folder to the Windows Start Menu.
+    /// </summary>
+    public static void PinToStart(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path)) return;
+        try
+        {
+            var info = new SHELLEXECUTEINFO
+            {
+                cbSize = Marshal.SizeOf<SHELLEXECUTEINFO>(),
+                lpVerb = "pintostartscreen",
+                lpFile = path,
+                nShow = SW_SHOW,
+                fMask = SEE_MASK_INVOKEIDLIST
+            };
+            ShellExecuteEx(ref info);
+        }
+        catch { }
+    }
+
+    private static string? _winRarPath;
+    private static bool _winRarChecked;
+
+    public static string? GetWinRarPath()
+    {
+        if (_winRarChecked) return _winRarPath;
+        _winRarChecked = true;
+
+        string p64 = @"C:\Program Files\WinRAR\WinRAR.exe";
+        string p32 = @"C:\Program Files (x86)\WinRAR\WinRAR.exe";
+        if (File.Exists(p64)) _winRarPath = p64;
+        else if (File.Exists(p32)) _winRarPath = p32;
+        return _winRarPath;
+    }
+
+    public static bool IsWinRarInstalled => !string.IsNullOrEmpty(GetWinRarPath());
+
+    public static void WinRarAddGui(IEnumerable<string> paths)
+    {
+        string? winrar = GetWinRarPath();
+        if (winrar == null) return;
+        var args = string.Join(" ", paths.Select(p => $"\"{p}\""));
+        try
+        {
+            Process.Start(new ProcessStartInfo(winrar, $"a {args}") { UseShellExecute = true });
+        }
+        catch { }
+    }
+
+    public static void WinRarAddToRar(IEnumerable<string> paths, string destinationRar)
+    {
+        string? winrar = GetWinRarPath();
+        if (winrar == null) return;
+        var args = string.Join(" ", paths.Select(p => $"\"{p}\""));
+        try
+        {
+            Process.Start(new ProcessStartInfo(winrar, $"a -r \"{destinationRar}\" {args}") { UseShellExecute = true });
+        }
+        catch { }
+    }
+
+    public static void WinRarExtractHere(string archivePath)
+    {
+        string? winrar = GetWinRarPath();
+        if (winrar == null) return;
+        string dir = Path.GetDirectoryName(archivePath) ?? ".";
+        try
+        {
+            Process.Start(new ProcessStartInfo(winrar, $"x -ibck \"{archivePath}\" *.* \"{dir}\\\"") { UseShellExecute = true });
+        }
+        catch { }
+    }
+
+    public static void WinRarExtractToFolder(string archivePath)
+    {
+        string? winrar = GetWinRarPath();
+        if (winrar == null) return;
+        string nameWithoutExt = Path.GetFileNameWithoutExtension(archivePath);
+        string parent = Path.GetDirectoryName(archivePath) ?? ".";
+        string target = Path.Combine(parent, nameWithoutExt);
+        try
+        {
+            Process.Start(new ProcessStartInfo(winrar, $"x -ibck \"{archivePath}\" *.* \"{target}\\\"") { UseShellExecute = true });
+        }
+        catch { }
+    }
+}

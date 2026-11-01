@@ -439,29 +439,45 @@
                       CommandParameter="{Binding SelectedItem}"
                       Style="{StaticResource ModernMenuItemStyle}" />
 
-            <!-- Open in new tab -->
+            <!-- Open in new tab (Visible when directory) -->
             <MenuItem Header="Open in new tab"
                       Icon="🗗"
                       Command="{Binding OpenInNewTabCommand}"
+                      Visibility="{Binding SelectedItem.IsDirectory, Converter={StaticResource BoolToVis}}"
                       Style="{StaticResource ModernMenuItemStyle}" />
 
-            <!-- Open in new window -->
+            <!-- Open in new window (Visible when directory) -->
             <MenuItem Header="Open in new window"
                       Icon="↗"
                       Command="{Binding OpenInNewWindowCommand}"
+                      Visibility="{Binding SelectedItem.IsDirectory, Converter={StaticResource BoolToVis}}"
                       Style="{StaticResource ModernMenuItemStyle}" />
 
-            <!-- Pin to Quick access -->
+            <!-- Pin to Quick access (Visible when directory) -->
             <MenuItem Header="Pin to Quick access"
                       Icon="📌"
                       Command="{Binding PinToQuickAccessCommand}"
+                      Visibility="{Binding SelectedItem.IsDirectory, Converter={StaticResource BoolToVis}}"
                       Style="{StaticResource ModernMenuItemStyle}" />
 
-            <!-- Compress to ZIP -->
-            <MenuItem Header="Compress to ZIP"
-                      Icon="🗜"
-                      Command="{Binding CompressToZipCommand}"
+            <!-- Pin to Start -->
+            <MenuItem Header="Pin to Start"
+                      Icon="📌"
+                      Command="{Binding PinToStartCommand}"
                       Style="{StaticResource ModernMenuItemStyle}" />
+
+            <!-- Compress to... Submenu -->
+            <MenuItem Header="Compress to..."
+                      Icon="🗜"
+                      Style="{StaticResource ModernMenuItemStyle}">
+                <MenuItem Header="ZIP file (.zip)"
+                          Command="{Binding CompressToZipCommand}"
+                          Style="{StaticResource ModernMenuItemStyle}" />
+                <MenuItem Header="RAR file (.rar)"
+                          Command="{Binding WinRarAddToRarCommand}"
+                          Visibility="{Binding IsWinRarInstalled, Converter={StaticResource BoolToVis}}"
+                          Style="{StaticResource ModernMenuItemStyle}" />
+            </MenuItem>
 
             <!-- Copy as path -->
             <MenuItem Header="Copy as path"
@@ -491,13 +507,43 @@
                       Command="{Binding OpenWithCodeCommand}"
                       Style="{StaticResource ModernMenuItemStyle}" />
 
+            <!-- Open with... (For files) -->
+            <MenuItem Header="Open with..."
+                      Icon="↗"
+                      Command="{Binding OpenWithCommand}"
+                      Visibility="{Binding SelectedItem.IsDirectory, Converter={StaticResource InvBoolToVis}}"
+                      Style="{StaticResource ModernMenuItemStyle}" />
+
+            <!-- WinRAR Submenu (When WinRAR is installed) -->
+            <MenuItem Header="WinRAR"
+                      Icon="🗃️"
+                      Visibility="{Binding IsWinRarInstalled, Converter={StaticResource BoolToVis}}"
+                      Style="{StaticResource ModernMenuItemStyle}">
+                <MenuItem Header="Add to archive..."
+                          Command="{Binding WinRarAddCommand}"
+                          Style="{StaticResource ModernMenuItemStyle}" />
+                <MenuItem Header="Add to archive (.rar)"
+                          Command="{Binding WinRarAddToRarCommand}"
+                          Style="{StaticResource ModernMenuItemStyle}" />
+                <Separator Style="{StaticResource ModernMenuSeparatorStyle}"
+                           Visibility="{Binding IsSelectedArchive, Converter={StaticResource BoolToVis}}" />
+                <MenuItem Header="Extract here"
+                          Command="{Binding WinRarExtractHereCommand}"
+                          Visibility="{Binding IsSelectedArchive, Converter={StaticResource BoolToVis}}"
+                          Style="{StaticResource ModernMenuItemStyle}" />
+                <MenuItem Header="Extract to folder"
+                          Command="{Binding WinRarExtractToFolderCommand}"
+                          Visibility="{Binding IsSelectedArchive, Converter={StaticResource BoolToVis}}"
+                          Style="{StaticResource ModernMenuItemStyle}" />
+            </MenuItem>
+
             <Separator Style="{StaticResource ModernMenuSeparatorStyle}" />
 
-            <!-- Show more options -->
+            <!-- Show more options (Real Windows Shell Context Menu) -->
             <MenuItem Header="Show more options"
                       InputGestureText="Shift+F10"
                       Icon="↗"
-                      Command="{Binding OpenPropertiesCommand}"
+                      Click="OnShowMoreOptionsClick"
                       Style="{StaticResource ModernMenuItemStyle}" />
         </ContextMenu>
 
@@ -537,6 +583,15 @@
                       InputGestureText="Alt+Enter"
                       Icon="🔧"
                       Command="{Binding OpenPropertiesCommand}"
+                      Style="{StaticResource ModernMenuItemStyle}" />
+
+            <Separator Style="{StaticResource ModernMenuSeparatorStyle}" />
+
+            <!-- Show more options for background -->
+            <MenuItem Header="Show more options"
+                      InputGestureText="Shift+F10"
+                      Icon="↗"
+                      Click="OnShowMoreBackgroundOptionsClick"
                       Style="{StaticResource ModernMenuItemStyle}" />
         </ContextMenu>
     </UserControl.Resources>
