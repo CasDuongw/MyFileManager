@@ -20,6 +20,7 @@ public partial class QuickOpenViewModel : ObservableObject
     private CancellationTokenSource? _availabilityCts;
     private CancellationTokenSource? _searchCts;
     private int _searchVersion;
+    private FilePaneViewModel? _paneAtOpen;
 
     public Task? CurrentSearchTask { get; private set; }
 
@@ -77,6 +78,7 @@ public partial class QuickOpenViewModel : ObservableObject
     [RelayCommand]
     public void Open(string? prefill = null)
     {
+        _paneAtOpen = (_sourceProvider as QuickOpenSourceProvider)?.ActivePane;
         IsOpen = true;
         QueryText = prefill ?? string.Empty;
         UpdateFilteredItems();
@@ -251,6 +253,8 @@ public partial class QuickOpenViewModel : ObservableObject
             {
                 _searchCts = new CancellationTokenSource();
                 var token = _searchCts.Token;
+                var folderIndex = _sourceProvider.FolderIndex;
+                int totalCandidates = places.Count + (folderIndex?.Count ?? 0);
 
                 Action runSearch = () =>
                 {
@@ -264,18 +268,67 @@ public partial class QuickOpenViewModel : ObservableObject
 
                     if (token.IsCancellationRequested || version != _searchVersion) return;
 
-                    var matched = topK.Select(r =>
+                    var matched = new List<QuickOpenItemViewModel>(50);
+                    var seenPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+                    foreach (var r in topK)
                     {
                         r.Item.Score = r.Score;
-                        return r.Item;
-                    }).ToList();
+                        if (!string.IsNullOrEmpty(r.Item.TargetPath))
+                        {
+                            seenPaths.Add(r.Item.TargetPath);
+                        }
+                        matched.Add(r.Item);
+                    }
+
+                    if (folderIndex != null && folderIndex.Count > 0)
+                    {
+                        var indexHits = folderIndex.Search(prepQuery, 50);
+                        foreach (var hit in indexHits)
+                        {
+                            if (token.IsCancellationRequested || version != _searchVersion) return;
+                            var entry = hit.Item;
+                            if (seenPaths.Add(entry.FullPath))
+                            {
+                                matched.Add(new QuickOpenItemViewModel
+                                {
+                                    Title = entry.Name,
+                                    Subtitle = entry.FullPath,
+                                    Badge = "Folder",
+                                    Kind = QuickOpenItemKind.Place,
+                                    TargetPath = entry.FullPath,
+                                    Priority = 5,
+                                    Score = hit.Score,
+                                    ExecuteAction = () => (_paneAtOpen ?? (_sourceProvider as QuickOpenSourceProvider)?.ActivePane)?.Navigate(entry.FullPath)
+                                });
+                            }
+                        }
+                    }
+
+                    matched.Sort((a, b) =>
+                    {
+                        int sCmp = b.Score.CompareTo(a.Score);
+                        if (sCmp != 0) return sCmp;
+                        int pCmp = a.Priority.CompareTo(b.Priority);
+                        if (pCmp != 0) return pCmp;
+                        int lCmp = (a.TargetPath?.Length ?? a.Subtitle.Length).CompareTo(b.TargetPath?.Length ?? b.Subtitle.Length);
+                        if (lCmp != 0) return lCmp;
+                        return string.Compare(a.Title, b.Title, StringComparison.OrdinalIgnoreCase);
+                    });
+
+                    if (matched.Count > 50)
+                    {
+                        matched = matched.Take(50).ToList();
+                    }
 
                     _uiDispatcher(() =>
                     {
                         if (version != _searchVersion) return;
+                        StatusMessage = _sourceProvider.GetStatusMessage();
                         Results.ReplaceAll(matched);
                         OnPropertyChanged(nameof(HasResults));
                         OnPropertyChanged(nameof(HasNoMatches));
+                        OnPropertyChanged(nameof(StatusMessage));
 
                         if (Results.Count > 0)
                         {
@@ -295,7 +348,7 @@ public partial class QuickOpenViewModel : ObservableObject
                     }
                 };
 
-                if (places.Count <= 200)
+                if (totalCandidates <= 200)
                 {
                     CurrentSearchTask = Task.CompletedTask;
                     runSearch();

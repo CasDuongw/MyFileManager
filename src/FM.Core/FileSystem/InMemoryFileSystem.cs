@@ -462,6 +462,22 @@ public sealed class InMemoryFileSystem : IFileSystem
         }
     }
 
+    public IEnumerable<string> EnumerateDirectories(string path)
+    {
+        lock (_lock)
+        {
+            string n = Normalize(path);
+            if (_enumerationFailures.TryGetValue(n, out var ex))
+            {
+                throw ex;
+            }
+            return _directories
+                .Where(kvp => IsDirectChild(n, kvp.Key) && !kvp.Value.IsReparsePoint)
+                .Select(kvp => kvp.Key)
+                .ToList();
+        }
+    }
+
     public FileItemInfo? GetInfo(string path)
     {
         lock (_lock)

@@ -47,6 +47,7 @@ public partial class MainViewModel : ObservableObject
     public FilePaneViewModel RightPane => (Panes.Count > 1 ? Panes[1] : (Panes.Count > 0 ? Panes[0] : ActivePane));
     public TransferDrawerViewModel TransferDrawer { get; }
     public QuickOpenViewModel QuickOpen { get; }
+    public IFolderIndex FolderIndex { get; } = new FolderIndex();
 
     private FilePaneViewModel? _activePane;
 
@@ -123,7 +124,7 @@ public partial class MainViewModel : ObservableObject
         _transferQueue = transferQueue ?? new TransferQueue(_fileSystem, _stagingStore, _journalStore);
         _dialogService = transferDialogService ?? new TransferDialogService();
         TransferDrawer = transferDrawer ?? new TransferDrawerViewModel(_transferQueue);
-        QuickOpen = new QuickOpenViewModel(new QuickOpenSourceProvider(this, _fileSystem));
+        QuickOpen = new QuickOpenViewModel(new QuickOpenSourceProvider(this, _fileSystem, FolderIndex));
         _timeProvider = timeProvider ?? TimeProvider.System;
 
         // Initialize with default 2 panes
@@ -141,6 +142,7 @@ public partial class MainViewModel : ObservableObject
         if (_fileSystem is not InMemoryFileSystem)
         {
             _ = PopulateSidebarAsync();
+            StartFolderIndexCrawl();
         }
     }
 
@@ -903,6 +905,7 @@ public partial class MainViewModel : ObservableObject
         if (_isRestoringSession) return;
         if (string.IsNullOrWhiteSpace(path)) return;
         _recentFolders.Add(path);
+        FolderIndex.Add(path);
         ScheduleSaveRecentFolders();
     }
 
@@ -955,6 +958,68 @@ public partial class MainViewModel : ObservableObject
         settings.RecentFolders = _recentFolders.Items.ToList();
 
         _settingsService.SaveSettings(settings);
+    }
+
+    public void StartFolderIndexCrawl(CancellationToken cancellationToken = default)
+    {
+        if (_fileSystem is InMemoryFileSystem) return;
+
+        _ = Task.Run(async () =>
+        {
+            string cachePath = FolderIndexCache.GetDefaultCachePath();
+            if (FolderIndexCache.TryLoad(cachePath, out var cached) && cached.Count > 0)
+            {
+                FolderIndex.SetEntries(cached);
+                FolderIndex.State = FolderIndexState.Ready;
+            }
+
+            var crawler = new FolderCrawler(_fileSystem, FolderIndex);
+            var settings = _settingsService.LoadSettings();
+
+            var roots = new List<string>();
+            if (settings.IndexedRoots != null && settings.IndexedRoots.Count > 0)
+            {
+                roots.AddRange(settings.IndexedRoots);
+            }
+            else
+            {
+                var userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+                if (!string.IsNullOrEmpty(userProfile) && Directory.Exists(userProfile))
+                {
+                    roots.Add(userProfile);
+                }
+
+                try
+                {
+                    foreach (var drive in DriveInfo.GetDrives())
+                    {
+                        if (drive.IsReady && drive.DriveType == DriveType.Fixed)
+                        {
+                            roots.Add(drive.RootDirectory.FullName);
+                        }
+                    }
+                }
+                catch
+                {
+                    roots.Add(@"C:\");
+                }
+            }
+
+            IEnumerable<string> excludes = (settings.IndexExcludes != null && settings.IndexExcludes.Count > 0)
+                ? settings.IndexExcludes
+                : FolderCrawler.DefaultExcludes;
+
+            await crawler.CrawlAsync(roots, excludes, batchSize: 500, cancellationToken: cancellationToken);
+
+            try
+            {
+                FolderIndexCache.Save(cachePath, FolderIndex.Snapshot());
+            }
+            catch
+            {
+                // Best effort
+            }
+        }, cancellationToken);
     }
 
     public async Task PopulateSidebarAsync()

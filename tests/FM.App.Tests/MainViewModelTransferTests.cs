@@ -8,8 +8,9 @@ namespace FM.App.Tests;
 
 public class FakeSettingsService : ISettingsService
 {
-    public AppSettings LoadSettings() => new AppSettings();
-    public void SaveSettings(AppSettings settings) { }
+    private AppSettings _settings = new();
+    public AppSettings LoadSettings() => _settings;
+    public void SaveSettings(AppSettings settings) { _settings = settings; }
     public Task ValidatePathsAsync(AppSettings settings, TimeSpan? timeout = null) => Task.CompletedTask;
 }
 

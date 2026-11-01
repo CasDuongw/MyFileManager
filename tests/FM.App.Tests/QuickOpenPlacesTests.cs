@@ -55,7 +55,7 @@ public class QuickOpenPlacesTests
 
     private QuickOpenViewModel CreateViewModel(IQuickOpenSourceProvider? provider = null)
     {
-        provider ??= new QuickOpenSourceProvider(_mainViewModel, _fileSystem);
+        provider ??= new QuickOpenSourceProvider(_mainViewModel, _fileSystem, _mainViewModel.FolderIndex);
         return new QuickOpenViewModel(provider, uiDispatcher: a => a());
     }
 
@@ -335,6 +335,65 @@ public class QuickOpenPlacesTests
         vm.Open("down");
         Assert.NotEmpty(vm.Results);
         Assert.Equal("Downloads", vm.Results[0].Title);
+    }
+
+    [Fact]
+    public void Scenario3_UnvisitedFolder_NotInOpenPane_FoundViaFolderIndex()
+    {
+        _mainViewModel.FolderIndex.BulkAdd(new[]
+        {
+            @"D:\HoYoPlay\games",
+            @"D:\TeraBoxDownload",
+            @"D:\Cisco Packet Tracer 9.0.1"
+        });
+
+        var vm = CreateViewModel();
+
+        // 1. games -> finds D:\HoYoPlay\games
+        vm.Open("games");
+        Assert.NotEmpty(vm.Results);
+        Assert.Equal("games", vm.Results[0].Title);
+        Assert.Equal(@"D:\HoYoPlay\games", vm.Results[0].TargetPath);
+
+        // 2. tera -> finds D:\TeraBoxDownload
+        vm.Open("tera");
+        Assert.NotEmpty(vm.Results);
+        Assert.Equal("TeraBoxDownload", vm.Results[0].Title);
+
+        // 3. cisco -> finds Cisco Packet Tracer 9.0.1
+        vm.Open("cisco");
+        Assert.NotEmpty(vm.Results);
+        Assert.Equal("Cisco Packet Tracer 9.0.1", vm.Results[0].Title);
+    }
+
+    [Fact]
+    public void Scenario3_ProgressiveStatus_WhileIndexBuilding()
+    {
+        _mainViewModel.FolderIndex.Clear();
+        _mainViewModel.FolderIndex.State = FM.Core.Search.FolderIndexState.Building;
+        _mainViewModel.FolderIndex.BulkAdd(new[] { @"C:\Folder1", @"C:\Folder2", @"C:\Folder3" });
+
+        var vm = CreateViewModel();
+        vm.Open("xyzNonExistent");
+
+        Assert.True(vm.HasNoMatches);
+        Assert.StartsWith("Indexing...", vm.StatusMessage);
+        Assert.Contains("3", vm.StatusMessage);
+    }
+
+    [Fact]
+    public void PersistSettings_DoesNotEraseIndexedRootsAndExcludes()
+    {
+        var initialSettings = _settingsService.LoadSettings();
+        initialSettings.IndexedRoots = new List<string> { @"D:\MyCode", @"E:\Data" };
+        initialSettings.IndexExcludes = new List<string> { "target", "build" };
+        _settingsService.SaveSettings(initialSettings);
+
+        _mainViewModel.PersistSettings(100, 100, 1200, 800, "Normal");
+
+        var reloadedSettings = _settingsService.LoadSettings();
+        Assert.Equal(new[] { @"D:\MyCode", @"E:\Data" }, reloadedSettings.IndexedRoots);
+        Assert.Equal(new[] { "target", "build" }, reloadedSettings.IndexExcludes);
     }
 }
 

@@ -76,6 +76,28 @@ public sealed class PhysicalFileSystem : IFileSystem
         return Directory.EnumerateFileSystemEntries(norm);
     }
 
+    public IEnumerable<string> EnumerateDirectories(string path)
+    {
+        string norm = NormalizePath(path);
+        if (!Directory.Exists(norm)) return Enumerable.Empty<string>();
+
+        var options = new EnumerationOptions
+        {
+            IgnoreInaccessible = true,
+            AttributesToSkip = FileAttributes.ReparsePoint,
+            RecurseSubdirectories = false
+        };
+
+        try
+        {
+            return Directory.EnumerateDirectories(norm, "*", options);
+        }
+        catch
+        {
+            return Enumerable.Empty<string>();
+        }
+    }
+
     public FileItemInfo? GetInfo(string path)
     {
         string norm = NormalizePath(path);

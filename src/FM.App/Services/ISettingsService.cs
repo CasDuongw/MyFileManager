@@ -16,6 +16,8 @@ public class AppSettings
     public string LayoutMode { get; set; } = "DualVertical";
     public bool ShowHiddenFiles { get; set; } = false;
     public List<string> RecentFolders { get; set; } = new();
+    public List<string> IndexedRoots { get; set; } = new();
+    public List<string> IndexExcludes { get; set; } = new();
 }
 
 public interface ISettingsService

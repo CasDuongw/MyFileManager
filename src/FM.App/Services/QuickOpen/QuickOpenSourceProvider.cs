@@ -6,6 +6,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using FM.App.ViewModels;
 using FM.Core.FileSystem;
+using FM.Core.Search;
 
 namespace FM.App.Services.QuickOpen;
 
@@ -14,14 +15,20 @@ public class QuickOpenSourceProvider : IQuickOpenSourceProvider
     private readonly MainViewModel _mainViewModel;
     private readonly IFileSystem _fileSystem;
     private readonly ICommandCatalog _commandCatalog;
+    private readonly IFolderIndex? _folderIndex;
+
+    public IFolderIndex? FolderIndex => _folderIndex;
+    public FilePaneViewModel? ActivePane => _mainViewModel.ActivePane;
 
     public QuickOpenSourceProvider(
         MainViewModel mainViewModel,
         IFileSystem fileSystem,
+        IFolderIndex? folderIndex = null,
         ICommandCatalog? commandCatalog = null)
     {
         _mainViewModel = mainViewModel;
         _fileSystem = fileSystem;
+        _folderIndex = folderIndex;
         _commandCatalog = commandCatalog ?? new CommandCatalog(mainViewModel);
     }
 
@@ -179,6 +186,10 @@ public class QuickOpenSourceProvider : IQuickOpenSourceProvider
 
     public string GetStatusMessage()
     {
+        if (_folderIndex != null && (_folderIndex.Count > 0 || _folderIndex.State == FolderIndexState.Building))
+        {
+            return _folderIndex.StatusMessage;
+        }
         return "Search open tabs, favorites, and recents";
     }
 

@@ -29,6 +29,7 @@ public interface IFileSystem
 
     bool IsDirectoryEmpty(string path);
     IEnumerable<string> EnumerateEntries(string path);
+    IEnumerable<string> EnumerateDirectories(string path);
 
     // Transfer Engine extensions
     FileItemInfo? GetInfo(string path);

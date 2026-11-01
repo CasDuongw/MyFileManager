@@ -158,6 +158,8 @@ public class SettingsService : ISettingsService
         }
 
         settings.PanePaths ??= new List<string>();
+        settings.IndexedRoots ??= new List<string>();
+        settings.IndexExcludes ??= new List<string>();
 
         if (settings.RecentFolders == null)
         {
