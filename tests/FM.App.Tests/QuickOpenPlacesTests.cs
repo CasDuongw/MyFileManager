@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 using FM.App.Models;
@@ -394,6 +395,29 @@ public class QuickOpenPlacesTests
         var reloadedSettings = _settingsService.LoadSettings();
         Assert.Equal(new[] { @"D:\MyCode", @"E:\Data" }, reloadedSettings.IndexedRoots);
         Assert.Equal(new[] { "target", "build" }, reloadedSettings.IndexExcludes);
+    }
+
+    [Fact]
+    public void Frecency_SelectingRow_BoostsVisitScore_AndElevatesRanking()
+    {
+        string baseDir = @"C:\Users\User\Desktop\FPT_student";
+        string p1 = Path.Combine(baseDir, "DU_AN_CA_NHAN");
+        string p2 = Path.Combine(baseDir, "DU_AN_NHAN");
+        _fileSystem.CreateDirectory(baseDir);
+        _fileSystem.CreateDirectory(p1);
+        _fileSystem.CreateDirectory(p2);
+
+        _mainViewModel.ActivePane.Navigate(baseDir);
+
+        var vm = CreateViewModel();
+        vm.Open("du an");
+
+        var target = vm.Results.FirstOrDefault(r => r.TargetPath == p2);
+        Assert.NotNull(target);
+        vm.SelectedItem = target;
+        vm.ExecuteSelected();
+
+        Assert.True(_mainViewModel.VisitStore.GetFrecencyScore(p2) > 0);
     }
 }
 

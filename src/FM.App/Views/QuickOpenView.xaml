@@ -4,6 +4,7 @@
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" 
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008" 
              xmlns:vm="clr-namespace:FM.App.ViewModels"
+             xmlns:helpers="clr-namespace:FM.App.Helpers"
              mc:Ignorable="d" 
              d:DataContext="{d:DesignInstance Type=vm:QuickOpenViewModel}"
              Visibility="{Binding IsOpen, Converter={StaticResource BoolToVis}}"
@@ -189,6 +190,8 @@
                                 <!-- Title and Subtitle -->
                                 <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="6,0,8,0">
                                     <TextBlock Text="{Binding Title}"
+                                               helpers:TextBlockHighlighter.FullText="{Binding Title}"
+                                               helpers:TextBlockHighlighter.HighlightQuery="{Binding DataContext.QueryText, RelativeSource={RelativeSource AncestorType=UserControl}}"
                                                FontWeight="SemiBold"
                                                FontSize="13"
                                                Foreground="#1F2937"

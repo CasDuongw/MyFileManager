@@ -69,6 +69,16 @@ MyFileManager/
 │   │   ├── Navigation/
 │   │   │   └── NavigationHistory.cs     # Two-phase Back/Forward navigation stack manager
 │   │   ├── Search/
+│   │   │   ├── CharacterBitmask.cs      # 64-bit character presence bitmask pre-filter
+│   │   │   ├── OptimalAlignmentScorer.cs# Smith-Waterman style DP sequence alignment scorer
+│   │   │   ├── PreparedQuery.cs         # Pre-normalized query tokens, bitmasks & path segments
+│   │   │   ├── PreparedMatcher.cs       # Parallel bounded min-heap Top-K selection & tie-breaker
+│   │   │   ├── FolderIndexEntry.cs      # Lightweight indexed folder entry with precomputed metadata
+│   │   │   ├── IFolderIndex.cs          # Folder index abstraction supporting concurrent reads
+│   │   │   ├── FolderIndex.cs           # Thread-safe in-memory folder index with atomic snapshots
+│   │   │   ├── FolderCrawler.cs         # Iterative low-priority background crawler with exclusions
+│   │   │   ├── FolderIndexCache.cs      # Binary versioned atomic cache (%LOCALAPPDATA%\MyFileManager)
+│   │   │   ├── FolderVisitStore.cs      # Frecency store with time-decay scoring (4x/2x/1x/0.5x)
 │   │   │   ├── FuzzyMatcher.cs          # Tiered fuzzy matching & gap-penalized ranking
 │   │   │   ├── RecentFolderList.cs      # Thread-safe in-memory MRU folder list (cap 10)
 │   │   │   ├── NameMatcher.cs           # Diacritic- & case-insensitive matching & ranking
@@ -251,6 +261,21 @@ Command: dotnet run --project tests/FM.Benchmarks/FM.Benchmarks.csproj -c Releas
 | **95th Percentile (P95)** | **0.000 ms** | < 5.0 ms |
 | **Maximum Keystroke Latency** | **2.166 ms** | < 5.0 ms |
 | **Disk Generation** | **0 bytes** (In-memory fuzzy matcher & catalog) | 0 bytes |
+
+#### D. Quick Open 200,000 Folder Index Ranking (200,000 Candidates, 0 Disk Files):
+```
+Command: dotnet run --project tests/FM.Benchmarks/FM.Benchmarks.csproj -c Release -- --quickopen-index
+```
+| Metric | Measured Value | Target |
+| :--- | :--- | :--- |
+| **Candidate Pool** | **200,000 synthetic folders** | 200k+ |
+| **Index Build Time** | **382 ms** | Instant |
+| **Total Queries Tested** | **100 queries (10 queries x 10 runs)** | |
+| **Average Latency** | **2.358 ms** | ~30 ms typical |
+| **Median Latency (P50)** | **0.000 ms** | < 30 ms |
+| **95th Percentile (P95)** | **20.832 ms** | < 100 ms |
+| **Maximum Keystroke Latency** | **37.465 ms** | < 100 ms |
+| **Disk Generation** | **0 bytes** (Pure in-memory index) | 0 bytes |
 
 ---
 

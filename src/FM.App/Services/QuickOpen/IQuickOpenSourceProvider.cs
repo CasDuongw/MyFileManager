@@ -11,6 +11,7 @@ public interface IQuickOpenSourceProvider
     IReadOnlyList<QuickOpenItemViewModel> GetCommands();
     Task CheckAvailabilityAsync(IEnumerable<QuickOpenItemViewModel> items, CancellationToken cancellationToken = default);
     IFolderIndex? FolderIndex => null;
+    FolderVisitStore? VisitStore => null;
     string GetStatusMessage() => "Search open tabs, favorites, and recents";
 }
 

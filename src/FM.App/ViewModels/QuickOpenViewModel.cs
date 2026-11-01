@@ -133,6 +133,11 @@ public partial class QuickOpenViewModel : ObservableObject
         if (SelectedItem == null) return;
 
         var action = SelectedItem.ExecuteAction;
+        if (!string.IsNullOrEmpty(SelectedItem.TargetPath))
+        {
+            _sourceProvider.VisitStore?.RecordVisit(SelectedItem.TargetPath, 5);
+        }
+
         Close();
 
         try
@@ -370,9 +375,9 @@ public partial class QuickOpenViewModel : ObservableObject
         _ = _sourceProvider.CheckAvailabilityAsync(items, token);
     }
 
-    private static double GetPlacePriorityBoost(QuickOpenItemViewModel p)
+    private double GetPlacePriorityBoost(QuickOpenItemViewModel p)
     {
-        return p.Badge switch
+        double boost = p.Badge switch
         {
             "Open pane" => 50.0,
             "Folder" => 40.0,
@@ -381,6 +386,13 @@ public partial class QuickOpenViewModel : ObservableObject
             "Drive" => 10.0,
             _ => 0.0
         };
+
+        if (!string.IsNullOrEmpty(p.TargetPath))
+        {
+            boost += _sourceProvider.VisitStore?.GetFrecencyScore(p.TargetPath) ?? 0.0;
+        }
+
+        return boost;
     }
 }
 

@@ -111,6 +111,11 @@ public static class Program
         int syntheticCount = 10_000; // Default smoke mode
         bool isTransferMode = false;
 
+        if (args.Any(a => a.Equals("--quickopen-index", StringComparison.OrdinalIgnoreCase)))
+        {
+            return RunQuickOpenIndexBenchmark();
+        }
+
         if (args.Any(a => a.Equals("--quickopen", StringComparison.OrdinalIgnoreCase)))
         {
             return RunQuickOpenBenchmark();
@@ -483,15 +488,97 @@ public static class Program
         return p95 < 5.0 ? 0 : 1;
     }
 
+    private static int RunQuickOpenIndexBenchmark()
+    {
+        Console.WriteLine("=============================================================");
+        Console.WriteLine("     Quick Open 200,000 Folder Index Ranking Benchmark       ");
+        Console.WriteLine("=============================================================");
+        Console.WriteLine("Candidate Pool      : 200,000 synthetic folders (0 disk files)");
+
+        var index = new FM.Core.Search.FolderIndex();
+        var syntheticFolders = new List<string>(200_000);
+        string[] categories = ["Projects", "Documents", "Clients", "Website Redesign", "Downloads", "Music", "Source", "Archive", "Finance", "MyFileManager"];
+        string[] subcategories = ["frontend", "backend", "docs", "assets", "tests", "release", "build", "config", "core", "app"];
+
+        for (int i = 0; i < 200_000; i++)
+        {
+            string cat = categories[i % categories.Length];
+            string sub = subcategories[(i / categories.Length) % subcategories.Length];
+            syntheticFolders.Add($@"C:\Workspace\{cat}\{sub}\Folder_{i:D6}_{cat.ToLowerInvariant()}");
+        }
+
+        var swBuild = Stopwatch.StartNew();
+        index.BulkAdd(syntheticFolders);
+        index.State = FM.Core.Search.FolderIndexState.Ready;
+        swBuild.Stop();
+        Console.WriteLine($"Index Build Time    : {swBuild.ElapsedMilliseconds} ms ({index.Count:N0} folders)");
+
+        var provider = new BenchmarkQuickOpenProvider(new List<QuickOpenItemViewModel>(), new List<QuickOpenItemViewModel>(), index);
+        var vm = new QuickOpenViewModel(provider, uiDispatcher: a => a());
+        vm.Open();
+
+        // Warm-up runs
+        for (int w = 0; w < 3; w++)
+        {
+            vm.QueryText = "doc";
+            vm.CurrentSearchTask?.GetAwaiter().GetResult();
+        }
+
+        string[] queries = ["d", "web", "mfm", "proj", "projec", "client", "proj web", "web redesign", "finance core", "do an"];
+        var latencies = new List<double>();
+
+        Console.WriteLine("Running 10 queries x 10 iterations each across 200k folders...\n");
+
+        foreach (var query in queries)
+        {
+            var qLatencies = new List<double>();
+            for (int iter = 0; iter < 10; iter++)
+            {
+                var sw = Stopwatch.StartNew();
+                vm.QueryText = query;
+                vm.CurrentSearchTask?.GetAwaiter().GetResult();
+                sw.Stop();
+                double ms = sw.Elapsed.TotalMilliseconds;
+                latencies.Add(ms);
+                qLatencies.Add(ms);
+            }
+            Console.WriteLine($"Query '{query,-15}' : Avg = {qLatencies.Average():F2} ms, P50 = {GetMedian(qLatencies):F2} ms, Max = {qLatencies.Max():F2} ms (Top 1: {vm.Results.FirstOrDefault()?.Title})");
+        }
+
+        latencies.Sort();
+        double p50 = latencies[latencies.Count / 2];
+        double p95 = latencies[(int)(latencies.Count * 0.95)];
+        double max = latencies[^1];
+        double avg = latencies.Average();
+
+        Console.WriteLine("-------------------------------------------------------------");
+        Console.WriteLine($"Total Queries Tested: {latencies.Count:N0}");
+        Console.WriteLine($"Average Latency     : {avg:F3} ms");
+        Console.WriteLine($"Median (P50)        : {p50:F3} ms");
+        Console.WriteLine($"P95 Latency         : {p95:F3} ms");
+        Console.WriteLine($"Max Latency         : {max:F3} ms");
+        Console.WriteLine($"Target Status       : {(p95 < 100.0 ? "PASSED (< 100.0 ms target, ~30 ms typical)" : "FAILED (>= 100.0 ms)")}");
+        Console.WriteLine("=============================================================\n");
+
+        return p95 < 100.0 ? 0 : 1;
+    }
+
     private sealed class BenchmarkQuickOpenProvider : IQuickOpenSourceProvider
     {
         private readonly IReadOnlyList<QuickOpenItemViewModel> _places;
         private readonly IReadOnlyList<QuickOpenItemViewModel> _commands;
+        private readonly FM.Core.Search.IFolderIndex? _folderIndex;
 
-        public BenchmarkQuickOpenProvider(IReadOnlyList<QuickOpenItemViewModel> places, IReadOnlyList<QuickOpenItemViewModel> commands)
+        public FM.Core.Search.IFolderIndex? FolderIndex => _folderIndex;
+
+        public BenchmarkQuickOpenProvider(
+            IReadOnlyList<QuickOpenItemViewModel> places,
+            IReadOnlyList<QuickOpenItemViewModel> commands,
+            FM.Core.Search.IFolderIndex? folderIndex = null)
         {
             _places = places;
             _commands = commands;
+            _folderIndex = folderIndex;
         }
 
         public IReadOnlyList<QuickOpenItemViewModel> GetPlaces() => _places;

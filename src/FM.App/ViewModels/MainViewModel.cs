@@ -48,6 +48,7 @@ public partial class MainViewModel : ObservableObject
     public TransferDrawerViewModel TransferDrawer { get; }
     public QuickOpenViewModel QuickOpen { get; }
     public IFolderIndex FolderIndex { get; } = new FolderIndex();
+    public FolderVisitStore VisitStore { get; } = new();
 
     private FilePaneViewModel? _activePane;
 
@@ -124,7 +125,7 @@ public partial class MainViewModel : ObservableObject
         _transferQueue = transferQueue ?? new TransferQueue(_fileSystem, _stagingStore, _journalStore);
         _dialogService = transferDialogService ?? new TransferDialogService();
         TransferDrawer = transferDrawer ?? new TransferDrawerViewModel(_transferQueue);
-        QuickOpen = new QuickOpenViewModel(new QuickOpenSourceProvider(this, _fileSystem, FolderIndex));
+        QuickOpen = new QuickOpenViewModel(new QuickOpenSourceProvider(this, _fileSystem, FolderIndex, VisitStore));
         _timeProvider = timeProvider ?? TimeProvider.System;
 
         // Initialize with default 2 panes
@@ -906,6 +907,7 @@ public partial class MainViewModel : ObservableObject
         if (string.IsNullOrWhiteSpace(path)) return;
         _recentFolders.Add(path);
         FolderIndex.Add(path);
+        VisitStore.RecordVisit(path);
         ScheduleSaveRecentFolders();
     }
 

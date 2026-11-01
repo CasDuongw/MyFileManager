@@ -16,19 +16,23 @@ public class QuickOpenSourceProvider : IQuickOpenSourceProvider
     private readonly IFileSystem _fileSystem;
     private readonly ICommandCatalog _commandCatalog;
     private readonly IFolderIndex? _folderIndex;
+    private readonly FolderVisitStore? _visitStore;
 
     public IFolderIndex? FolderIndex => _folderIndex;
+    public FolderVisitStore? VisitStore => _visitStore ?? _mainViewModel.VisitStore;
     public FilePaneViewModel? ActivePane => _mainViewModel.ActivePane;
 
     public QuickOpenSourceProvider(
         MainViewModel mainViewModel,
         IFileSystem fileSystem,
         IFolderIndex? folderIndex = null,
+        FolderVisitStore? visitStore = null,
         ICommandCatalog? commandCatalog = null)
     {
         _mainViewModel = mainViewModel;
         _fileSystem = fileSystem;
         _folderIndex = folderIndex;
+        _visitStore = visitStore;
         _commandCatalog = commandCatalog ?? new CommandCatalog(mainViewModel);
     }
 
@@ -138,7 +142,32 @@ public class QuickOpenSourceProvider : IQuickOpenSourceProvider
             }
         }
 
-        // 5. Recent Folders (Deduplicate: Favorite badge wins over Recent for identical paths)
+        // 5. Frecent & Recent Folders
+        var visitStore = VisitStore;
+        if (visitStore != null)
+        {
+            var topFrecent = visitStore.GetTopFrecent(15);
+            foreach (var path in topFrecent)
+            {
+                if (string.IsNullOrWhiteSpace(path)) continue;
+                if (!seenPaths.Add(path)) continue;
+
+                string title = Path.GetFileName(path);
+                if (string.IsNullOrEmpty(title)) title = path;
+
+                results.Add(new QuickOpenItemViewModel
+                {
+                    Title = title,
+                    Subtitle = path,
+                    Badge = "Recent",
+                    Kind = QuickOpenItemKind.Place,
+                    TargetPath = path,
+                    Priority = 3,
+                    ExecuteAction = () => (activePane ?? vm.ActivePane)?.Navigate(path)
+                });
+            }
+        }
+
         foreach (var path in vm.RecentFolders.Items)
         {
             if (string.IsNullOrWhiteSpace(path)) continue;
