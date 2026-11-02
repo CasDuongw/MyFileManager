@@ -53,6 +53,14 @@ public partial class FilePaneViewModel : ObservableObject, IDisposable
     private readonly IDriveService _driveService;
     private readonly IRecycleBinService _recycleBinService;
     private readonly IPathResolver _pathResolver;
+    private readonly ISearchService _searchService;
+    private CancellationTokenSource? _searchCts;
+    private CancellationTokenSource? _searchDebounceCts;
+    private List<FileItemViewModel>? _savedFolderItems;
+
+    public Func<IReadOnlyList<string>>? GetOpenPanePaths { get; set; }
+    public Func<IReadOnlyList<string>>? GetApprovedRoots { get; set; }
+    public event Action? FindBarOpened;
     private readonly NavigationHistory _history = new();
     private CancellationTokenSource? _loadCts;
 
@@ -71,6 +79,40 @@ public partial class FilePaneViewModel : ObservableObject, IDisposable
 
     public System.Collections.ObjectModel.ObservableCollection<DriveCardViewModel> Drives { get; } = new();
     public System.Collections.ObjectModel.ObservableCollection<RecycleBinItemViewModel> RecycleBinItems { get; } = new();
+
+    [ObservableProperty]
+    private bool _isFindBarOpen;
+
+    [ObservableProperty]
+    private bool _isSearching;
+
+    [ObservableProperty]
+    private bool _isSearchMode;
+
+    [ObservableProperty]
+    private string _searchQueryText = string.Empty;
+
+    [ObservableProperty]
+    private SearchScope _selectedSearchScope = SearchScope.CurrentFolder;
+
+    public static IReadOnlyList<SearchScope> AvailableSearchScopes { get; } =
+    [
+        SearchScope.CurrentFolder,
+        SearchScope.OpenPanes,
+        SearchScope.ThisPC
+    ];
+
+    [ObservableProperty]
+    private string _searchResultCountText = string.Empty;
+
+    [ObservableProperty]
+    private string? _searchWarningText;
+
+    [ObservableProperty]
+    private string? _searchSkippedText;
+
+    [ObservableProperty]
+    private bool _isResultsLimited;
 
     public IUndoStack UndoStack { get; }
     public IFileSystem FileSystem => _fileSystem;
@@ -493,7 +535,8 @@ public partial class FilePaneViewModel : ObservableObject, IDisposable
         TimeProvider? timeProvider = null,
         IDriveService? driveService = null,
         IRecycleBinService? recycleBinService = null,
-        IPathResolver? pathResolver = null)
+        IPathResolver? pathResolver = null,
+        ISearchService? searchService = null)
     {
         _directoryService = directoryService;
         _iconService = iconService;
@@ -506,6 +549,7 @@ public partial class FilePaneViewModel : ObservableObject, IDisposable
         _driveService = driveService ?? (_fileSystem is InMemoryFileSystem ? new FakeDriveService() : PhysicalDriveService.Instance);
         _recycleBinService = recycleBinService ?? (_fileSystem is InMemoryFileSystem ? new FakeRecycleBinService() : WindowsRecycleBinService.Instance);
         _pathResolver = pathResolver ?? PathResolver.Instance;
+        _searchService = searchService ?? new SearchService(_fileSystem);
         _driveService.DrivesChanged += OnDriveServiceDrivesChanged;
 
         UndoStack.CanUndoChanged += () =>
@@ -527,6 +571,11 @@ public partial class FilePaneViewModel : ObservableObject, IDisposable
     [RelayCommand(CanExecute = nameof(CanGoBack))]
     public async Task GoBackAsync()
     {
+        if (IsSearchMode)
+        {
+            CloseFindBar();
+            return;
+        }
         string? target = _history.PeekBack();
         if (target != null)
         {
@@ -537,6 +586,11 @@ public partial class FilePaneViewModel : ObservableObject, IDisposable
     [RelayCommand(CanExecute = nameof(CanGoForward))]
     public async Task GoForwardAsync()
     {
+        if (IsSearchMode)
+        {
+            CloseFindBar();
+            return;
+        }
         string? target = _history.PeekForward();
         if (target != null)
         {
@@ -547,6 +601,11 @@ public partial class FilePaneViewModel : ObservableObject, IDisposable
     [RelayCommand(CanExecute = nameof(CanGoUp))]
     public async Task GoUpAsync()
     {
+        if (IsSearchMode)
+        {
+            CloseFindBar();
+            return;
+        }
         string? parent = _history.GetParentPath();
         if (!string.IsNullOrEmpty(parent))
         {
@@ -561,6 +620,11 @@ public partial class FilePaneViewModel : ObservableObject, IDisposable
         {
             await NavigateInternalAsync(CurrentPath, NavigationPhaseType.Refresh);
         }
+    }
+
+    public async Task NavigateAndSelectAsync(string targetPath, string? selectTargetName = null)
+    {
+        await NavigateInternalAsync(targetPath, NavigationPhaseType.New, selectTargetName);
     }
 
     [RelayCommand]
@@ -661,6 +725,11 @@ public partial class FilePaneViewModel : ObservableObject, IDisposable
     [RelayCommand(CanExecute = nameof(CanCreateNewFolder))]
     public async Task NewFolderAsync()
     {
+        if (IsSearchMode)
+        {
+            SetStatusText("Không thể tạo thư mục trong kết quả tìm kiếm.", TimeSpan.FromSeconds(3));
+            return;
+        }
         if (string.IsNullOrEmpty(CurrentPath)) return;
 
         string defaultName = CreateFolderOperation.GetDefaultUniqueFolderName(_fileSystem, CurrentPath);
@@ -830,6 +899,11 @@ public partial class FilePaneViewModel : ObservableObject, IDisposable
     [RelayCommand]
     public async Task PasteAsync()
     {
+        if (IsSearchMode)
+        {
+            SetStatusText("Không thể dán tệp vào kết quả tìm kiếm.", TimeSpan.FromSeconds(3));
+            return;
+        }
         List<string>? sourcePaths = null;
         bool isCut = false;
 
@@ -1172,12 +1246,12 @@ public partial class FilePaneViewModel : ObservableObject, IDisposable
 
     private long _navigationVersion;
 
-    public async Task NavigateInternalAsync(string targetPath, NavigationPhaseType phaseType)
+    public async Task NavigateInternalAsync(string targetPath, NavigationPhaseType phaseType, string? selectTargetName = null)
     {
         var dispatcher = System.Windows.Application.Current?.Dispatcher;
         if (dispatcher != null && !dispatcher.HasShutdownStarted && !dispatcher.CheckAccess())
         {
-            await dispatcher.InvokeAsync(() => NavigateInternalAsync(targetPath, phaseType)).Task.Unwrap().ConfigureAwait(false);
+            await dispatcher.InvokeAsync(() => NavigateInternalAsync(targetPath, phaseType, selectTargetName)).Task.Unwrap().ConfigureAwait(false);
             return;
         }
 
@@ -1225,17 +1299,25 @@ public partial class FilePaneViewModel : ObservableObject, IDisposable
 
         if (resolvedPath.StartsWith(@"\\"))
         {
-            bool reachable = await Task.Run(() =>
+            bool reachable = false;
+            try
             {
-                try
+                reachable = await Task.Run(() =>
                 {
-                    return _fileSystem.DirectoryExists(resolvedPath) || Directory.Exists(resolvedPath);
-                }
-                catch
-                {
-                    return false;
-                }
-            }, ct).WaitAsync(TimeSpan.FromMilliseconds(1500), ct).ConfigureAwait(false);
+                    try
+                    {
+                        return _fileSystem.DirectoryExists(resolvedPath) || Directory.Exists(resolvedPath);
+                    }
+                    catch
+                    {
+                        return false;
+                    }
+                }, ct).WaitAsync(TimeSpan.FromMilliseconds(1500), ct).ConfigureAwait(false);
+            }
+            catch (TimeoutException)
+            {
+                reachable = false;
+            }
 
             if (!IsCurrent()) return;
 
@@ -1367,8 +1449,21 @@ public partial class FilePaneViewModel : ObservableObject, IDisposable
 
                 if (!IsCurrent()) return;
 
-                // Restore all selected items by FullPath on Refresh
-                if (previousSelectedPaths.Count > 0)
+                if (!string.IsNullOrEmpty(selectTargetName))
+                {
+                    FileItemViewModel? matching;
+                    lock (_itemsLock)
+                    {
+                        matching = Items.FirstOrDefault(i => string.Equals(i.Name, selectTargetName, StringComparison.OrdinalIgnoreCase) ||
+                                                             string.Equals(i.FullPath, selectTargetName, StringComparison.OrdinalIgnoreCase));
+                    }
+                    if (matching != null)
+                    {
+                        UpdateSelectedItems(new[] { matching });
+                        SelectedItem = matching;
+                    }
+                }
+                else if (previousSelectedPaths.Count > 0)
                 {
                     List<FileItemViewModel> restored;
                     lock (_itemsLock)
@@ -1541,7 +1636,7 @@ public partial class FilePaneViewModel : ObservableObject, IDisposable
         }
     }
 
-    private void SafeReplaceItems(IEnumerable<FileItemViewModel> items)
+    internal void SafeReplaceItems(IEnumerable<FileItemViewModel> items)
     {
         RunOnUi(() =>
         {
@@ -2210,6 +2305,240 @@ public partial class FilePaneViewModel : ObservableObject, IDisposable
     {
         bool ok = await _driveService.EjectDriveAsync(drivePath);
         if (ok) await RefreshAsync();
+    }
+
+
+    [RelayCommand]
+    public void OpenFindBar()
+    {
+        IsFindBarOpen = true;
+        FindBarOpened?.Invoke();
+    }
+
+    [RelayCommand]
+    public void CloseFindBar()
+    {
+        _searchCts?.Cancel();
+        _searchCts?.Dispose();
+        _searchCts = null;
+
+        _searchDebounceCts?.Cancel();
+        _searchDebounceCts?.Dispose();
+        _searchDebounceCts = null;
+
+        IsSearching = false;
+        IsFindBarOpen = false;
+
+        if (IsSearchMode)
+        {
+            IsSearchMode = false;
+            SearchQueryText = string.Empty;
+            SearchResultCountText = string.Empty;
+            SearchWarningText = null;
+            SearchSkippedText = null;
+            IsResultsLimited = false;
+
+            if (_savedFolderItems != null)
+            {
+                SafeReplaceItems(_savedFolderItems);
+                lock (_itemsLock)
+                {
+                    _unfilteredItems.Clear();
+                    _unfilteredItems.AddRange(_savedFolderItems);
+                }
+                _savedFolderItems = null;
+            }
+            else
+            {
+                _ = RefreshAsync();
+            }
+            OnPropertyChanged(nameof(SelectionStatusText));
+        }
+    }
+
+    [RelayCommand]
+    public void StopSearch()
+    {
+        _searchCts?.Cancel();
+        IsSearching = false;
+    }
+
+    [RelayCommand]
+    public async Task ExecuteSearchAsync()
+    {
+        await PerformSearchAsync(SearchQueryText);
+    }
+
+    [RelayCommand]
+    public async Task ShowInContainingFolderAsync()
+    {
+        var item = SelectedItem;
+        if (item == null) return;
+
+        string parentDir = item.ParentDirectory;
+        string fileName = item.Name;
+
+        CloseFindBar();
+
+        if (!string.IsNullOrEmpty(parentDir) && _fileSystem.DirectoryExists(parentDir))
+        {
+            await NavigateAndSelectAsync(parentDir, fileName);
+        }
+    }
+
+    partial void OnSearchQueryTextChanged(string value)
+    {
+        _searchDebounceCts?.Cancel();
+        _searchDebounceCts?.Dispose();
+        _searchDebounceCts = new CancellationTokenSource();
+        var token = _searchDebounceCts.Token;
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await Task.Delay(250, token);
+                if (!token.IsCancellationRequested)
+                {
+                    RunOnUi(() => _ = PerformSearchAsync(value));
+                }
+            }
+            catch (OperationCanceledException) { }
+        }, token);
+    }
+
+    partial void OnSelectedSearchScopeChanged(SearchScope value)
+    {
+        if (IsFindBarOpen && !string.IsNullOrWhiteSpace(SearchQueryText))
+        {
+            _ = PerformSearchAsync(SearchQueryText);
+        }
+    }
+
+    public async Task PerformSearchAsync(string rawQuery)
+    {
+        if (string.IsNullOrWhiteSpace(rawQuery))
+        {
+            if (IsSearchMode)
+            {
+                CloseFindBar();
+            }
+            return;
+        }
+
+        if (!IsSearchMode)
+        {
+            lock (_itemsLock)
+            {
+                _savedFolderItems = _unfilteredItems.Count > 0 ? _unfilteredItems.ToList() : Items.ToList();
+            }
+            IsSearchMode = true;
+        }
+
+        var parseResult = SearchQueryParser.Parse(rawQuery, TimeProvider);
+        if (!parseResult.IsValid)
+        {
+            SearchWarningText = parseResult.ErrorMessage;
+            IsSearching = false;
+            return;
+        }
+
+        if (parseResult.Warnings.Count > 0)
+        {
+            SearchWarningText = string.Join("; ", parseResult.Warnings);
+        }
+        else
+        {
+            SearchWarningText = null;
+        }
+
+        IReadOnlyList<string> roots;
+        switch (SelectedSearchScope)
+        {
+            case SearchScope.OpenPanes:
+                roots = GetOpenPanePaths?.Invoke() ?? (string.IsNullOrEmpty(CurrentPath) ? Array.Empty<string>() : new[] { CurrentPath });
+                if (roots.Count == 0 && !string.IsNullOrEmpty(CurrentPath)) roots = new[] { CurrentPath };
+                break;
+            case SearchScope.ThisPC:
+                var approved = GetApprovedRoots?.Invoke() ?? Array.Empty<string>();
+                if (approved.Count == 0)
+                {
+                    SearchWarningText = "This PC search unconfigured; searching current folder.";
+                    roots = string.IsNullOrEmpty(CurrentPath) ? Array.Empty<string>() : new[] { CurrentPath };
+                }
+                else
+                {
+                    roots = approved;
+                }
+                break;
+            case SearchScope.CurrentFolder:
+            default:
+                roots = string.IsNullOrEmpty(CurrentPath) ? Array.Empty<string>() : new[] { CurrentPath };
+                break;
+        }
+
+        if (roots.Count == 0) return;
+
+        _searchCts?.Cancel();
+        _searchCts?.Dispose();
+        _searchCts = new CancellationTokenSource();
+        var ct = _searchCts.Token;
+
+        RunOnUi(() =>
+        {
+            SafeReplaceItems(Array.Empty<FileItemViewModel>());
+            lock (_itemsLock) { _unfilteredItems.Clear(); }
+            IsSearching = true;
+            SearchResultCountText = "Searching...";
+        });
+
+        var query = new SearchQuery(
+            QueryText: parseResult.CleanQueryText,
+            Scope: SelectedSearchScope,
+            RootPaths: roots,
+            MaxResults: 5000,
+            FilterPredicate: parseResult.FilterPredicate);
+
+        int totalFound = 0;
+        try
+        {
+            await foreach (var batch in _searchService.SearchAsync(query, ct))
+            {
+                if (ct.IsCancellationRequested) break;
+
+                var vms = batch.Select(r => new FileItemViewModel(r.Entry, _iconService, ct)).ToList();
+                totalFound += vms.Count;
+
+                RunOnUi(() =>
+                {
+                    lock (_itemsLock)
+                    {
+                        _unfilteredItems.AddRange(vms);
+                    }
+                    SafeAddItems(vms);
+                    SearchResultCountText = $"{totalFound:N0} items found";
+                    OnPropertyChanged(nameof(SelectionStatusText));
+                });
+            }
+        }
+        catch (OperationCanceledException) { }
+        finally
+        {
+            if (!ct.IsCancellationRequested)
+            {
+                RunOnUi(() =>
+                {
+                    IsSearching = false;
+                    IsResultsLimited = _searchService.IsResultsLimited;
+                    int skipped = _searchService.SkippedFolderCount;
+                    SearchSkippedText = skipped > 0 ? $"{skipped} skipped" : null;
+                    string countStr = $"{totalFound:N0} items found";
+                    if (IsResultsLimited) countStr += " (Results limited)";
+                    SearchResultCountText = countStr;
+                    OnPropertyChanged(nameof(SelectionStatusText));
+                });
+            }
+        }
     }
 
 }

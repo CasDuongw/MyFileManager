@@ -54,11 +54,37 @@ public partial class FilePaneView : UserControl
         if (e.OldValue is FilePaneViewModel oldVm)
         {
             oldVm.PropertyChanged -= OnViewModelPropertyChanged;
+            oldVm.FindBarOpened -= OnFindBarOpened;
         }
 
         if (e.NewValue is FilePaneViewModel newVm)
         {
             newVm.PropertyChanged += OnViewModelPropertyChanged;
+            newVm.FindBarOpened += OnFindBarOpened;
+        }
+    }
+
+    private void OnFindBarOpened()
+    {
+        Dispatcher.BeginInvoke(new Action(() =>
+        {
+            FindSearchTextBox?.Focus();
+            FindSearchTextBox?.SelectAll();
+        }), System.Windows.Threading.DispatcherPriority.Input);
+    }
+
+    private void OnFindSearchTextBoxPreviewKeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key == Key.Escape)
+        {
+            ViewModel?.CloseFindBar();
+            e.Handled = true;
+            FileListView?.Focus();
+        }
+        else if (e.Key == Key.Enter)
+        {
+            ViewModel?.ExecuteSearchCommand.Execute(null);
+            e.Handled = true;
         }
     }
 
@@ -230,6 +256,11 @@ public partial class FilePaneView : UserControl
                     e.Handled = true;
                 }
             }
+        }
+        else if (e.Key == Key.Escape && ViewModel?.IsFindBarOpen == true)
+        {
+            ViewModel.CloseFindBar();
+            e.Handled = true;
         }
         else if (e.Key == Key.Back)
         {
@@ -571,6 +602,14 @@ public partial class FilePaneView : UserControl
             return;
         }
 
+        if (ViewModel.IsSearchMode)
+        {
+            e.Effects = DragDropEffects.None;
+            ClearDropHighlights();
+            e.Handled = true;
+            return;
+        }
+
         // Auto-scroll when near top or bottom edges (~24 px)
         var scrollViewer = FileListView.FindVisualChild<ScrollViewer>();
         if (scrollViewer != null)
@@ -654,6 +693,14 @@ public partial class FilePaneView : UserControl
         {
             e.Effects = DragDropEffects.None;
             e.Handled = true;
+            return;
+        }
+
+        if (ViewModel.IsSearchMode)
+        {
+            e.Effects = DragDropEffects.None;
+            e.Handled = true;
+            ViewModel.SetStatusText("Dropping items into search results is disabled.");
             return;
         }
 

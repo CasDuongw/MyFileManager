@@ -51,6 +51,15 @@ public class CommandCatalog : ICommandCatalog
             },
             new()
             {
+                Id = "edit.find",
+                Title = "Find in Folder",
+                Category = "Edit",
+                ShortcutText = "Ctrl+F",
+                CanExecute = () => pane != null,
+                Execute = () => pane?.OpenFindBar()
+            },
+            new()
+            {
                 Id = "file.copy",
                 Title = "Copy",
                 Category = "File",

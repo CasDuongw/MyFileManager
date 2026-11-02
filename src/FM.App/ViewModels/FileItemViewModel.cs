@@ -42,6 +42,7 @@ public partial class FileItemViewModel : ObservableObject
 
     public string Name => Entry.Name;
     public string FullPath => Entry.FullPath;
+    public string ParentDirectory => System.IO.Path.GetDirectoryName(FullPath) ?? string.Empty;
     public bool IsDirectory => Entry.IsDirectory;
     public long Size => Entry.Size;
     public DateTime Modified => Entry.Modified;

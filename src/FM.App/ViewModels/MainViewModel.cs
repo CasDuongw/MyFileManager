@@ -1,3 +1,4 @@
+using FM.Core.CommandLine;
 using FM.Core.Drives;
 using FM.Core.RecycleBin;
 using FM.Core.PathResolution;
@@ -59,6 +60,7 @@ public partial class MainViewModel : ObservableObject
     private readonly IDriveService _driveService;
     private readonly IRecycleBinService _recycleBinService;
     private readonly IPathResolver _pathResolver;
+    private readonly FM.Core.Search.ISearchService _searchService;
 
     private readonly ITransferQueue _transferQueue;
 
@@ -241,7 +243,8 @@ public partial class MainViewModel : ObservableObject
         IFolderWatcherFactory? folderWatcherFactory = null,
         IDriveService? driveService = null,
         IRecycleBinService? recycleBinService = null,
-        IPathResolver? pathResolver = null)
+        IPathResolver? pathResolver = null,
+        FM.Core.Search.ISearchService? searchService = null)
 
     {
 
@@ -275,6 +278,7 @@ public partial class MainViewModel : ObservableObject
         _driveService = driveService ?? (_fileSystem is InMemoryFileSystem ? new FakeDriveService() : PhysicalDriveService.Instance);
         _recycleBinService = recycleBinService ?? (_fileSystem is InMemoryFileSystem ? new FakeRecycleBinService() : WindowsRecycleBinService.Instance);
         _pathResolver = pathResolver ?? PathResolver.Instance;
+        _searchService = searchService ?? new FM.Core.Search.SearchService(_fileSystem);
 
         _driveService.DrivesChanged += (s, e) =>
         {
@@ -342,7 +346,15 @@ public partial class MainViewModel : ObservableObject
             timeProvider: _timeProvider,
         driveService: _driveService,
         recycleBinService: _recycleBinService,
-        pathResolver: _pathResolver);
+        pathResolver: _pathResolver,
+        searchService: _searchService);
+
+        pane.GetOpenPanePaths = () => Panes
+            .Select(p => p.CurrentPath)
+            .Where(p => !string.IsNullOrEmpty(p) && !p.Contains("://"))
+            .ToList();
+
+        pane.GetApprovedRoots = () => _settingsService.LoadSettings().IndexedRoots?.ToList() ?? new List<string>();
 
 
 
@@ -2417,4 +2429,41 @@ public partial class MainViewModel : ObservableObject
             action();
         }
     }
+
+    public async Task HandleCommandLineArgsAsync(string[]? args)
+    {
+        if (args == null || args.Length == 0) return;
+
+        var parser = new CommandLineParser();
+        var result = parser.Parse(args, _fileSystem, _pathResolver);
+
+        if (!result.HasTargets) return;
+
+        for (int i = 0; i < result.Targets.Count; i++)
+        {
+            var target = result.Targets[i];
+            if (!target.IsValid)
+            {
+                if (ActivePane != null)
+                {
+                    ActivePane.ErrorMessage = target.ErrorMessage ?? "Đường dẫn không hợp lệ.";
+                }
+                continue;
+            }
+
+            if (i == 0 && ActivePane != null)
+            {
+                await ActivePane.NavigateAndSelectAsync(target.TargetDirectory, target.SelectFileName);
+            }
+            else
+            {
+                SplitVertical(ActivePane, target.TargetDirectory);
+                if (!string.IsNullOrEmpty(target.SelectFileName) && ActivePane != null)
+                {
+                    await ActivePane.NavigateAndSelectAsync(target.TargetDirectory, target.SelectFileName);
+                }
+            }
+        }
+    }
+
 }

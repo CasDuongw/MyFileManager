@@ -1,41 +1,97 @@
+using System.Diagnostics;
 using System.Windows;
+using System.Windows.Threading;
+using FM.App.Helpers;
 using FM.App.Services;
+using FM.App.Services.SingleInstance;
 using FM.App.ViewModels;
+using FM.App.Views;
+using FM.Core.CommandLine;
+using FM.Core.Logging;
 using FM.Core.Services;
+using FM.Core.ShellIntegration;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace FM.App;
 
 /// <summary>
-/// Application entry point configuring dependency injection.
+/// Application entry point configuring dependency injection, single instance IPC,
+/// global crash handling, and command-line argument processing.
 /// </summary>
 public partial class App : Application
 {
     private ServiceProvider? _serviceProvider;
+    private ISingleInstanceService? _singleInstanceService;
+    private ICrashLogger? _crashLogger;
 
     protected override async void OnStartup(StartupEventArgs e)
     {
+        // 1. Single Instance check: forward arguments and exit if already running
+        _singleInstanceService = new NamedPipeSingleInstanceService();
+        if (!_singleInstanceService.IsFirstInstance)
+        {
+            try
+            {
+                _ = _singleInstanceService.ForwardArgsToRunningInstanceAsync(e.Args).GetAwaiter().GetResult();
+            }
+            catch { }
+            Shutdown(0);
+            return;
+        }
+
         base.OnStartup(e);
 
+        // 2. Setup Global Crash Safety Handlers & Logging
+        _crashLogger = new CrashLogger();
+        DispatcherUnhandledException += OnDispatcherUnhandledException;
+        AppDomain.CurrentDomain.UnhandledException += OnAppDomainUnhandledException;
+        TaskScheduler.UnobservedTaskException += OnUnobservedTaskException;
+
+        // Purge old crash logs asynchronously
+        _ = _crashLogger.PurgeOldLogsAsync(5);
+
+        // 3. Configure DI Container
         var services = new ServiceCollection();
         ConfigureServices(services);
         _serviceProvider = services.BuildServiceProvider();
 
-        // Load settings once at application startup
+        // 4. Start IPC Server for receiving forwarded command line args
+        _ = _singleInstanceService.StartServerAsync(async forwardedArgs =>
+        {
+            var dispatcher = Current?.Dispatcher;
+            if (dispatcher != null && !dispatcher.HasShutdownStarted)
+            {
+                await dispatcher.InvokeAsync(async () =>
+                {
+                    if (_serviceProvider != null)
+                    {
+                        var mainWindow = _serviceProvider.GetRequiredService<MainWindow>();
+                        var mainViewModel = _serviceProvider.GetRequiredService<MainViewModel>();
+                        await mainViewModel.HandleCommandLineArgsAsync(forwardedArgs);
+                        WindowActivationHelper.BringToFront(mainWindow);
+                    }
+                });
+            }
+        });
+
+        // 5. Load settings once at application startup
         var settingsService = _serviceProvider.GetRequiredService<ISettingsService>();
         var settings = settingsService.LoadSettings();
 
-        var mainWindow = _serviceProvider.GetRequiredService<MainWindow>();
+        var win = _serviceProvider.GetRequiredService<MainWindow>();
+        ApplyWindowBounds(win, settings);
+        win.Show();
 
-        ApplyWindowBounds(mainWindow, settings);
+        // 6. Initialize view model paths and process initial command line args
+        var mainVm = _serviceProvider.GetRequiredService<MainViewModel>();
+        await mainVm.InitializeSettingsAsync(settings);
 
-        mainWindow.Show();
+        if (e.Args != null && e.Args.Length > 0)
+        {
+            await mainVm.HandleCommandLineArgsAsync(e.Args);
+        }
 
-        // Initialize view model paths asynchronously without blocking UI startup
-        var mainViewModel = _serviceProvider.GetRequiredService<MainViewModel>();
-        await mainViewModel.InitializeSettingsAsync(settings);
-
-        // Run crash recovery and staging retention purge asynchronously
+        // 7. Run crash recovery and staging retention purge asynchronously
         var fs = _serviceProvider.GetRequiredService<FM.Core.FileSystem.IFileSystem>();
         var stager = _serviceProvider.GetRequiredService<FM.Core.Operations.Transfer.IStagingBackupStore>();
         var journal = _serviceProvider.GetRequiredService<FM.Core.Operations.Transfer.IUndoJournalStore>();
@@ -58,6 +114,69 @@ public partial class App : Application
                 // Background maintenance failure handled non-fatally
             }
         });
+    }
+
+    private void OnDispatcherUnhandledException(object sender, DispatcherUnhandledExceptionEventArgs e)
+    {
+        _crashLogger?.LogExceptionSync(e.Exception, "WPF DispatcherUnhandledException");
+
+        try
+        {
+            var dialog = new CrashReportDialog(e.Exception, _crashLogger?.LogDirectory ?? "", canContinue: true);
+            dialog.ShowDialog();
+
+            if (dialog.ShouldRestart)
+            {
+                RestartApplication();
+                e.Handled = true;
+                Shutdown(1);
+            }
+            else if (dialog.ShouldContinue)
+            {
+                e.Handled = true;
+            }
+            else
+            {
+                e.Handled = true;
+                Shutdown(1);
+            }
+        }
+        catch
+        {
+            e.Handled = true;
+            Shutdown(1);
+        }
+    }
+
+    private void OnAppDomainUnhandledException(object sender, UnhandledExceptionEventArgs e)
+    {
+        if (e.ExceptionObject is Exception ex)
+        {
+            _crashLogger?.LogExceptionSync(ex, $"AppDomain UnhandledException (IsTerminating={e.IsTerminating})");
+        }
+    }
+
+    private void OnUnobservedTaskException(object? sender, UnobservedTaskExceptionEventArgs e)
+    {
+        _crashLogger?.LogExceptionSync(e.Exception, "TaskScheduler UnobservedTaskException");
+        e.SetObserved();
+    }
+
+    private static void RestartApplication()
+    {
+        try
+        {
+            string? exePath = Environment.ProcessPath;
+            if (!string.IsNullOrEmpty(exePath))
+            {
+                Process.Start(new ProcessStartInfo
+                {
+                    FileName = exePath,
+                    UseShellExecute = true
+                });
+            }
+        }
+        catch { }
     }
 
     private static void ApplyWindowBounds(Window window, AppSettings settings)
@@ -101,11 +220,12 @@ public partial class App : Application
 
     protected override void OnExit(ExitEventArgs e)
     {
+        _singleInstanceService?.Dispose();
         _serviceProvider?.Dispose();
         base.OnExit(e);
     }
 
-    private static void ConfigureServices(IServiceCollection services)
+    private void ConfigureServices(IServiceCollection services)
     {
         // 1. Core Services
         services.AddSingleton<IDirectoryService, DirectoryService>();
@@ -142,6 +262,11 @@ public partial class App : Application
         services.AddSingleton<FM.Core.Drives.IDriveService, FM.Core.Drives.PhysicalDriveService>();
         services.AddSingleton<FM.Core.RecycleBin.IRecycleBinService, FM.Core.RecycleBin.WindowsRecycleBinService>();
         services.AddSingleton<FM.Core.PathResolution.IPathResolver, FM.Core.PathResolution.PathResolver>();
+        services.AddSingleton<ICrashLogger>(_crashLogger ?? new CrashLogger());
+        services.AddSingleton<ISingleInstanceService>(_singleInstanceService ?? new NamedPipeSingleInstanceService());
+        services.AddSingleton<IShellRegistrationService, FakeShellRegistrationService>();
+        services.AddSingleton<ICommandLineParser, CommandLineParser>();
+        services.AddSingleton<FM.Core.Search.ISearchService, FM.Core.Search.SearchService>();
 
         // 3. ViewModels
         services.AddSingleton<TransferDrawerViewModel>();

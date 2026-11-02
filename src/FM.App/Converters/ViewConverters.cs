@@ -27,6 +27,26 @@ public class EqualityToVisibilityConverter : IValueConverter
 }
 
 /// <summary>
+/// Converts boolean to GridViewColumn width (e.g. 200 when true, 0 when false).
+/// </summary>
+public class BoolToWidthConverter : IValueConverter
+{
+    public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
+    {
+        bool b = value is bool flag && flag;
+        double targetWidth = 200.0;
+        if (parameter != null && double.TryParse(parameter.ToString(), out double parsed))
+        {
+            targetWidth = parsed;
+        }
+        return b ? targetWidth : 0.0;
+    }
+
+    public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture) =>
+        throw new NotSupportedException();
+}
+
+/// <summary>
 /// Inverts boolean to Visibility (true -> Collapsed, false -> Visible).
 /// </summary>
 public class InverseBooleanToVisibilityConverter : IValueConverter
@@ -35,6 +55,26 @@ public class InverseBooleanToVisibilityConverter : IValueConverter
     {
         bool b = value is bool flag && flag;
         return b ? Visibility.Collapsed : Visibility.Visible;
+    }
+
+    public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture) =>
+        throw new NotSupportedException();
+}
+
+/// <summary>
+/// Converts boolean to GridViewColumn width (e.g. 200 when true, 0 when false).
+/// </summary>
+public class BoolToWidthConverter : IValueConverter
+{
+    public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
+    {
+        bool b = value is bool flag && flag;
+        double targetWidth = 200.0;
+        if (parameter != null && double.TryParse(parameter.ToString(), out double parsed))
+        {
+            targetWidth = parsed;
+        }
+        return b ? targetWidth : 0.0;
     }
 
     public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture) =>
@@ -57,6 +97,26 @@ public class StringNotEmptyToVisibilityConverter : IValueConverter
 }
 
 /// <summary>
+/// Converts boolean to GridViewColumn width (e.g. 200 when true, 0 when false).
+/// </summary>
+public class BoolToWidthConverter : IValueConverter
+{
+    public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
+    {
+        bool b = value is bool flag && flag;
+        double targetWidth = 200.0;
+        if (parameter != null && double.TryParse(parameter.ToString(), out double parsed))
+        {
+            targetWidth = parsed;
+        }
+        return b ? targetWidth : 0.0;
+    }
+
+    public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture) =>
+        throw new NotSupportedException();
+}
+
+/// <summary>
 /// Converts empty/null string to Visible, non-empty to Collapsed.
 /// </summary>
 public class StringEmptyToVisibilityConverter : IValueConverter
@@ -65,6 +125,26 @@ public class StringEmptyToVisibilityConverter : IValueConverter
     {
         bool empty = string.IsNullOrEmpty(value as string);
         return empty ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture) =>
+        throw new NotSupportedException();
+}
+
+/// <summary>
+/// Converts boolean to GridViewColumn width (e.g. 200 when true, 0 when false).
+/// </summary>
+public class BoolToWidthConverter : IValueConverter
+{
+    public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
+    {
+        bool b = value is bool flag && flag;
+        double targetWidth = 200.0;
+        if (parameter != null && double.TryParse(parameter.ToString(), out double parsed))
+        {
+            targetWidth = parsed;
+        }
+        return b ? targetWidth : 0.0;
     }
 
     public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture) =>

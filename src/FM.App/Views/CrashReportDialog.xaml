@@ -1,0 +1,99 @@
+<Window x:Class="FM.App.Views.CrashReportDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="MyFileManager - Đã xảy ra sự cố"
+        Width="540" Height="400"
+        MinWidth="450" MinHeight="320"
+        WindowStartupLocation="CenterScreen"
+        Background="#F9FAFB"
+        ResizeMode="CanResizeWithGrip">
+
+    <Grid Margin="16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" /> <!-- Header -->
+            <RowDefinition Height="Auto" /> <!-- Message & Log path -->
+            <RowDefinition Height="*" />    <!-- Error Details Expander -->
+            <RowDefinition Height="Auto" /> <!-- Bottom Action Buttons -->
+        </Grid.RowDefinitions>
+
+        <!-- Header -->
+        <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,12">
+            <Border Width="36" Height="36" CornerRadius="18" Background="#FEE2E2" Margin="0,0,12,0">
+                <TextBlock Text="⚠️" FontSize="18" HorizontalAlignment="Center" VerticalAlignment="Center" />
+            </Border>
+            <StackPanel VerticalAlignment="Center">
+                <TextBlock Text="Đã xảy ra sự cố ngoài ý muốn" FontSize="14" FontWeight="SemiBold" Foreground="#111827" />
+                <TextBlock Text="MyFileManager đã ghi nhận lỗi an toàn và bảo vệ dữ liệu hoàn tác." FontSize="11" Foreground="#6B7280" />
+            </StackPanel>
+        </StackPanel>
+
+        <!-- Message & Log location -->
+        <Border Grid.Row="1" Background="#FFFFFF" BorderBrush="#E5E7EB" BorderThickness="1" CornerRadius="6" Padding="12" Margin="0,0,0,12">
+            <StackPanel>
+                <TextBlock x:Name="ExceptionMessageTextBlock"
+                           Text="Thông tin lỗi..."
+                           FontSize="12" FontWeight="Medium"
+                           Foreground="#B91C1C"
+                           TextWrapping="Wrap" />
+                <Separator Margin="0,8" Background="#F3F4F6" />
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <TextBlock x:Name="LogPathTextBlock"
+                               Text="Log file: %LOCALAPPDATA%\MyFileManager\logs"
+                               FontSize="11" Foreground="#6B7280"
+                               VerticalAlignment="Center"
+                               TextTrimming="CharacterEllipsis" />
+                    <Button Grid.Column="1"
+                            Content="Mở thư mục Log"
+                            Padding="8,3" FontSize="11"
+                            Click="OnOpenLogsFolderClicked"
+                            Cursor="Hand" />
+                </Grid>
+            </StackPanel>
+        </Border>
+
+        <!-- Error Details Expander -->
+        <Expander Grid.Row="2" Header="Chi tiết kỹ thuật (Stack Trace)" IsExpanded="False" Margin="0,0,0,12">
+            <TextBox x:Name="StackTraceTextBox"
+                     IsReadOnly="True"
+                     VerticalScrollBarVisibility="Auto"
+                     HorizontalScrollBarVisibility="Auto"
+                     FontFamily="Consolas" FontSize="11"
+                     Background="#FFFFFF"
+                     BorderBrush="#E5E7EB"
+                     Foreground="#374151"
+                     Margin="0,4,0,0"
+                     Padding="6" />
+        </Expander>
+
+        <!-- Action Buttons -->
+        <DockPanel Grid.Row="3" LastChildFill="False">
+            <Button Content="Sao chép lỗi"
+                    DockPanel.Dock="Left"
+                    Padding="10,5" FontSize="12"
+                    Click="OnCopyErrorClicked"
+                    Cursor="Hand" />
+
+            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+                <Button x:Name="ContinueButton"
+                        Content="Tiếp tục sử dụng"
+                        Padding="12,5" Margin="0,0,8,0" FontSize="12"
+                        Click="OnContinueClicked"
+                        Cursor="Hand" />
+                <Button Content="Khởi động lại"
+                        Padding="12,5" Margin="0,0,8,0" FontSize="12"
+                        Background="#2563EB" Foreground="#FFFFFF" FontWeight="Medium"
+                        Click="OnRestartClicked"
+                        Cursor="Hand" />
+                <Button Content="Đóng"
+                        Padding="12,5" FontSize="12"
+                        Click="OnCloseClicked"
+                        Cursor="Hand" />
+            </StackPanel>
+        </DockPanel>
+    </Grid>
+</Window>
+
