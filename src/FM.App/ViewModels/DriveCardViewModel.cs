@@ -19,7 +19,7 @@ public partial class DriveCardViewModel : ObservableObject
     public string VolumeLabel => Drive.VolumeLabel;
     public string DriveLetter => Drive.DriveLetter;
     public DriveType DriveType => Drive.DriveType;
-    public double PercentUsed => Drive.PercentUsed;
+    public double PercentUsed { get => Drive.PercentUsed; set { } }
     public string FreeSpaceText => Drive.FormattedFreeSpaceText;
     public string FileSystem => Drive.FileSystem;
     public bool IsRemovable => Drive.IsRemovable;

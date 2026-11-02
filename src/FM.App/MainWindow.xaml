@@ -76,7 +76,7 @@
                                TextTrimming="CharacterEllipsis" />
                     <ProgressBar Height="3" Margin="0,3,6,0"
                                  Minimum="0" Maximum="100"
-                                 Value="{Binding PercentUsed}"
+                                 Value="{Binding PercentUsed, Mode=OneWay}"
                                  Foreground="#3B82F6"
                                  Background="#E5E7EB"
                                  BorderThickness="0"

@@ -1440,7 +1440,7 @@
                                                 </Grid>
                                                 <ProgressBar Height="8" Margin="0,6,0,4"
                                                              Minimum="0" Maximum="100"
-                                                             Value="{Binding PercentUsed}"
+                                                             Value="{Binding PercentUsed, Mode=OneWay}"
                                                              Background="#E5E7EB"
                                                              BorderThickness="0">
                                                     <ProgressBar.Style>

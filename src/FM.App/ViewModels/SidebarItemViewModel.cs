@@ -23,7 +23,7 @@ public partial class SidebarItemViewModel : ObservableObject
     public DriveItem? DriveInfo { get; }
 
     public bool HasDriveInfo => DriveInfo != null && DriveInfo.IsReady;
-    public double PercentUsed => DriveInfo?.PercentUsed ?? 0.0;
+    public double PercentUsed { get => DriveInfo?.PercentUsed ?? 0.0; set { } }
     public string? FreeSpaceText => DriveInfo?.FormattedFreeSpaceText;
     public bool IsRemovable => DriveInfo?.IsRemovable ?? false;
 
