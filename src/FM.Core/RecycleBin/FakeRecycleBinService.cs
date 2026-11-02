@@ -1,3 +1,5 @@
+using FM.Core.FileSystem;
+
 namespace FM.Core.RecycleBin;
 
 /// <summary>
@@ -11,6 +13,7 @@ public sealed class FakeRecycleBinService : IRecycleBinService
     public List<string> RestoredItemIds { get; } = new();
     public List<string> DeletedItemIds { get; } = new();
     public int EmptyCount { get; private set; }
+    public IFileSystem? FileSystem { get; set; }
 
     public FakeRecycleBinService(IEnumerable<RecycleBinItem>? initialItems = null)
     {
@@ -29,10 +32,18 @@ public sealed class FakeRecycleBinService : IRecycleBinService
     {
         RestoredItemIds.Add(id);
         var existing = _items.FirstOrDefault(i => string.Equals(i.Id, id, StringComparison.OrdinalIgnoreCase) ||
-                                                  string.Equals(i.Name, id, StringComparison.OrdinalIgnoreCase));
+                                                  string.Equals(i.Name, id, StringComparison.OrdinalIgnoreCase) ||
+                                                  string.Equals(i.OriginalPath, id, StringComparison.OrdinalIgnoreCase));
         if (existing != null)
         {
             _items.Remove(existing);
+            if (FileSystem != null && !string.IsNullOrEmpty(existing.OriginalPath))
+            {
+                if (!FileSystem.Exists(existing.OriginalPath))
+                {
+                    using (FileSystem.CreateFileForWrite(existing.OriginalPath)) { }
+                }
+            }
             RecycleBinChanged?.Invoke(this, EventArgs.Empty);
             return Task.FromResult(true);
         }
@@ -43,7 +54,8 @@ public sealed class FakeRecycleBinService : IRecycleBinService
     {
         DeletedItemIds.Add(id);
         var existing = _items.FirstOrDefault(i => string.Equals(i.Id, id, StringComparison.OrdinalIgnoreCase) ||
-                                                  string.Equals(i.Name, id, StringComparison.OrdinalIgnoreCase));
+                                                  string.Equals(i.Name, id, StringComparison.OrdinalIgnoreCase) ||
+                                                  string.Equals(i.OriginalPath, id, StringComparison.OrdinalIgnoreCase));
         if (existing != null)
         {
             _items.Remove(existing);

@@ -285,8 +285,31 @@ public partial class FilePaneView : UserControl
         }
         else if (e.Key == Key.Delete)
         {
-            ViewModel?.DeleteToRecycleBinCommand.Execute(null);
+            var focused = Keyboard.FocusedElement as DependencyObject;
+            if (focused is TextBox || focused?.FindVisualAncestor<TextBox>() != null)
+            {
+                return;
+            }
+
+            bool isShift = (Keyboard.Modifiers & ModifierKeys.Shift) == ModifierKeys.Shift;
+            if (isShift)
+            {
+                ViewModel?.DeletePermanentlyCommand.Execute(null);
+            }
+            else
+            {
+                ViewModel?.DeleteToRecycleBinCommand.Execute(null);
+            }
             e.Handled = true;
+        }
+        else if (e.Key == Key.A && (Keyboard.Modifiers & ModifierKeys.Control) == ModifierKeys.Control)
+        {
+            var focused = Keyboard.FocusedElement as DependencyObject;
+            if (focused is not TextBox && focused?.FindVisualAncestor<TextBox>() == null)
+            {
+                ViewModel?.SelectAllCommand.Execute(null);
+                e.Handled = true;
+            }
         }
         else if (e.Key == Key.F2)
         {

@@ -111,8 +111,13 @@ public sealed class WindowsRecycleBinService : IRecycleBinService
 
                 foreach (dynamic it in rb.Items())
                 {
+                    string name = (string)it.Name ?? string.Empty;
+                    string origLoc = (string)rb.GetDetailsOf(it, 1) ?? string.Empty;
+                    string origFull = !string.IsNullOrEmpty(origLoc) ? System.IO.Path.Combine(origLoc, name) : string.Empty;
+
                     if (string.Equals((string)it.Path, id, StringComparison.OrdinalIgnoreCase) ||
-                        string.Equals((string)it.Name, id, StringComparison.OrdinalIgnoreCase))
+                        string.Equals(name, id, StringComparison.OrdinalIgnoreCase) ||
+                        (!string.IsNullOrEmpty(origFull) && string.Equals(origFull, id, StringComparison.OrdinalIgnoreCase)))
                     {
                         foreach (dynamic v in it.Verbs())
                         {

@@ -8,6 +8,7 @@ public sealed record RecycleBinItem
     public string Id { get; init; }
     public string Name { get; init; }
     public string OriginalLocation { get; init; }
+    public string OriginalPath => !string.IsNullOrEmpty(OriginalLocation) ? System.IO.Path.Combine(OriginalLocation, Name) : Name;
     public DateTime DateDeleted { get; init; }
     public long Size { get; init; }
     public string ItemType { get; init; }

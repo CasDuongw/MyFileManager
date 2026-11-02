@@ -8,6 +8,7 @@ namespace FM.App.Services;
 public interface IInputDialogService
 {
     string? Prompt(string title, string message, string initialValue = "", int? selectionLength = null);
+    bool Confirm(string title, string message);
 }
 
 public class InputDialogService : IInputDialogService
@@ -22,6 +23,13 @@ public class InputDialogService : IInputDialogService
 
         bool? result = dialog.ShowDialog();
         return (result == true) ? dialog.InputValue : null;
+    }
+
+    public bool Confirm(string title, string message)
+    {
+        var owner = Application.Current?.MainWindow;
+        var res = MessageBox.Show(owner, message, title, MessageBoxButton.YesNo, MessageBoxImage.Warning);
+        return res == MessageBoxResult.Yes;
     }
 }
 

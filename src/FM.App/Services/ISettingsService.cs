@@ -18,6 +18,7 @@ public class AppSettings
     public List<string> RecentFolders { get; set; } = new();
     public List<string> IndexedRoots { get; set; } = new();
     public List<string> IndexExcludes { get; set; } = new();
+    public bool ConfirmNormalDelete { get; set; } = false;
 }
 
 public interface ISettingsService

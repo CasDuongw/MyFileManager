@@ -1,3 +1,4 @@
+using FM.Core.ShellIntegration;
 using FM.Core.Drives;
 using FM.Core.RecycleBin;
 using FM.Core.PathResolution;
@@ -54,6 +55,10 @@ public partial class FilePaneViewModel : ObservableObject, IDisposable
     private readonly IRecycleBinService _recycleBinService;
     private readonly IPathResolver _pathResolver;
     private readonly ISearchService _searchService;
+    private readonly IShellNewService _shellNewService;
+    private readonly ISendToService _sendToService;
+    private readonly ISettingsService? _settingsService;
+    private readonly ITransferQueue? _transferQueue;
     private CancellationTokenSource? _searchCts;
     private CancellationTokenSource? _searchDebounceCts;
     private List<FileItemViewModel>? _savedFolderItems;
@@ -79,6 +84,9 @@ public partial class FilePaneViewModel : ObservableObject, IDisposable
 
     public System.Collections.ObjectModel.ObservableCollection<DriveCardViewModel> Drives { get; } = new();
     public System.Collections.ObjectModel.ObservableCollection<RecycleBinItemViewModel> RecycleBinItems { get; } = new();
+
+    public IReadOnlyList<ShellNewTemplate> NewTemplates => _shellNewService.GetTemplates();
+    public IReadOnlyList<SendToTarget> SendToTargets => _sendToService.GetTargets();
 
     [ObservableProperty]
     private bool _isFindBarOpen;
@@ -536,7 +544,11 @@ public partial class FilePaneViewModel : ObservableObject, IDisposable
         IDriveService? driveService = null,
         IRecycleBinService? recycleBinService = null,
         IPathResolver? pathResolver = null,
-        ISearchService? searchService = null)
+        ISearchService? searchService = null,
+        IShellNewService? shellNewService = null,
+        ISendToService? sendToService = null,
+        ISettingsService? settingsService = null,
+        ITransferQueue? transferQueue = null)
     {
         _directoryService = directoryService;
         _iconService = iconService;
@@ -550,6 +562,10 @@ public partial class FilePaneViewModel : ObservableObject, IDisposable
         _recycleBinService = recycleBinService ?? (_fileSystem is InMemoryFileSystem ? new FakeRecycleBinService() : WindowsRecycleBinService.Instance);
         _pathResolver = pathResolver ?? PathResolver.Instance;
         _searchService = searchService ?? new SearchService(_fileSystem);
+        _shellNewService = shellNewService ?? new WindowsShellNewService();
+        _sendToService = sendToService ?? new WindowsSendToService();
+        _settingsService = settingsService;
+        _transferQueue = transferQueue;
         _driveService.DrivesChanged += OnDriveServiceDrivesChanged;
 
         UndoStack.CanUndoChanged += () =>
@@ -958,33 +974,30 @@ public partial class FilePaneViewModel : ObservableObject, IDisposable
         }
     }
 
-    [RelayCommand]
-    public void CopyPath()
+    public bool SupportsRecycleBin(string path)
     {
-        RunOnUi(() =>
-        {
-            var selected = SelectedItems.Select(x => x.FullPath).ToList();
-            if (selected.Count == 0 && SelectedItem != null)
-            {
-                selected.Add(SelectedItem.FullPath);
-            }
-            if (selected.Count == 0 && !string.IsNullOrEmpty(CurrentPath))
-            {
-                selected.Add(CurrentPath);
-            }
-            if (selected.Count == 0) return;
+        if (string.IsNullOrWhiteSpace(path)) return false;
+        if (path.StartsWith(@"\\")) return false; // UNC paths have no Recycle Bin
+        if (_fileSystem is InMemoryFileSystem) return true; // In-memory tests simulate Recycle Bin unless UNC
 
-            try
+        try
+        {
+            string? root = Path.GetPathRoot(path);
+            if (!string.IsNullOrEmpty(root))
             {
-                string text = string.Join(Environment.NewLine, selected.Select(p => $"\"{p}\""));
-                Clipboard.SetText(text);
-                ShowToast("Copied path to clipboard");
+                var d = new DriveInfo(root);
+                if (d.DriveType == DriveType.Network || d.DriveType == DriveType.NoRootDirectory)
+                {
+                    return false;
+                }
             }
-            catch (Exception ex)
-            {
-                ErrorMessage = $"Clipboard error: {ex.Message}";
-            }
-        });
+        }
+        catch
+        {
+            return !path.StartsWith(@"\\");
+        }
+
+        return true;
     }
 
     [RelayCommand]
@@ -997,15 +1010,383 @@ public partial class FilePaneViewModel : ObservableObject, IDisposable
         }
         if (selected.Count == 0) return;
 
-        bool ok = ShellInterop.MoveToRecycleBin(selected);
+        // Check for locations without Recycle Bin (network drives, UNC)
+        bool anyNoRecycle = selected.Any(p => !SupportsRecycleBin(p));
+        if (anyNoRecycle)
+        {
+            string msg = selected.Count == 1
+                ? $"'{Path.GetFileName(selected[0])}' is located on a network drive or volume without a Recycle Bin.\n\nAre you sure you want to permanently delete it?"
+                : $"These {selected.Count} items are located on a network drive or volume without a Recycle Bin.\n\nAre you sure you want to permanently delete them?";
+
+            if (!_inputDialogService.Confirm("Delete Permanently", msg))
+            {
+                return;
+            }
+
+            await DeletePermanentlyCoreAsync(selected);
+            return;
+        }
+
+        // Setting: Confirm normal delete
+        bool confirmNormal = _settingsService?.LoadSettings().ConfirmNormalDelete ?? false;
+        if (confirmNormal)
+        {
+            string msg = selected.Count == 1
+                ? $"Are you sure you want to move '{Path.GetFileName(selected[0])}' to the Recycle Bin?"
+                : $"Are you sure you want to move these {selected.Count} items to the Recycle Bin?";
+
+            if (!_inputDialogService.Confirm("Delete File", msg))
+            {
+                return;
+            }
+        }
+
+        bool ok = MoveToRecycleBinCore(selected);
         if (ok)
         {
+            var op = new RecycleBinDeleteOperation(_recycleBinService, paths => MoveToRecycleBinCore(paths.ToList()), selected);
+            UndoStack.Push(op);
+
             ShowToast($"Deleted {selected.Count} item(s) to Recycle Bin");
             await RefreshAsync();
         }
         else
         {
             ErrorMessage = "Could not move item(s) to Recycle Bin";
+        }
+    }
+
+    private bool MoveToRecycleBinCore(IReadOnlyList<string> paths)
+    {
+        if (_fileSystem is InMemoryFileSystem)
+        {
+            if (_recycleBinService is FakeRecycleBinService fakeBin)
+            {
+                foreach (var path in paths)
+                {
+                    string name = Path.GetFileName(path);
+                    string dir = Path.GetDirectoryName(path) ?? "";
+                    fakeBin.AddItem(new RecycleBinItem(
+                        id: Guid.NewGuid().ToString(),
+                        name: name,
+                        originalLocation: dir,
+                        dateDeleted: DateTime.UtcNow,
+                        size: 500,
+                        itemType: "File",
+                        isDirectory: false));
+                }
+            }
+            foreach (var path in paths)
+            {
+                if (_fileSystem.FileExists(path)) _fileSystem.DeleteFile(path);
+                else if (_fileSystem.DirectoryExists(path)) _fileSystem.DeleteDirectory(path, recursive: true);
+            }
+            return true;
+        }
+
+        return ShellInterop.MoveToRecycleBin(paths);
+    }
+
+    [RelayCommand]
+    public async Task DeletePermanentlyAsync()
+    {
+        var selected = SelectedItems.Select(x => x.FullPath).ToList();
+        if (selected.Count == 0 && SelectedItem != null)
+        {
+            selected.Add(SelectedItem.FullPath);
+        }
+        if (selected.Count == 0) return;
+
+        string msg = selected.Count == 1
+            ? $"Are you sure you want to permanently delete '{Path.GetFileName(selected[0])}'?\n\nThis action cannot be undone."
+            : $"Are you sure you want to permanently delete these {selected.Count} items?\n\nThis action cannot be undone.";
+
+        if (!_inputDialogService.Confirm("Delete Permanently", msg))
+        {
+            return;
+        }
+
+        await DeletePermanentlyCoreAsync(selected);
+    }
+
+    private async Task DeletePermanentlyCoreAsync(IReadOnlyList<string> paths)
+    {
+        int deleted = 0;
+        foreach (var path in paths)
+        {
+            try
+            {
+                if (_fileSystem.DirectoryExists(path))
+                {
+                    _fileSystem.DeleteDirectory(path, recursive: true);
+                    deleted++;
+                }
+                else if (_fileSystem.FileExists(path))
+                {
+                    _fileSystem.DeleteFile(path);
+                    deleted++;
+                }
+                else if (File.Exists(path))
+                {
+                    File.Delete(path);
+                    deleted++;
+                }
+                else if (Directory.Exists(path))
+                {
+                    Directory.Delete(path, true);
+                    deleted++;
+                }
+            }
+            catch (Exception ex)
+            {
+                ErrorMessage = $"Could not delete '{Path.GetFileName(path)}': {ex.Message}";
+            }
+        }
+
+        ShowToast($"Permanently deleted {deleted} item(s) (cannot be undone)");
+        await RefreshAsync();
+    }
+
+    [RelayCommand]
+    public async Task NewTextDocumentAsync()
+    {
+        if (string.IsNullOrEmpty(CurrentPath)) return;
+        var template = new ShellNewTemplate(".txt", "Text Document", ShellNewKind.NullFile);
+        string createdPath = await _shellNewService.CreateFileFromTemplateAsync(template, CurrentPath, _fileSystem);
+        ShowToast($"Created '{Path.GetFileName(createdPath)}'");
+        await RefreshAsync();
+        SelectAndFocusItem(createdPath);
+    }
+
+    [RelayCommand]
+    public async Task NewShortcutAsync()
+    {
+        if (string.IsNullOrEmpty(CurrentPath)) return;
+        string? target = _inputDialogService.Prompt("Create Shortcut", "Enter target file or folder path:", CurrentPath);
+        if (string.IsNullOrWhiteSpace(target)) return;
+
+        string name = Path.GetFileName(target.TrimEnd('\\'));
+        if (string.IsNullOrEmpty(name)) name = "Shortcut";
+        string shortcutPath = Path.Combine(CurrentPath, $"{name}.lnk");
+        int counter = 2;
+        while (_fileSystem.FileExists(shortcutPath) || File.Exists(shortcutPath))
+        {
+            shortcutPath = Path.Combine(CurrentPath, $"{name} ({counter++}).lnk");
+        }
+
+        CreateShortcut(target, shortcutPath);
+        ShowToast($"Created shortcut '{Path.GetFileName(shortcutPath)}'");
+        await RefreshAsync();
+        SelectAndFocusItem(shortcutPath);
+    }
+
+    [RelayCommand]
+    public void CreateShortcutForSelected()
+    {
+        var item = SelectedItem;
+        if (item == null || string.IsNullOrEmpty(CurrentPath)) return;
+
+        string shortcutPath = Path.Combine(CurrentPath, $"{Path.GetFileNameWithoutExtension(item.Name)} - Shortcut.lnk");
+        int counter = 2;
+        while (_fileSystem.FileExists(shortcutPath) || File.Exists(shortcutPath))
+        {
+            shortcutPath = Path.Combine(CurrentPath, $"{Path.GetFileNameWithoutExtension(item.Name)} - Shortcut ({counter++}).lnk");
+        }
+
+        CreateShortcut(item.FullPath, shortcutPath);
+        ShowToast($"Created shortcut '{Path.GetFileName(shortcutPath)}'");
+        _ = RefreshAsync();
+    }
+
+    private void CreateShortcut(string target, string shortcutPath)
+    {
+        if (_fileSystem is InMemoryFileSystem)
+        {
+            using (_fileSystem.CreateFileForWrite(shortcutPath)) { }
+        }
+        else
+        {
+            WindowsSendToService.CreateShortcutFile(target, shortcutPath);
+        }
+    }
+
+    [RelayCommand]
+    public async Task CreateFromTemplateAsync(ShellNewTemplate template)
+    {
+        if (template == null || string.IsNullOrEmpty(CurrentPath)) return;
+        string createdPath = await _shellNewService.CreateFileFromTemplateAsync(template, CurrentPath, _fileSystem);
+        ShowToast($"Created '{Path.GetFileName(createdPath)}'");
+        await RefreshAsync();
+        SelectAndFocusItem(createdPath);
+    }
+
+    [RelayCommand]
+    public async Task SendToAsync(SendToTarget target)
+    {
+        if (target == null) return;
+        var selected = SelectedItems.Select(x => x.FullPath).ToList();
+        if (selected.Count == 0 && SelectedItem != null) selected.Add(SelectedItem.FullPath);
+        if (selected.Count == 0) return;
+
+        bool ok = await _sendToService.ExecuteSendToAsync(
+            target,
+            selected,
+            copyToFolderAction: async (sources, dest) =>
+            {
+                if (_transferQueue != null)
+                {
+                    var req = new TransferRequest(TransferKind.Copy, sources, dest, new TransferOptions(ConflictAction.KeepBoth));
+                    var job = _transferQueue.Enqueue(req);
+                    await job.Completion;
+                }
+                else
+                {
+                    foreach (var s in sources)
+                    {
+                        string targetFile = Path.Combine(dest, Path.GetFileName(s));
+                        if (_fileSystem.FileExists(s))
+                        {
+                            using var inStream = _fileSystem.OpenRead(s);
+                            using var outStream = _fileSystem.CreateFileForWrite(targetFile);
+                            inStream.CopyTo(outStream);
+                        }
+                        else if (File.Exists(s))
+                        {
+                            File.Copy(s, targetFile, true);
+                        }
+                    }
+                }
+                ShowToast($"Sent {sources.Count} item(s) to '{target.DisplayName}'");
+            },
+            zipAction: async (sources) =>
+            {
+                await CompressToZipAsync();
+            });
+
+        if (ok)
+        {
+            ShowToast($"Sent to '{target.DisplayName}'");
+        }
+    }
+
+    [RelayCommand]
+    public void SelectAll()
+    {
+        UpdateSelectedItems(Items.ToList());
+    }
+
+    [RelayCommand]
+    public void InvertSelection()
+    {
+        var currentSet = new HashSet<FileItemViewModel>(SelectedItems);
+        var inverted = Items.Where(i => !currentSet.Contains(i)).ToList();
+        UpdateSelectedItems(inverted);
+    }
+
+    [RelayCommand]
+    public void SelectByPattern()
+    {
+        string? pattern = _inputDialogService.Prompt("Select by Pattern", "Enter pattern (e.g. *.txt, report*.*):", "*.*");
+        if (string.IsNullOrWhiteSpace(pattern)) return;
+
+        var matching = Items.Where(i => System.IO.Enumeration.FileSystemName.MatchesSimpleExpression(pattern, i.Name, ignoreCase: true)).ToList();
+        UpdateSelectedItems(matching);
+        ShowToast($"Selected {matching.Count} item(s) matching '{pattern}'");
+    }
+
+    [RelayCommand]
+    public void CopyPath()
+    {
+        var paths = SelectedItems.Select(x => x.FullPath).ToList();
+        if (paths.Count == 0 && SelectedItem != null) paths.Add(SelectedItem.FullPath);
+        if (paths.Count == 0 && !string.IsNullOrEmpty(CurrentPath)) paths.Add(CurrentPath);
+        if (paths.Count == 0) return;
+
+        RunOnUi(() =>
+        {
+            try
+            {
+                Clipboard.SetText(string.Join(Environment.NewLine, paths));
+                ShowToast("Copied full path(s) to clipboard");
+            }
+            catch (Exception ex)
+            {
+                ErrorMessage = $"Clipboard error: {ex.Message}";
+            }
+        });
+    }
+
+    [RelayCommand]
+    public void CopyDirectoryPath()
+    {
+        var dirs = SelectedItems.Select(x => Path.GetDirectoryName(x.FullPath) ?? x.FullPath).ToList();
+        if (dirs.Count == 0 && SelectedItem != null) dirs.Add(Path.GetDirectoryName(SelectedItem.FullPath) ?? SelectedItem.FullPath);
+        if (dirs.Count == 0 && !string.IsNullOrEmpty(CurrentPath)) dirs.Add(CurrentPath);
+        if (dirs.Count == 0) return;
+
+        RunOnUi(() =>
+        {
+            try
+            {
+                Clipboard.SetText(string.Join(Environment.NewLine, dirs.Distinct(StringComparer.OrdinalIgnoreCase)));
+                ShowToast("Copied containing folder path to clipboard");
+            }
+            catch (Exception ex)
+            {
+                ErrorMessage = $"Clipboard error: {ex.Message}";
+            }
+        });
+    }
+
+    [RelayCommand]
+    public void CopyFileName()
+    {
+        var names = SelectedItems.Select(x => x.Name).ToList();
+        if (names.Count == 0 && SelectedItem != null) names.Add(SelectedItem.Name);
+        if (names.Count == 0) return;
+
+        RunOnUi(() =>
+        {
+            try
+            {
+                Clipboard.SetText(string.Join(Environment.NewLine, names));
+                ShowToast("Copied file name(s) to clipboard");
+            }
+            catch (Exception ex)
+            {
+                ErrorMessage = $"Clipboard error: {ex.Message}";
+            }
+        });
+    }
+
+    [RelayCommand]
+    public void CopyRelativePath()
+    {
+        if (string.IsNullOrEmpty(CurrentPath)) return;
+        var rels = SelectedItems.Select(x => Path.GetRelativePath(CurrentPath, x.FullPath)).ToList();
+        if (rels.Count == 0 && SelectedItem != null) rels.Add(Path.GetRelativePath(CurrentPath, SelectedItem.FullPath));
+        if (rels.Count == 0) return;
+
+        RunOnUi(() =>
+        {
+            try
+            {
+                Clipboard.SetText(string.Join(Environment.NewLine, rels));
+                ShowToast("Copied relative path(s) to clipboard");
+            }
+            catch (Exception ex)
+            {
+                ErrorMessage = $"Clipboard error: {ex.Message}";
+            }
+        });
+    }
+
+    private void SelectAndFocusItem(string path)
+    {
+        var match = Items.FirstOrDefault(i => string.Equals(i.FullPath, path, StringComparison.OrdinalIgnoreCase));
+        if (match != null)
+        {
+            UpdateSelectedItems(new[] { match });
         }
     }
 

@@ -347,7 +347,9 @@ public partial class MainViewModel : ObservableObject
         driveService: _driveService,
         recycleBinService: _recycleBinService,
         pathResolver: _pathResolver,
-        searchService: _searchService);
+        searchService: _searchService,
+        settingsService: _settingsService,
+        transferQueue: _transferQueue);
 
         pane.GetOpenPanePaths = () => Panes
             .Select(p => p.CurrentPath)

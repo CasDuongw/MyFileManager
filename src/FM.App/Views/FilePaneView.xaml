@@ -490,12 +490,44 @@
                           Style="{StaticResource ModernMenuItemStyle}" />
             </MenuItem>
 
-            <!-- Copy as path -->
-            <MenuItem Header="Copy as path"
-                      InputGestureText="Ctrl+Shift+C"
-                      Icon="📄"
-                      Command="{Binding CopyPathCommand}"
+            <!-- Create shortcut -->
+            <MenuItem Header="Create shortcut"
+                      Icon="🔗"
+                      Command="{Binding CreateShortcutForSelectedCommand}"
                       Style="{StaticResource ModernMenuItemStyle}" />
+
+            <!-- Send to Submenu -->
+            <MenuItem Header="Send to"
+                      Icon="📤"
+                      ItemsSource="{Binding SendToTargets}"
+                      Style="{StaticResource ModernMenuItemStyle}">
+                <MenuItem.ItemContainerStyle>
+                    <Style TargetType="MenuItem" BasedOn="{StaticResource ModernMenuItemStyle}">
+                        <Setter Property="Header" Value="{Binding DisplayName}" />
+                        <Setter Property="Command" Value="{Binding DataContext.SendToCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}" />
+                        <Setter Property="CommandParameter" Value="{Binding}" />
+                    </Style>
+                </MenuItem.ItemContainerStyle>
+            </MenuItem>
+
+            <!-- Copy path variants Submenu -->
+            <MenuItem Header="Copy path"
+                      Icon="📄"
+                      Style="{StaticResource ModernMenuItemStyle}">
+                <MenuItem Header="Copy full path"
+                          InputGestureText="Ctrl+Shift+C"
+                          Command="{Binding CopyPathCommand}"
+                          Style="{StaticResource ModernMenuItemStyle}" />
+                <MenuItem Header="Copy folder path"
+                          Command="{Binding CopyDirectoryPathCommand}"
+                          Style="{StaticResource ModernMenuItemStyle}" />
+                <MenuItem Header="Copy file name"
+                          Command="{Binding CopyFileNameCommand}"
+                          Style="{StaticResource ModernMenuItemStyle}" />
+                <MenuItem Header="Copy relative path"
+                          Command="{Binding CopyRelativePathCommand}"
+                          Style="{StaticResource ModernMenuItemStyle}" />
+            </MenuItem>
 
             <!-- Properties -->
             <MenuItem Header="Properties"
@@ -566,11 +598,36 @@
                       Command="{Binding RefreshCommand}"
                       Style="{StaticResource ModernMenuItemStyle}" />
 
-            <MenuItem Header="New folder"
-                      InputGestureText="Ctrl+Shift+N"
-                      Icon="📁"
-                      Command="{Binding NewFolderCommand}"
-                      Style="{StaticResource ModernMenuItemStyle}" />
+            <!-- New Submenu -->
+            <MenuItem Header="New"
+                      Icon="➕"
+                      Style="{StaticResource ModernMenuItemStyle}">
+                <MenuItem Header="Folder"
+                          InputGestureText="Ctrl+Shift+N"
+                          Icon="📁"
+                          Command="{Binding NewFolderCommand}"
+                          Style="{StaticResource ModernMenuItemStyle}" />
+                <MenuItem Header="Text Document"
+                          Icon="📄"
+                          Command="{Binding NewTextDocumentCommand}"
+                          Style="{StaticResource ModernMenuItemStyle}" />
+                <MenuItem Header="Shortcut"
+                          Icon="🔗"
+                          Command="{Binding NewShortcutCommand}"
+                          Style="{StaticResource ModernMenuItemStyle}" />
+                <Separator Style="{StaticResource ModernMenuSeparatorStyle}" />
+                <MenuItem Header="More templates"
+                          ItemsSource="{Binding NewTemplates}"
+                          Style="{StaticResource ModernMenuItemStyle}">
+                    <MenuItem.ItemContainerStyle>
+                        <Style TargetType="MenuItem" BasedOn="{StaticResource ModernMenuItemStyle}">
+                            <Setter Property="Header" Value="{Binding DisplayName}" />
+                            <Setter Property="Command" Value="{Binding DataContext.CreateFromTemplateCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}" />
+                            <Setter Property="CommandParameter" Value="{Binding}" />
+                        </Style>
+                    </MenuItem.ItemContainerStyle>
+                </MenuItem>
+            </MenuItem>
 
             <MenuItem Header="Paste"
                       InputGestureText="Ctrl+V"
@@ -580,15 +637,35 @@
 
             <Separator Style="{StaticResource ModernMenuSeparatorStyle}" />
 
+            <!-- Select Submenu -->
+            <MenuItem Header="Select"
+                      Icon="☑️"
+                      Style="{StaticResource ModernMenuItemStyle}">
+                <MenuItem Header="Select all"
+                          InputGestureText="Ctrl+A"
+                          Command="{Binding SelectAllCommand}"
+                          Style="{StaticResource ModernMenuItemStyle}" />
+                <MenuItem Header="Invert selection"
+                          Command="{Binding InvertSelectionCommand}"
+                          Style="{StaticResource ModernMenuItemStyle}" />
+                <MenuItem Header="Select by pattern..."
+                          Command="{Binding SelectByPatternCommand}"
+                          Style="{StaticResource ModernMenuItemStyle}" />
+            </MenuItem>
+
             <MenuItem Header="Open in Terminal"
                       Icon="💻"
                       Command="{Binding OpenInTerminalCommand}"
                       Style="{StaticResource ModernMenuItemStyle}" />
 
+            <!-- Copy path Submenu for background -->
             <MenuItem Header="Copy path"
                       Icon="📄"
-                      Command="{Binding CopyPathCommand}"
-                      Style="{StaticResource ModernMenuItemStyle}" />
+                      Style="{StaticResource ModernMenuItemStyle}">
+                <MenuItem Header="Copy folder path"
+                          Command="{Binding CopyPathCommand}"
+                          Style="{StaticResource ModernMenuItemStyle}" />
+            </MenuItem>
 
             <MenuItem Header="Properties"
                       InputGestureText="Alt+Enter"

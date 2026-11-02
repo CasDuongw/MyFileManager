@@ -96,6 +96,105 @@ public class CommandCatalog : ICommandCatalog
             },
             new()
             {
+                Id = "file.new-text",
+                Title = "New Text Document",
+                Category = "File",
+                ShortcutText = "",
+                CanExecute = () => pane != null,
+                Execute = () => pane?.NewTextDocumentCommand.Execute(null)
+            },
+            new()
+            {
+                Id = "file.new-shortcut",
+                Title = "New Shortcut",
+                Category = "File",
+                ShortcutText = "",
+                CanExecute = () => pane != null,
+                Execute = () => pane?.NewShortcutCommand.Execute(null)
+            },
+            new()
+            {
+                Id = "file.create-shortcut",
+                Title = "Create Shortcut for Selected",
+                Category = "File",
+                ShortcutText = "",
+                CanExecute = () => pane != null && pane.SelectedItem != null,
+                Execute = () => pane?.CreateShortcutForSelected()
+            },
+            new()
+            {
+                Id = "edit.select-all",
+                Title = "Select All",
+                Category = "Edit",
+                ShortcutText = "Ctrl+A",
+                CanExecute = () => pane != null && pane.Items.Count > 0,
+                Execute = () => pane?.SelectAll()
+            },
+            new()
+            {
+                Id = "edit.invert-selection",
+                Title = "Invert Selection",
+                Category = "Edit",
+                ShortcutText = "",
+                CanExecute = () => pane != null && pane.Items.Count > 0,
+                Execute = () => pane?.InvertSelection()
+            },
+            new()
+            {
+                Id = "edit.select-by-pattern",
+                Title = "Select by Pattern...",
+                Category = "Edit",
+                ShortcutText = "",
+                CanExecute = () => pane != null && pane.Items.Count > 0,
+                Execute = () => pane?.SelectByPattern()
+            },
+            new()
+            {
+                Id = "file.copy-path-full",
+                Title = "Copy Full Path",
+                Category = "File",
+                ShortcutText = "Ctrl+Shift+C",
+                CanExecute = () => pane != null,
+                Execute = () => pane?.CopyPath()
+            },
+            new()
+            {
+                Id = "file.copy-path-dir",
+                Title = "Copy Containing Folder Path",
+                Category = "File",
+                ShortcutText = "",
+                CanExecute = () => pane != null,
+                Execute = () => pane?.CopyDirectoryPath()
+            },
+            new()
+            {
+                Id = "file.copy-path-filename",
+                Title = "Copy File Name",
+                Category = "File",
+                ShortcutText = "",
+                CanExecute = () => pane != null,
+                Execute = () => pane?.CopyFileName()
+            },
+            new()
+            {
+                Id = "file.copy-path-relative",
+                Title = "Copy Relative Path",
+                Category = "File",
+                ShortcutText = "",
+                CanExecute = () => pane != null,
+                Execute = () => pane?.CopyRelativePath()
+            },
+            new()
+            {
+                Id = "file.delete-permanent",
+                Title = "Delete Permanently",
+                Category = "File",
+                ShortcutText = "Shift+Delete",
+                CanExecute = () => pane != null && (pane.SelectedItems.Count > 0 || pane.SelectedItem != null),
+                Execute = () => pane?.DeletePermanentlyCommand.Execute(null)
+            },
+            new()
+            {
                 Id = "file.delete",
                 Title = "Delete to Recycle Bin",
                 Category = "File",
