@@ -57,7 +57,42 @@
                            TextTrimming="CharacterEllipsis" />
             </StackPanel>
         </DataTemplate>
-    </Window.Resources>
+            <!-- Sidebar Drive Item Data Template with Used/Free bar and Eject button -->
+        <DataTemplate x:Key="SidebarDriveItemTemplate" DataType="{x:Type vm:SidebarItemViewModel}">
+            <Grid VerticalAlignment="Center" Margin="0,2">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <Image Width="16" Height="16"
+                       Margin="0,0,8,0"
+                       Source="{Binding Icon}"
+                       VerticalAlignment="Center"
+                       RenderOptions.BitmapScalingMode="HighQuality" />
+                <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                    <TextBlock Text="{Binding Name}"
+                               FontSize="12"
+                               TextTrimming="CharacterEllipsis" />
+                    <ProgressBar Height="3" Margin="0,3,6,0"
+                                 Minimum="0" Maximum="100"
+                                 Value="{Binding PercentUsed}"
+                                 Foreground="#3B82F6"
+                                 Background="#E5E7EB"
+                                 BorderThickness="0"
+                                 Visibility="{Binding HasDriveInfo, Converter={StaticResource BoolToVis}}" />
+                </StackPanel>
+                <Button Grid.Column="2"
+                        Command="{Binding EjectCommand}"
+                        Visibility="{Binding IsRemovable, Converter={StaticResource BoolToVis}}"
+                        ToolTip="Eject Drive"
+                        Style="{StaticResource SubtleToolButton}"
+                        Width="20" Height="20" Padding="0" Margin="2,0,0,0">
+                    <TextBlock Text="⏏" FontSize="11" VerticalAlignment="Center" HorizontalAlignment="Center" />
+                </Button>
+            </Grid>
+        </DataTemplate>
+</Window.Resources>
 
     <Grid>
         <Grid.RowDefinitions>
@@ -262,7 +297,7 @@
                                    Margin="8,4,8,4" />
 
                         <ListBox ItemsSource="{Binding SidebarDrives}"
-                                 ItemTemplate="{StaticResource SidebarItemTemplate}"
+                                 ItemTemplate="{StaticResource SidebarDriveItemTemplate}"
                                  ItemContainerStyle="{StaticResource SidebarItemContainerStyle}"
                                  BorderThickness="0"
                                  Background="Transparent"

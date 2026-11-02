@@ -1,3 +1,5 @@
+using System.IO;
+
 namespace FM.Core.Navigation;
 
 /// <summary>
@@ -43,7 +45,10 @@ public class NavigationHistory
     {
         if (string.IsNullOrWhiteSpace(newPath)) return false;
 
-        if (CurrentPath != null && string.Equals(Path.GetFullPath(CurrentPath), Path.GetFullPath(newPath), StringComparison.OrdinalIgnoreCase))
+        string currentNorm = NormalizePathForComparison(CurrentPath);
+        string newNorm = NormalizePathForComparison(newPath);
+
+        if (!string.IsNullOrEmpty(currentNorm) && string.Equals(currentNorm, newNorm, StringComparison.OrdinalIgnoreCase))
         {
             return false;
         }
@@ -91,16 +96,35 @@ public class NavigationHistory
     }
 
     /// <summary>
-    /// Returns the parent directory path of <see cref="CurrentPath"/>, or null if already at root or path is invalid.
+    /// Returns the parent directory path of <see cref="CurrentPath"/>, or "thispc://" when at a drive root,
+    /// or null if already at top or path is invalid.
     /// </summary>
     public string? GetParentPath()
     {
         if (string.IsNullOrWhiteSpace(CurrentPath)) return null;
 
+        if (CurrentPath.Equals("thispc://", StringComparison.OrdinalIgnoreCase) ||
+            CurrentPath.Equals("recyclebin://", StringComparison.OrdinalIgnoreCase))
+        {
+            return null; // Top virtual view
+        }
+
         try
         {
             var parent = Directory.GetParent(CurrentPath);
-            return parent?.FullName;
+            if (parent != null)
+            {
+                return parent.FullName;
+            }
+
+            // At drive root (e.g. C:\) -> parent is "This PC"
+            string root = Path.GetPathRoot(CurrentPath) ?? string.Empty;
+            if (!string.IsNullOrEmpty(root) && CurrentPath.TrimEnd('\\').Equals(root.TrimEnd('\\'), StringComparison.OrdinalIgnoreCase))
+            {
+                return "thispc://";
+            }
+
+            return null;
         }
         catch
         {
@@ -116,5 +140,25 @@ public class NavigationHistory
         _backStack.Clear();
         _forwardStack.Clear();
         CurrentPath = newPath;
+    }
+
+    private static string NormalizePathForComparison(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path)) return string.Empty;
+
+        if (path.StartsWith("thispc://", StringComparison.OrdinalIgnoreCase) ||
+            path.StartsWith("recyclebin://", StringComparison.OrdinalIgnoreCase))
+        {
+            return path.TrimEnd('/').ToLowerInvariant();
+        }
+
+        try
+        {
+            return Path.GetFullPath(path).TrimEnd('\\');
+        }
+        catch
+        {
+            return path.TrimEnd('\\');
+        }
     }
 }

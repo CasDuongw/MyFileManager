@@ -138,6 +138,10 @@ public partial class App : Application
         services.AddSingleton<IInputDialogService, InputDialogService>();
         services.AddSingleton<IShellLauncher, ShellLauncher>();
         services.AddSingleton<ITransferDialogService, TransferDialogService>();
+        services.AddSingleton<FM.Core.Watching.IFolderWatcherFactory, FM.Core.Watching.PhysicalFolderWatcherFactory>();
+        services.AddSingleton<FM.Core.Drives.IDriveService, FM.Core.Drives.PhysicalDriveService>();
+        services.AddSingleton<FM.Core.RecycleBin.IRecycleBinService, FM.Core.RecycleBin.WindowsRecycleBinService>();
+        services.AddSingleton<FM.Core.PathResolution.IPathResolver, FM.Core.PathResolution.PathResolver>();
 
         // 3. ViewModels
         services.AddSingleton<TransferDrawerViewModel>();

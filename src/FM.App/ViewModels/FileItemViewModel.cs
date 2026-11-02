@@ -12,12 +12,18 @@ namespace FM.App.ViewModels;
 /// </summary>
 public partial class FileItemViewModel : ObservableObject
 {
-    public FileEntry Entry { get; }
+    public FileEntry Entry { get; private set; }
     private readonly IIconService? _iconService;
     private readonly CancellationToken _cancellationToken;
 
     private bool _iconRequested;
     private ImageSource? _icon;
+
+    /// <summary>
+    /// Indicates whether this item is currently being edited/renamed inline by the user.
+    /// Auto-refresh guards against replacing or resetting items while this is true.
+    /// </summary>
+    public bool IsRenaming { get; set; }
 
     public ImageSource? Icon
     {
@@ -56,6 +62,35 @@ public partial class FileItemViewModel : ObservableObject
         Entry = entry;
         _iconService = iconService;
         _cancellationToken = cancellationToken;
+    }
+
+    /// <summary>
+    /// Updates the underlying <see cref="FileEntry"/> in place without destroying the ViewModel or visual container.
+    /// </summary>
+    public void UpdateEntry(FileEntry newEntry)
+    {
+        if (newEntry == null) return;
+        bool pathChanged = !string.Equals(Entry.FullPath, newEntry.FullPath, StringComparison.OrdinalIgnoreCase);
+
+        Entry = newEntry;
+
+        if (pathChanged)
+        {
+            _iconRequested = false;
+            Icon = null;
+        }
+
+        OnPropertyChanged(nameof(Name));
+        OnPropertyChanged(nameof(FullPath));
+        OnPropertyChanged(nameof(IsDirectory));
+        OnPropertyChanged(nameof(Size));
+        OnPropertyChanged(nameof(Modified));
+        OnPropertyChanged(nameof(FormattedSize));
+        OnPropertyChanged(nameof(FormattedModified));
+        OnPropertyChanged(nameof(DisplayType));
+        OnPropertyChanged(nameof(IsHidden));
+        OnPropertyChanged(nameof(IsSystem));
+        OnPropertyChanged(nameof(Opacity));
     }
 
     private async Task RequestIconAsync()

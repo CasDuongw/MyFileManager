@@ -971,20 +971,35 @@
                                VerticalAlignment="Center"
                                FontSize="11"
                                TextTrimming="CharacterEllipsis" />
-                    <Button Grid.Column="1"
-                            Command="{Binding DismissErrorCommand}"
-                            Content="✕"
-                            Width="20" Height="20"
-                            Margin="4,0,0,0"
-                            Background="Transparent"
-                            BorderThickness="0"
-                            Foreground="#B91C1C"
-                            Cursor="Hand" />
+                    <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                        <Button Command="{Binding RefreshCommand}"
+                                Content="Thử lại"
+                                ToolTip="Retry navigation"
+                                Margin="4,0,4,0"
+                                Padding="8,2"
+                                Background="#FEE2E2"
+                                BorderBrush="#FCA5A5"
+                                BorderThickness="1"
+                                Foreground="#B91C1C"
+                                FontSize="11"
+                                Cursor="Hand" />
+                        <Button Command="{Binding DismissErrorCommand}"
+                                Content="✕"
+                                Width="20" Height="20"
+                                Margin="4,0,0,0"
+                                Background="Transparent"
+                                BorderThickness="0"
+                                Foreground="#B91C1C"
+                                Cursor="Hand" />
+                    </StackPanel>
                 </Grid>
             </Border>
 
             <!-- Row 4: Main Content Area (Mode 1: Details View, Mode 2: Icons View, Mode 3: Preview Inspector) -->
             <Grid Grid.Row="4" Margin="2">
+
+                <!-- Standard Folder Modes (Details, Icons, Preview) -->
+                <Grid Visibility="{Binding IsStandardFolderMode, Converter={StaticResource BoolToVis}}">
 
                 <!-- Mode 1: Detailed List View (Virtualized ListView) -->
                 <ListView x:Name="FileListView"
@@ -1350,6 +1365,209 @@
                             </StackPanel>
                         </ScrollViewer>
                     </Border>
+                </Grid>
+                </Grid>
+
+                <!-- Special View: This PC (Drives & Devices) -->
+                <ScrollViewer Visibility="{Binding IsThisPcMode, Converter={StaticResource BoolToVis}}"
+                              VerticalScrollBarVisibility="Auto"
+                              HorizontalScrollBarVisibility="Disabled"
+                              Background="#FFFFFF"
+                              Padding="16,12">
+                    <StackPanel>
+                        <TextBlock Text="Thiết bị và ổ đĩa (Devices and drives)"
+                                   FontSize="13" FontWeight="SemiBold"
+                                   Foreground="#374151"
+                                   Margin="4,0,0,12" />
+                        <ItemsControl ItemsSource="{Binding Drives}">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <WrapPanel Orientation="Horizontal" />
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate DataType="{x:Type vm:DriveCardViewModel}">
+                                    <Border Width="260" Margin="6" Padding="10"
+                                            Background="#FFFFFF"
+                                            BorderBrush="#E5E7EB"
+                                            BorderThickness="1"
+                                            CornerRadius="8"
+                                            Cursor="Hand"
+                                            Focusable="True">
+                                        <Border.InputBindings>
+                                            <MouseBinding MouseAction="LeftDoubleClick"
+                                                          Command="{Binding OpenCommand}" />
+                                        </Border.InputBindings>
+                                        <Border.ContextMenu>
+                                            <ContextMenu>
+                                                <MenuItem Header="Mở (Open)" Command="{Binding OpenCommand}" FontWeight="SemiBold" />
+                                                <Separator Visibility="{Binding IsRemovable, Converter={StaticResource BoolToVis}}" />
+                                                <MenuItem Header="Eject"
+                                                          Command="{Binding EjectCommand}"
+                                                          Visibility="{Binding IsRemovable, Converter={StaticResource BoolToVis}}" />
+                                            </ContextMenu>
+                                        </Border.ContextMenu>
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="40" />
+                                                <ColumnDefinition Width="*" />
+                                            </Grid.ColumnDefinitions>
+                                            <Image Grid.Column="0"
+                                                   Width="32" Height="32"
+                                                   VerticalAlignment="Center"
+                                                   HorizontalAlignment="Left"
+                                                   Source="{Binding Icon}"
+                                                   RenderOptions.BitmapScalingMode="HighQuality" />
+                                            <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="6,0,0,0">
+                                                <Grid>
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="*" />
+                                                        <ColumnDefinition Width="Auto" />
+                                                    </Grid.ColumnDefinitions>
+                                                    <TextBlock Text="{Binding Name}"
+                                                               FontWeight="Medium"
+                                                               FontSize="12"
+                                                               Foreground="#111827"
+                                                               TextTrimming="CharacterEllipsis" />
+                                                    <Button Grid.Column="1"
+                                                            Command="{Binding EjectCommand}"
+                                                            Visibility="{Binding IsRemovable, Converter={StaticResource BoolToVis}}"
+                                                            ToolTip="Eject Drive"
+                                                            Style="{StaticResource SubtleToolButton}"
+                                                            Width="18" Height="18" Padding="0" Margin="2,0,0,0">
+                                                        <TextBlock Text="⏏" FontSize="11" />
+                                                    </Button>
+                                                </Grid>
+                                                <ProgressBar Height="8" Margin="0,6,0,4"
+                                                             Minimum="0" Maximum="100"
+                                                             Value="{Binding PercentUsed}"
+                                                             Background="#E5E7EB"
+                                                             BorderThickness="0">
+                                                    <ProgressBar.Style>
+                                                        <Style TargetType="ProgressBar">
+                                                            <Setter Property="Foreground" Value="#3B82F6" />
+                                                            <Style.Triggers>
+                                                                <DataTrigger Binding="{Binding IsWarningSpace}" Value="True">
+                                                                    <Setter Property="Foreground" Value="#EF4444" />
+                                                                </DataTrigger>
+                                                            </Style.Triggers>
+                                                        </Style>
+                                                    </ProgressBar.Style>
+                                                </ProgressBar>
+                                                <TextBlock Text="{Binding FreeSpaceText}"
+                                                           FontSize="10"
+                                                           Foreground="#6B7280" />
+                                            </StackPanel>
+                                        </Grid>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
+                </ScrollViewer>
+
+                <!-- Special View: Recycle Bin -->
+                <Grid Visibility="{Binding IsRecycleBinMode, Converter={StaticResource BoolToVis}}" Background="#FFFFFF">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                    </Grid.RowDefinitions>
+
+                    <Border Grid.Row="0"
+                            Background="#F9FAFB"
+                            BorderBrush="#E5E7EB"
+                            BorderThickness="0,0,0,1"
+                            Padding="12,6">
+                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                            <Button Command="{Binding EmptyRecycleBinCommand}"
+                                    Style="{StaticResource SubtleToolButton}"
+                                    Padding="10,4" Margin="0,0,8,0"
+                                    BorderThickness="1" BorderBrush="#E5E7EB"
+                                    Background="#FFFFFF">
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Text="🗑️" FontSize="12" Margin="0,0,6,0" VerticalAlignment="Center" />
+                                    <TextBlock Text="Empty Recycle Bin" FontSize="11" FontWeight="Medium" Foreground="#DC2626" VerticalAlignment="Center" />
+                                </StackPanel>
+                            </Button>
+                            <Button Command="{Binding RefreshCommand}"
+                                    ToolTip="Refresh Recycle Bin"
+                                    Style="{StaticResource SubtleToolButton}"
+                                    Padding="6,4">
+                                <TextBlock Text="⟳ Refresh" FontSize="11" Foreground="#4B5563" />
+                            </Button>
+                        </StackPanel>
+                    </Border>
+
+                    <ListView Grid.Row="1"
+                              ItemsSource="{Binding RecycleBinItems}"
+                              BorderThickness="0"
+                              ScrollViewer.HorizontalScrollBarVisibility="Auto"
+                              ScrollViewer.VerticalScrollBarVisibility="Auto">
+                        <ListView.ItemContainerStyle>
+                            <Style TargetType="ListViewItem">
+                                <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+                                <Setter Property="Padding" Value="6,4" />
+                                <Setter Property="Margin" Value="0,1" />
+                                <Setter Property="Template">
+                                    <Setter.Value>
+                                        <ControlTemplate TargetType="ListViewItem">
+                                            <Border x:Name="ItemBorder"
+                                                    Background="Transparent"
+                                                    BorderThickness="1"
+                                                    BorderBrush="Transparent"
+                                                    CornerRadius="4"
+                                                    Padding="{TemplateBinding Padding}">
+                                                <GridViewRowPresenter VerticalAlignment="Center" />
+                                            </Border>
+                                            <ControlTemplate.Triggers>
+                                                <Trigger Property="IsMouseOver" Value="True">
+                                                    <Setter TargetName="ItemBorder" Property="Background" Value="#F8FAFC" />
+                                                    <Setter TargetName="ItemBorder" Property="BorderBrush" Value="#F1F5F9" />
+                                                </Trigger>
+                                                <Trigger Property="IsSelected" Value="True">
+                                                    <Setter TargetName="ItemBorder" Property="Background" Value="#FDF2F4" />
+                                                    <Setter TargetName="ItemBorder" Property="BorderBrush" Value="#FECDD3" />
+                                                </Trigger>
+                                            </ControlTemplate.Triggers>
+                                        </ControlTemplate>
+                                    </Setter.Value>
+                                </Setter>
+                                <Setter Property="ContextMenu">
+                                    <Setter.Value>
+                                        <ContextMenu>
+                                            <MenuItem Header="Restore" Command="{Binding RestoreCommand}" FontWeight="SemiBold" />
+                                            <Separator />
+                                            <MenuItem Header="Delete Permanently" Command="{Binding DeleteCommand}" Foreground="#DC2626" />
+                                        </ContextMenu>
+                                    </Setter.Value>
+                                </Setter>
+                            </Style>
+                        </ListView.ItemContainerStyle>
+                        <ListView.View>
+                            <GridView>
+                                <GridViewColumn Header="Name" Width="220">
+                                    <GridViewColumn.CellTemplate>
+                                        <DataTemplate DataType="{x:Type vm:RecycleBinItemViewModel}">
+                                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                                <Image Width="16" Height="16"
+                                                       Margin="0,0,8,0"
+                                                       Source="{Binding Icon}"
+                                                       RenderOptions.BitmapScalingMode="HighQuality" />
+                                                <TextBlock Text="{Binding Name}"
+                                                           FontSize="12"
+                                                           VerticalAlignment="Center"
+                                                           TextTrimming="CharacterEllipsis" />
+                                            </StackPanel>
+                                        </DataTemplate>
+                                    </GridViewColumn.CellTemplate>
+                                </GridViewColumn>
+                                <GridViewColumn Header="Original Location" Width="240" DisplayMemberBinding="{Binding OriginalLocation}" />
+                                <GridViewColumn Header="Date Deleted" Width="140" DisplayMemberBinding="{Binding FormattedDateDeleted}" />
+                                <GridViewColumn Header="Size" Width="80" DisplayMemberBinding="{Binding FormattedSize}" />
+                                <GridViewColumn Header="Item Type" Width="100" DisplayMemberBinding="{Binding ItemType}" />
+                            </GridView>
+                        </ListView.View>
+                    </ListView>
                 </Grid>
             </Grid>
 

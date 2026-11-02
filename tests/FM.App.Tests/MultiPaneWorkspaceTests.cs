@@ -342,6 +342,69 @@ public class MultiPaneWorkspaceTests
     }
 
     [Fact]
+    public void DockPane_InTripleLeft_DroppingBottomRightPaneOnTopRightPaneLeftEdge_MovesDraggedPaneToLeft()
+    {
+        var vm = new MainViewModel(_dirService, _iconService, _settingsService, _fs);
+        vm.SetLayoutCommand.Execute("TripleLeft");
+        Assert.Equal(3, vm.Panes.Count);
+
+        var p0_left = vm.Panes[0];
+        var p1_topRight = vm.Panes[1];
+        var p2_bottomRight = vm.Panes[2];
+
+        // Drag bottom-right pane (Downloads) onto top-right pane with DockEdge.Left
+        vm.DockPane(p2_bottomRight, p1_topRight, DockEdge.Left);
+
+        // The dragged pane must move to index 0 (the Left pane), NOT jumping to top-right!
+        Assert.Equal(p2_bottomRight, vm.Panes[0]);
+        Assert.Equal(p1_topRight, vm.Panes[1]);
+        Assert.Equal(p0_left, vm.Panes[2]);
+        Assert.Same(p2_bottomRight, vm.ActivePane);
+    }
+
+    [Fact]
+    public void DockPane_InTripleLeft_DroppingLeftPaneBelowTopRightPane_MovesDraggedPaneToBottomRight()
+    {
+        var vm = new MainViewModel(_dirService, _iconService, _settingsService, _fs);
+        vm.SetLayoutCommand.Execute("TripleLeft");
+        Assert.Equal(3, vm.Panes.Count);
+
+        var p0_left = vm.Panes[0];
+        var p1_topRight = vm.Panes[1];
+        var p2_bottomRight = vm.Panes[2];
+
+        // Drag left pane onto top-right pane with DockEdge.Bottom (below it)
+        vm.DockPane(p0_left, p1_topRight, DockEdge.Bottom);
+
+        // p0_left should now be at Bottom-Right (index 2)
+        Assert.Equal(p2_bottomRight, vm.Panes[0]);
+        Assert.Equal(p1_topRight, vm.Panes[1]);
+        Assert.Equal(p0_left, vm.Panes[2]);
+        Assert.Same(p0_left, vm.ActivePane);
+    }
+
+    [Fact]
+    public void DockPane_InTripleLeft_DroppingLeftPaneAboveBottomRightPane_MovesDraggedPaneToTopRight()
+    {
+        var vm = new MainViewModel(_dirService, _iconService, _settingsService, _fs);
+        vm.SetLayoutCommand.Execute("TripleLeft");
+        Assert.Equal(3, vm.Panes.Count);
+
+        var p0_left = vm.Panes[0];
+        var p1_topRight = vm.Panes[1];
+        var p2_bottomRight = vm.Panes[2];
+
+        // Drag left pane onto bottom-right pane with DockEdge.Top (above it)
+        vm.DockPane(p0_left, p2_bottomRight, DockEdge.Top);
+
+        // p0_left should now be at Top-Right (index 1)
+        Assert.Equal(p1_topRight, vm.Panes[0]);
+        Assert.Equal(p0_left, vm.Panes[1]);
+        Assert.Equal(p2_bottomRight, vm.Panes[2]);
+        Assert.Same(p0_left, vm.ActivePane);
+    }
+
+    [Fact]
     public void DockPane_ReordersPanesAtomicallyWithMove()
     {
         var vm = new MainViewModel(_dirService, _iconService, _settingsService, _fs);

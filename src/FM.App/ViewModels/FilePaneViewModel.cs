@@ -1,3 +1,6 @@
+using FM.Core.Drives;
+using FM.Core.RecycleBin;
+using FM.Core.PathResolution;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
@@ -17,6 +20,7 @@ using FM.Core.Operations;
 using FM.Core.Operations.Transfer;
 using FM.Core.Search;
 using FM.Core.Services;
+using FM.Core.Watching;
 using System.Text;
 
 namespace FM.App.ViewModels;
@@ -32,18 +36,41 @@ public enum NavigationPhaseType
 /// <summary>
 /// ViewModel managing the state, navigation, and file listing of a single file pane.
 /// </summary>
-public partial class FilePaneViewModel : ObservableObject
+public partial class FilePaneViewModel : ObservableObject, IDisposable
 {
     private readonly IDirectoryService _directoryService;
+    private readonly IFolderWatcherFactory _folderWatcherFactory;
+    private IFolderWatcher? _folderWatcher;
+    public IFolderWatcher? ActiveWatcher => _folderWatcher;
+    private readonly List<FolderChangeEventArgs> _pendingWatcherEvents = new();
+    private readonly object _watcherLock = new();
+    private ITimer? _watcherDebounceTimer;
+    private int _activeTransferCount;
     private readonly IIconService _iconService;
     private readonly IFileSystem _fileSystem;
     private readonly IInputDialogService _inputDialogService;
     private readonly IShellLauncher _shellLauncher;
+    private readonly IDriveService _driveService;
+    private readonly IRecycleBinService _recycleBinService;
+    private readonly IPathResolver _pathResolver;
     private readonly NavigationHistory _history = new();
     private CancellationTokenSource? _loadCts;
 
     [ObservableProperty]
     private bool _showHiddenFiles;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsThisPcMode))]
+    [NotifyPropertyChangedFor(nameof(IsRecycleBinMode))]
+    [NotifyPropertyChangedFor(nameof(IsStandardFolderMode))]
+    private SpecialPaneMode _specialMode = SpecialPaneMode.None;
+
+    public bool IsThisPcMode => SpecialMode == SpecialPaneMode.ThisPC;
+    public bool IsRecycleBinMode => SpecialMode == SpecialPaneMode.RecycleBin;
+    public bool IsStandardFolderMode => SpecialMode == SpecialPaneMode.None;
+
+    public System.Collections.ObjectModel.ObservableCollection<DriveCardViewModel> Drives { get; } = new();
+    public System.Collections.ObjectModel.ObservableCollection<RecycleBinItemViewModel> RecycleBinItems { get; } = new();
 
     public IUndoStack UndoStack { get; }
     public IFileSystem FileSystem => _fileSystem;
@@ -461,7 +488,12 @@ public partial class FilePaneViewModel : ObservableObject
         IFileSystem? fileSystem = null,
         IInputDialogService? inputDialogService = null,
         IUndoStack? undoStack = null,
-        IShellLauncher? shellLauncher = null)
+        IShellLauncher? shellLauncher = null,
+        IFolderWatcherFactory? folderWatcherFactory = null,
+        TimeProvider? timeProvider = null,
+        IDriveService? driveService = null,
+        IRecycleBinService? recycleBinService = null,
+        IPathResolver? pathResolver = null)
     {
         _directoryService = directoryService;
         _iconService = iconService;
@@ -469,6 +501,12 @@ public partial class FilePaneViewModel : ObservableObject
         _inputDialogService = inputDialogService ?? new InputDialogService();
         UndoStack = undoStack ?? new UndoStack();
         _shellLauncher = shellLauncher ?? new ShellLauncher();
+        TimeProvider = timeProvider ?? TimeProvider.System;
+        _folderWatcherFactory = folderWatcherFactory ?? (_fileSystem is InMemoryFileSystem ? NullFolderWatcherFactory.Instance : new PhysicalFolderWatcherFactory(_fileSystem, TimeProvider));
+        _driveService = driveService ?? (_fileSystem is InMemoryFileSystem ? new FakeDriveService() : PhysicalDriveService.Instance);
+        _recycleBinService = recycleBinService ?? (_fileSystem is InMemoryFileSystem ? new FakeRecycleBinService() : WindowsRecycleBinService.Instance);
+        _pathResolver = pathResolver ?? PathResolver.Instance;
+        _driveService.DrivesChanged += OnDriveServiceDrivesChanged;
 
         UndoStack.CanUndoChanged += () =>
         {
@@ -1154,11 +1192,67 @@ public partial class FilePaneViewModel : ObservableObject
         bool IsCurrent() => currentVersion == Interlocked.Read(ref _navigationVersion) && !ct.IsCancellationRequested;
 
         ErrorMessage = null;
+        OnPropertyChanged(nameof(HasError));
         IsLoading = true;
+        StopWatcher();
+
+        var resolution = _pathResolver.Resolve(targetPath);
+        if (!resolution.IsSuccess)
+        {
+            RunOnUi(() =>
+            {
+                ErrorMessage = resolution.ErrorMessage ?? "Đường dẫn không hợp lệ.";
+                IsLoading = false;
+                OnPropertyChanged(nameof(HasError));
+            });
+            return;
+        }
+
+        if (resolution.PathType == ResolvedPathType.ThisPC)
+        {
+            await LoadThisPcViewAsync(phaseType, ct, IsCurrent).ConfigureAwait(false);
+            return;
+        }
+
+        if (resolution.PathType == ResolvedPathType.RecycleBin)
+        {
+            await LoadRecycleBinViewAsync(phaseType, ct, IsCurrent).ConfigureAwait(false);
+            return;
+        }
+
+        RunOnUi(() => SpecialMode = SpecialPaneMode.None);
+        string resolvedPath = resolution.ResolvedPath;
+
+        if (resolvedPath.StartsWith(@"\\"))
+        {
+            bool reachable = await Task.Run(() =>
+            {
+                try
+                {
+                    return _fileSystem.DirectoryExists(resolvedPath) || Directory.Exists(resolvedPath);
+                }
+                catch
+                {
+                    return false;
+                }
+            }, ct).WaitAsync(TimeSpan.FromMilliseconds(1500), ct).ConfigureAwait(false);
+
+            if (!IsCurrent()) return;
+
+            if (!reachable)
+            {
+                RunOnUi(() =>
+                {
+                    ErrorMessage = $"Không thể truy cập đường dẫn mạng '{resolvedPath}'. Kiểm tra kết nối mạng hoặc quyền truy cập máy chủ.";
+                    IsLoading = false;
+                    OnPropertyChanged(nameof(HasError));
+                });
+                return;
+            }
+        }
 
         try
         {
-            string resolvedPath = Path.GetFullPath(targetPath);
             if (!IsCurrent()) return;
 
             bool historyCommitted = false;
@@ -1286,6 +1380,9 @@ public partial class FilePaneViewModel : ObservableObject
 
                 OnPropertyChanged(nameof(SelectionStatusText));
             });
+
+            if (!IsCurrent()) return;
+            StartWatcher(resolvedPath);
         }
         catch (OperationCanceledException)
         {
@@ -1485,6 +1582,20 @@ public partial class FilePaneViewModel : ObservableObject
         var result = new List<BreadcrumbItem>();
         if (string.IsNullOrWhiteSpace(path)) return result;
 
+        if (string.Equals(path, "thispc://", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(path, "This PC", StringComparison.OrdinalIgnoreCase))
+        {
+            result.Add(new BreadcrumbItem("This PC", "thispc://", true));
+            return result;
+        }
+
+        if (string.Equals(path, "recyclebin://", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(path, "Recycle Bin", StringComparison.OrdinalIgnoreCase))
+        {
+            result.Add(new BreadcrumbItem("Recycle Bin", "recyclebin://", true));
+            return result;
+        }
+
         try
         {
             string fullPath = Path.GetFullPath(path);
@@ -1582,4 +1693,523 @@ public partial class FilePaneViewModel : ObservableObject
 
         return list.OrderBy(x => x.Name, StringComparer.CurrentCultureIgnoreCase).ToList();
     }
+
+    #region Live Auto-Refresh & Folder Watching
+
+    private void StartWatcher(string path)
+    {
+        StopWatcher();
+        if (string.IsNullOrWhiteSpace(path)) return;
+
+        try
+        {
+            _folderWatcher = _folderWatcherFactory.CreateWatcher(path);
+            if (_folderWatcher != null)
+            {
+                _folderWatcher.Changed += OnFolderWatcherChanged;
+                _folderWatcher.Error += OnFolderWatcherError;
+                _folderWatcher.FolderDeleted += OnWatchedFolderDeleted;
+                _folderWatcher.EnableRaisingEvents = true;
+            }
+        }
+        catch
+        {
+            // Suppress watcher initialization errors; folder remains viewable
+        }
+    }
+
+    private void StopWatcher()
+    {
+        lock (_watcherLock)
+        {
+            _pendingWatcherEvents.Clear();
+            _watcherDebounceTimer?.Change(Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
+        }
+
+        if (_folderWatcher != null)
+        {
+            try
+            {
+                _folderWatcher.EnableRaisingEvents = false;
+                _folderWatcher.Changed -= OnFolderWatcherChanged;
+                _folderWatcher.Error -= OnFolderWatcherError;
+                _folderWatcher.FolderDeleted -= OnWatchedFolderDeleted;
+                _folderWatcher.Dispose();
+            }
+            catch
+            {
+                // Suppress disposal errors
+            }
+            _folderWatcher = null;
+        }
+    }
+
+    private void OnFolderWatcherChanged(object? sender, FolderChangeEventArgs e)
+    {
+        lock (_watcherLock)
+        {
+            _pendingWatcherEvents.Add(e);
+            _watcherDebounceTimer ??= TimeProvider.CreateTimer(OnWatcherDebounceTimerFired, null, Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
+            _watcherDebounceTimer.Change(TimeSpan.FromMilliseconds(150), Timeout.InfiniteTimeSpan);
+        }
+    }
+
+    private Task _lastProcessTask = Task.CompletedTask;
+
+    public async Task WaitForPendingWatcherUpdatesAsync()
+    {
+        Task task;
+        lock (_watcherLock)
+        {
+            task = _lastProcessTask;
+        }
+        await task;
+    }
+
+    private void OnWatcherDebounceTimerFired(object? state)
+    {
+        List<FolderChangeEventArgs> batch;
+        lock (_watcherLock)
+        {
+            if (_pendingWatcherEvents.Count == 0) return;
+            batch = _pendingWatcherEvents.ToList();
+            _pendingWatcherEvents.Clear();
+        }
+
+        var task = ProcessWatcherEventsAsync(batch);
+        lock (_watcherLock)
+        {
+            _lastProcessTask = task;
+        }
+    }
+
+    private async Task ProcessWatcherEventsAsync(List<FolderChangeEventArgs> batch)
+    {
+        var coalesced = FolderChangeCoalescer.Coalesce(batch);
+        if (coalesced.RequiresFullRefresh)
+        {
+            RunOnUi(() => _ = RefreshAsync());
+            return;
+        }
+
+        // Pre-fetch entries on background thread
+        var addedEntries = new List<FileEntry>();
+        var modifiedEntries = new List<FileEntry>();
+
+        await Task.Run(() =>
+        {
+            foreach (var path in coalesced.Added)
+            {
+                var info = _fileSystem.GetInfo(path);
+                if (info != null && info.Exists)
+                {
+                    bool isHidden = info.Attributes.HasFlag(FileAttributes.Hidden);
+                    bool isSystem = info.Attributes.HasFlag(FileAttributes.System);
+                    if (ShowHiddenFiles || (!isHidden && !isSystem))
+                    {
+                        addedEntries.Add(new FileEntry(Path.GetFileName(path), path, info.IsDirectory, info.Size, info.Modified, isHidden, isSystem));
+                    }
+                }
+            }
+
+            foreach (var path in coalesced.Modified)
+            {
+                var info = _fileSystem.GetInfo(path);
+                if (info != null && info.Exists)
+                {
+                    bool isHidden = info.Attributes.HasFlag(FileAttributes.Hidden);
+                    bool isSystem = info.Attributes.HasFlag(FileAttributes.System);
+                    modifiedEntries.Add(new FileEntry(Path.GetFileName(path), path, info.IsDirectory, info.Size, info.Modified, isHidden, isSystem));
+                }
+            }
+        });
+
+        RunOnUi(() =>
+        {
+            if (string.IsNullOrEmpty(CurrentPath) || IsLoading) return;
+
+            var selectedPaths = new HashSet<string>(SelectedItems.Select(i => i.FullPath), StringComparer.OrdinalIgnoreCase);
+            bool collectionModified = false;
+
+            // 1. Removals
+            foreach (var removedPath in coalesced.Removed)
+            {
+                FileItemViewModel? target;
+                lock (_itemsLock)
+                {
+                    target = _unfilteredItems.FirstOrDefault(i => string.Equals(i.FullPath, removedPath, StringComparison.OrdinalIgnoreCase));
+                    if (target != null)
+                    {
+                        _unfilteredItems.Remove(target);
+                    }
+                }
+                if (target != null)
+                {
+                    Items.Remove(target);
+                    selectedPaths.Remove(removedPath);
+                    collectionModified = true;
+                }
+            }
+
+            // 2. Renames
+            foreach (var (oldPath, newPath) in coalesced.Renamed)
+            {
+                FileItemViewModel? target;
+                lock (_itemsLock)
+                {
+                    target = _unfilteredItems.FirstOrDefault(i => string.Equals(i.FullPath, oldPath, StringComparison.OrdinalIgnoreCase));
+                }
+                if (target != null)
+                {
+                    if (target.IsRenaming) continue;
+
+                    var info = _fileSystem.GetInfo(newPath);
+                    if (info != null && info.Exists)
+                    {
+                        bool isHidden = info.Attributes.HasFlag(FileAttributes.Hidden);
+                        bool isSystem = info.Attributes.HasFlag(FileAttributes.System);
+                        if (!ShowHiddenFiles && (isHidden || isSystem))
+                        {
+                            lock (_itemsLock) { _unfilteredItems.Remove(target); }
+                            Items.Remove(target);
+                            selectedPaths.Remove(oldPath);
+                            collectionModified = true;
+                            continue;
+                        }
+
+                        var newEntry = new FileEntry(Path.GetFileName(newPath), newPath, info.IsDirectory, info.Size, info.Modified, isHidden, isSystem);
+                        target.UpdateEntry(newEntry);
+
+                        bool matchesFilter = string.IsNullOrWhiteSpace(FilterText) || NameMatcher.Matches(target.Name, FilterText);
+                        if (matchesFilter && !Items.Contains(target))
+                        {
+                            int insertIdx = FileEntrySorter.FindSortedIndex(Items, newEntry, vm => vm.Entry, CurrentSortColumn, IsSortAscending);
+                            Items.Insert(insertIdx, target);
+                        }
+                        else if (!matchesFilter && Items.Contains(target))
+                        {
+                            Items.Remove(target);
+                        }
+
+                        if (selectedPaths.Remove(oldPath))
+                        {
+                            selectedPaths.Add(newPath);
+                        }
+                        collectionModified = true;
+                    }
+                }
+            }
+
+            // 3. Modifications
+            foreach (var newEntry in modifiedEntries)
+            {
+                FileItemViewModel? target;
+                lock (_itemsLock)
+                {
+                    target = _unfilteredItems.FirstOrDefault(i => string.Equals(i.FullPath, newEntry.FullPath, StringComparison.OrdinalIgnoreCase));
+                }
+                if (target != null)
+                {
+                    target.UpdateEntry(newEntry);
+
+                    // Re-sort if sorted by Size or Modified and position shifted
+                    if (CurrentSortColumn == FileSortColumn.Size || CurrentSortColumn == FileSortColumn.Modified)
+                    {
+                        int currentIdx = Items.IndexOf(target);
+                        if (currentIdx >= 0)
+                        {
+                            Items.RemoveAt(currentIdx);
+                            int newIdx = FileEntrySorter.FindSortedIndex(Items, newEntry, vm => vm.Entry, CurrentSortColumn, IsSortAscending);
+                            Items.Insert(newIdx, target);
+                        }
+                    }
+                    collectionModified = true;
+                }
+            }
+
+            // 4. Additions
+            foreach (var newEntry in addedEntries)
+            {
+                bool alreadyPresent;
+                lock (_itemsLock)
+                {
+                    alreadyPresent = _unfilteredItems.Any(i => string.Equals(i.FullPath, newEntry.FullPath, StringComparison.OrdinalIgnoreCase));
+                }
+                if (alreadyPresent) continue;
+
+                var newVm = new FileItemViewModel(newEntry, _iconService, _loadCts?.Token ?? CancellationToken.None);
+                lock (_itemsLock)
+                {
+                    _unfilteredItems.Add(newVm);
+                }
+
+                bool matchesFilter = string.IsNullOrWhiteSpace(FilterText) || NameMatcher.Matches(newVm.Name, FilterText);
+                if (matchesFilter)
+                {
+                    int insertIdx = FileEntrySorter.FindSortedIndex(Items, newEntry, vm => vm.Entry, CurrentSortColumn, IsSortAscending);
+                    Items.Insert(insertIdx, newVm);
+                }
+                collectionModified = true;
+            }
+
+            if (collectionModified)
+            {
+                var restored = selectedPaths.Count > 0
+                    ? Items.Where(i => selectedPaths.Contains(i.FullPath)).ToList()
+                    : (IReadOnlyList<FileItemViewModel>)Array.Empty<FileItemViewModel>();
+                UpdateSelectedItems(restored);
+                OnPropertyChanged(nameof(SelectionStatusText));
+            }
+        });
+    }
+
+    private void OnWatchedFolderDeleted(object? sender, EventArgs e)
+    {
+        RunOnUi(HandleWatchedFolderDeleted);
+    }
+
+    private void HandleWatchedFolderDeleted()
+    {
+        string oldPath = CurrentPath;
+        string folderName = CurrentFolderName;
+
+        string? nearestParent = Path.GetDirectoryName(oldPath);
+        while (!string.IsNullOrEmpty(nearestParent) && !_fileSystem.DirectoryExists(nearestParent))
+        {
+            nearestParent = Path.GetDirectoryName(nearestParent);
+        }
+
+        if (string.IsNullOrEmpty(nearestParent) || !_fileSystem.DirectoryExists(nearestParent))
+        {
+            nearestParent = @"C:";
+        }
+
+        ShowToast($"Folder '{folderName}' was deleted or moved. Redirected to '{nearestParent}'.");
+        Navigate(nearestParent);
+    }
+
+    private void OnFolderWatcherError(object? sender, FolderWatcherErrorEventArgs e)
+    {
+        RunOnUi(() =>
+        {
+            if (!_fileSystem.DirectoryExists(CurrentPath))
+            {
+                HandleWatchedFolderDeleted();
+            }
+            else
+            {
+                _ = RefreshAsync();
+            }
+        });
+    }
+
+    public void BeginTransferScope() => Interlocked.Increment(ref _activeTransferCount);
+
+    public void EndTransferScope()
+    {
+        if (Interlocked.Decrement(ref _activeTransferCount) <= 0)
+        {
+            lock (_watcherLock)
+            {
+                if (_pendingWatcherEvents.Count > 0)
+                {
+                    _watcherDebounceTimer?.Change(TimeSpan.FromMilliseconds(50), Timeout.InfiniteTimeSpan);
+                }
+            }
+        }
+    }
+
+    public void Dispose()
+    {
+        _driveService.DrivesChanged -= OnDriveServiceDrivesChanged;
+        StopWatcher();
+        _watcherDebounceTimer?.Dispose();
+        _loadCts?.Cancel();
+        _loadCts?.Dispose();
+        _filterCts?.Cancel();
+        _filterCts?.Dispose();
+        _toastTimer?.Dispose();
+    }
+
+    #endregion
+
+
+    private void OnDriveServiceDrivesChanged(object? sender, EventArgs e)
+    {
+        if (SpecialMode == SpecialPaneMode.ThisPC)
+        {
+            RunOnUi(() => _ = RefreshAsync());
+        }
+    }
+
+    private async Task LoadThisPcViewAsync(NavigationPhaseType phaseType, CancellationToken ct, Func<bool> isCurrent)
+    {
+        RunOnUi(() =>
+        {
+            SpecialMode = SpecialPaneMode.ThisPC;
+            CurrentPath = "thispc://";
+            AddressText = "This PC";
+            ErrorMessage = null;
+            OnPropertyChanged(nameof(HasError));
+            IsLoading = true;
+            Drives.Clear();
+            SafeReplaceItems(Array.Empty<FileItemViewModel>());
+
+            switch (phaseType)
+            {
+                case NavigationPhaseType.New:
+                    _history.CommitNavigate("thispc://");
+                    break;
+                case NavigationPhaseType.Back:
+                    _history.CommitBack();
+                    break;
+                case NavigationPhaseType.Forward:
+                    _history.CommitForward();
+                    break;
+            }
+            UpdateHistoryCommandStates();
+            OnPropertyChanged(nameof(Breadcrumbs));
+            OnPropertyChanged(nameof(CurrentFolderName));
+            OnPropertyChanged(nameof(SelectionStatusText));
+        });
+
+        try
+        {
+            var driveList = await _driveService.GetDrivesAsync(ct).ConfigureAwait(false);
+            if (!isCurrent()) return;
+
+            var cards = driveList.Select(d => new DriveCardViewModel(
+                d,
+                onOpen: path => Navigate(path),
+                onEject: path => _ = EjectDriveAsync(path)
+            )).ToList();
+
+            foreach (var card in cards)
+            {
+                try
+                {
+                    var icon = await _iconService.GetIconAsync(card.Path, isDirectory: true, isDrive: true).ConfigureAwait(false);
+                    if (icon != null) card.Icon = icon;
+                }
+                catch { }
+            }
+
+            if (!isCurrent()) return;
+
+            RunOnUi(() =>
+            {
+                Drives.Clear();
+                foreach (var c in cards) Drives.Add(c);
+                IsLoading = false;
+                OnPropertyChanged(nameof(SelectionStatusText));
+            });
+        }
+        catch (Exception ex)
+        {
+            if (!isCurrent()) return;
+            RunOnUi(() =>
+            {
+                ErrorMessage = $"Không thể tải danh sách ổ đĩa: {ex.Message}";
+                IsLoading = false;
+                OnPropertyChanged(nameof(HasError));
+            });
+        }
+    }
+
+    private async Task LoadRecycleBinViewAsync(NavigationPhaseType phaseType, CancellationToken ct, Func<bool> isCurrent)
+    {
+        RunOnUi(() =>
+        {
+            SpecialMode = SpecialPaneMode.RecycleBin;
+            CurrentPath = "recyclebin://";
+            AddressText = "Recycle Bin";
+            ErrorMessage = null;
+            OnPropertyChanged(nameof(HasError));
+            IsLoading = true;
+            RecycleBinItems.Clear();
+            SafeReplaceItems(Array.Empty<FileItemViewModel>());
+
+            switch (phaseType)
+            {
+                case NavigationPhaseType.New:
+                    _history.CommitNavigate("recyclebin://");
+                    break;
+                case NavigationPhaseType.Back:
+                    _history.CommitBack();
+                    break;
+                case NavigationPhaseType.Forward:
+                    _history.CommitForward();
+                    break;
+            }
+            UpdateHistoryCommandStates();
+            OnPropertyChanged(nameof(Breadcrumbs));
+            OnPropertyChanged(nameof(CurrentFolderName));
+            OnPropertyChanged(nameof(SelectionStatusText));
+        });
+
+        try
+        {
+            var binItems = await _recycleBinService.GetItemsAsync(ct).ConfigureAwait(false);
+            if (!isCurrent()) return;
+
+            var itemVms = binItems.Select(item => new RecycleBinItemViewModel(
+                item,
+                onRestore: async id =>
+                {
+                    bool ok = await _recycleBinService.RestoreItemAsync(id, CancellationToken.None);
+                    if (ok) await RefreshAsync();
+                },
+                onDelete: async id =>
+                {
+                    bool ok = await _recycleBinService.PermanentlyDeleteItemAsync(id, CancellationToken.None);
+                    if (ok) await RefreshAsync();
+                }
+            )).ToList();
+
+            foreach (var vm in itemVms)
+            {
+                try
+                {
+                    var icon = await _iconService.GetIconAsync(vm.Name, isDirectory: vm.IsDirectory, isDrive: false).ConfigureAwait(false);
+                    if (icon != null) vm.Icon = icon;
+                }
+                catch { }
+            }
+
+            if (!isCurrent()) return;
+
+            RunOnUi(() =>
+            {
+                RecycleBinItems.Clear();
+                foreach (var vm in itemVms) RecycleBinItems.Add(vm);
+                IsLoading = false;
+                OnPropertyChanged(nameof(SelectionStatusText));
+            });
+        }
+        catch (Exception ex)
+        {
+            if (!isCurrent()) return;
+            RunOnUi(() =>
+            {
+                ErrorMessage = $"Không thể mở Thùng rác: {ex.Message}";
+                IsLoading = false;
+                OnPropertyChanged(nameof(HasError));
+            });
+        }
+    }
+
+    [RelayCommand]
+    public async Task EmptyRecycleBinAsync()
+    {
+        bool ok = await _recycleBinService.EmptyRecycleBinAsync(confirm: true);
+        if (ok) await RefreshAsync();
+    }
+
+    [RelayCommand]
+    public async Task EjectDriveAsync(string drivePath)
+    {
+        bool ok = await _driveService.EjectDriveAsync(drivePath);
+        if (ok) await RefreshAsync();
+    }
+
 }

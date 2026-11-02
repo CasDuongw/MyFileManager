@@ -36,6 +36,66 @@ public static class FileEntrySorter
         };
     }
 
+    public static int CompareEntries(FileEntry a, FileEntry b, FileSortColumn column, bool ascending)
+    {
+        if (ReferenceEquals(a, b)) return 0;
+        if (a is null) return -1;
+        if (b is null) return 1;
+
+        // Folders ALWAYS appear above files
+        if (a.IsDirectory != b.IsDirectory)
+        {
+            return a.IsDirectory ? -1 : 1;
+        }
+
+        if (column == FileSortColumn.Name)
+        {
+            int nameCmp = StringComparer.OrdinalIgnoreCase.Compare(a.Name, b.Name);
+            return ascending ? nameCmp : -nameCmp;
+        }
+
+        int cmp = column switch
+        {
+            FileSortColumn.Size => a.Size.CompareTo(b.Size),
+            FileSortColumn.Modified => a.Modified.CompareTo(b.Modified),
+            FileSortColumn.Type => StringComparer.OrdinalIgnoreCase.Compare(GetTypeKey(a), GetTypeKey(b)),
+            _ => 0
+        };
+
+        if (cmp != 0)
+        {
+            return ascending ? cmp : -cmp;
+        }
+
+        // Secondary tie-breaker: Name ascending (matches OrderEntries)
+        return StringComparer.OrdinalIgnoreCase.Compare(a.Name, b.Name);
+    }
+
+    public static int FindSortedIndex<T>(IReadOnlyList<T> items, FileEntry entry, Func<T, FileEntry> entrySelector, FileSortColumn column, bool ascending)
+    {
+        if (items == null || items.Count == 0) return 0;
+
+        int low = 0;
+        int high = items.Count - 1;
+
+        while (low <= high)
+        {
+            int mid = low + ((high - low) >> 1);
+            int cmp = CompareEntries(entry, entrySelector(items[mid]), column, ascending);
+
+            if (cmp <= 0)
+            {
+                high = mid - 1;
+            }
+            else
+            {
+                low = mid + 1;
+            }
+        }
+
+        return low;
+    }
+
     private static string GetTypeKey(FileEntry entry)
     {
         if (entry.IsDirectory) return string.Empty;
