@@ -269,6 +269,7 @@ public partial class App : Application
         services.AddSingleton<FM.Core.Search.ISearchService, FM.Core.Search.SearchService>();
         services.AddSingleton<FM.Core.ShellIntegration.IShellNewService, WindowsShellNewService>();
         services.AddSingleton<FM.Core.ShellIntegration.ISendToService, WindowsSendToService>();
+        services.AddSingleton<FM.Core.Operations.MultiRename.IMultiRenameDialogService, WindowsMultiRenameDialogService>();
 
         // 3. ViewModels
         services.AddSingleton<TransferDrawerViewModel>();

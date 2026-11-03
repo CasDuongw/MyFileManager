@@ -2,6 +2,7 @@ using FM.Core.ShellIntegration;
 using FM.Core.Drives;
 using FM.Core.RecycleBin;
 using FM.Core.PathResolution;
+using FM.Core.Operations.MultiRename;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
@@ -57,6 +58,7 @@ public partial class FilePaneViewModel : ObservableObject, IDisposable
     private readonly ISearchService _searchService;
     private readonly IShellNewService _shellNewService;
     private readonly ISendToService _sendToService;
+    private readonly IMultiRenameDialogService _multiRenameDialogService;
     private readonly ISettingsService? _settingsService;
     private readonly ITransferQueue? _transferQueue;
     private CancellationTokenSource? _searchCts;
@@ -547,6 +549,7 @@ public partial class FilePaneViewModel : ObservableObject, IDisposable
         ISearchService? searchService = null,
         IShellNewService? shellNewService = null,
         ISendToService? sendToService = null,
+        IMultiRenameDialogService? multiRenameDialogService = null,
         ISettingsService? settingsService = null,
         ITransferQueue? transferQueue = null)
     {
@@ -564,6 +567,7 @@ public partial class FilePaneViewModel : ObservableObject, IDisposable
         _searchService = searchService ?? new SearchService(_fileSystem);
         _shellNewService = shellNewService ?? new WindowsShellNewService();
         _sendToService = sendToService ?? new WindowsSendToService();
+        _multiRenameDialogService = multiRenameDialogService ?? new WindowsMultiRenameDialogService();
         _settingsService = settingsService;
         _transferQueue = transferQueue;
         _driveService.DrivesChanged += OnDriveServiceDrivesChanged;
@@ -784,6 +788,13 @@ public partial class FilePaneViewModel : ObservableObject, IDisposable
     {
         if (SelectedItem == null) return;
 
+        // If multiple items are selected, delegate to MultiRename
+        if (SelectedItems.Count > 1)
+        {
+            await MultiRenameAsync();
+            return;
+        }
+
         var target = SelectedItem;
         string currentName = target.Name;
         int? selLen = !target.IsDirectory ? Path.GetFileNameWithoutExtension(currentName).Length : null;
@@ -817,6 +828,39 @@ public partial class FilePaneViewModel : ObservableObject, IDisposable
                 UpdateSelectedItems(new[] { match });
             }
         }
+    }
+
+    [RelayCommand]
+    public async Task MultiRenameAsync()
+    {
+        var targets = SelectedItems.ToList();
+        if (targets.Count == 0 && SelectedItem != null)
+        {
+            targets.Add(SelectedItem);
+        }
+        if (targets.Count == 0) return;
+
+        var inputs = targets.Select(t => new MultiRenameItemInput(
+            FullPath: t.FullPath,
+            Name: t.Name,
+            IsDirectory: t.IsDirectory,
+            DateModified: t.Modified)).ToList();
+
+        bool dialogSuccess = await _multiRenameDialogService.ShowDialogAsync(
+            inputs,
+            _fileSystem,
+            async (plan) =>
+            {
+                var op = new MultiRenameOperation(_fileSystem, plan);
+                var result = await op.DoAsync();
+                if (result.Success)
+                {
+                    UndoStack.Push(op);
+                    ShowToast($"Batch renamed {op.ChangedItems.Count} item(s)");
+                    await RefreshAsync();
+                }
+                return result;
+            });
     }
 
     public bool CanUndo => UndoStack.CanUndo && !IsLoading;

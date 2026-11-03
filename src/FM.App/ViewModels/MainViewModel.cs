@@ -2,6 +2,7 @@ using FM.Core.CommandLine;
 using FM.Core.Drives;
 using FM.Core.RecycleBin;
 using FM.Core.PathResolution;
+using FM.Core.Operations.MultiRename;
 using System.Collections.ObjectModel;
 
 using System.IO;
@@ -61,6 +62,7 @@ public partial class MainViewModel : ObservableObject
     private readonly IRecycleBinService _recycleBinService;
     private readonly IPathResolver _pathResolver;
     private readonly FM.Core.Search.ISearchService _searchService;
+    private readonly IMultiRenameDialogService _multiRenameDialogService;
 
     private readonly ITransferQueue _transferQueue;
 
@@ -244,7 +246,8 @@ public partial class MainViewModel : ObservableObject
         IDriveService? driveService = null,
         IRecycleBinService? recycleBinService = null,
         IPathResolver? pathResolver = null,
-        FM.Core.Search.ISearchService? searchService = null)
+        FM.Core.Search.ISearchService? searchService = null,
+        IMultiRenameDialogService? multiRenameDialogService = null)
 
     {
 
@@ -279,6 +282,7 @@ public partial class MainViewModel : ObservableObject
         _recycleBinService = recycleBinService ?? (_fileSystem is InMemoryFileSystem ? new FakeRecycleBinService() : WindowsRecycleBinService.Instance);
         _pathResolver = pathResolver ?? PathResolver.Instance;
         _searchService = searchService ?? new FM.Core.Search.SearchService(_fileSystem);
+        _multiRenameDialogService = multiRenameDialogService ?? new WindowsMultiRenameDialogService();
 
         _driveService.DrivesChanged += (s, e) =>
         {
@@ -349,6 +353,7 @@ public partial class MainViewModel : ObservableObject
         pathResolver: _pathResolver,
         searchService: _searchService,
         settingsService: _settingsService,
+        multiRenameDialogService: _multiRenameDialogService,
         transferQueue: _transferQueue);
 
         pane.GetOpenPanePaths = () => Panes

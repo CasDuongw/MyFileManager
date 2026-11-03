@@ -1,0 +1,228 @@
+<Window x:Class="FM.App.Views.MultiRenameDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:vm="clr-namespace:FM.App.ViewModels"
+        xmlns:core="clr-namespace:FM.Core.Operations.MultiRename;assembly=FM.Core"
+        mc:Ignorable="d"
+        d:DataContext="{d:DesignInstance Type=vm:MultiRenameViewModel}"
+        Title="Batch Rename"
+        Width="820" Height="620"
+        MinWidth="680" MinHeight="480"
+        WindowStartupLocation="CenterOwner"
+        ShowInTaskbar="False"
+        Background="#F9FAFB"
+        FontFamily="Segoe UI Variable, Segoe UI, sans-serif"
+        TextOptions.TextFormattingMode="Display">
+
+    <Grid Margin="18">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" /> <!-- Header -->
+            <RowDefinition Height="Auto" /> <!-- Pattern & Quick Tokens -->
+            <RowDefinition Height="Auto" /> <!-- Options (Case, Counter, Find/Replace) -->
+            <RowDefinition Height="*" />    <!-- Preview List -->
+            <RowDefinition Height="Auto" /> <!-- Footer & Actions -->
+        </Grid.RowDefinitions>
+
+        <!-- 1. Header -->
+        <StackPanel Grid.Row="0" Margin="0,0,0,12">
+            <TextBlock Text="Batch Rename"
+                       FontSize="18" FontWeight="SemiBold"
+                       Foreground="#111827" />
+            <TextBlock FontSize="12.5" Foreground="#6B7280" Margin="0,3,0,0">
+                <Run Text="{Binding TotalItemCount, Mode=OneWay}" />
+                <Run Text="item(s) selected in " />
+                <Run Text="{Binding TargetDirectory, Mode=OneWay}" FontWeight="Medium" Foreground="#374151" />
+            </TextBlock>
+        </StackPanel>
+
+        <!-- 2. Pattern Input & Quick Tokens -->
+        <Border Grid.Row="1" Background="White" BorderBrush="#E5E7EB" BorderThickness="1" CornerRadius="6" Padding="12" Margin="0,0,0,10">
+            <StackPanel>
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Text="Pattern Template:" VerticalAlignment="Center" FontWeight="Medium" Margin="0,0,10,0" FontSize="13" />
+                    <TextBox Grid.Column="1"
+                             Text="{Binding Pattern, UpdateSourceTrigger=PropertyChanged}"
+                             FontSize="13.5" FontFamily="Consolas, Segoe UI"
+                             Padding="6,4"
+                             BorderBrush="#D1D5DB" />
+                </Grid>
+
+                <!-- Quick Token Buttons -->
+                <WrapPanel Orientation="Horizontal" Margin="0,8,0,0">
+                    <TextBlock Text="Insert Token:" VerticalAlignment="Center" Foreground="#6B7280" FontSize="12" Margin="0,0,8,0" />
+                    <Button Content="[N] Name" Command="{Binding InsertTokenCommand}" CommandParameter="[N]"
+                            Padding="8,3" Margin="0,0,6,0" FontSize="11.5" Cursor="Hand" />
+                    <Button Content="[E] Ext" Command="{Binding InsertTokenCommand}" CommandParameter="[E]"
+                            Padding="8,3" Margin="0,0,6,0" FontSize="11.5" Cursor="Hand" />
+                    <Button Content="[C:001] Counter" Command="{Binding InsertTokenCommand}" CommandParameter="[C:001]"
+                            Padding="8,3" Margin="0,0,6,0" FontSize="11.5" Cursor="Hand" />
+                    <Button Content="[D:yyyyMMdd] Date" Command="{Binding InsertTokenCommand}" CommandParameter="[D:yyyyMMdd]"
+                            Padding="8,3" Margin="0,0,6,0" FontSize="11.5" Cursor="Hand" />
+                    <Button Content="[N1-3] Substring" Command="{Binding InsertTokenCommand}" CommandParameter="[N1-3]"
+                            Padding="8,3" Margin="0,0,6,0" FontSize="11.5" Cursor="Hand" />
+                </WrapPanel>
+            </StackPanel>
+        </Border>
+
+        <!-- 3. Options (Case, Counter, Find/Replace) -->
+        <Border Grid.Row="2" Background="White" BorderBrush="#E5E7EB" BorderThickness="1" CornerRadius="6" Padding="12" Margin="0,0,0,10">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="220" />
+                    <ColumnDefinition Width="12" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+
+                <!-- Left: Extension case & Counter -->
+                <StackPanel Grid.Column="0">
+                    <TextBlock Text="Extension Case:" FontWeight="Medium" FontSize="12" Margin="0,0,0,4" />
+                    <ComboBox SelectedValue="{Binding ExtCase}" SelectedValuePath="Tag" Height="26" Margin="0,0,0,8">
+                        <ComboBoxItem Content="Keep original" Tag="{x:Static core:ExtensionCase.Keep}" IsSelected="True" />
+                        <ComboBoxItem Content="lowercase (.txt)" Tag="{x:Static core:ExtensionCase.Lower}" />
+                        <ComboBoxItem Content="UPPERCASE (.TXT)" Tag="{x:Static core:ExtensionCase.Upper}" />
+                        <ComboBoxItem Content="Title Case (.Txt)" Tag="{x:Static core:ExtensionCase.Title}" />
+                    </ComboBox>
+
+                    <Grid Margin="0,2,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="6" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="6" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Grid.Column="0">
+                            <TextBlock Text="Start" FontSize="11" Foreground="#6B7280" />
+                            <TextBox Text="{Binding CounterStart, UpdateSourceTrigger=PropertyChanged}" Height="24" Padding="3,1" />
+                        </StackPanel>
+                        <StackPanel Grid.Column="2">
+                            <TextBlock Text="Step" FontSize="11" Foreground="#6B7280" />
+                            <TextBox Text="{Binding CounterStep, UpdateSourceTrigger=PropertyChanged}" Height="24" Padding="3,1" />
+                        </StackPanel>
+                        <StackPanel Grid.Column="4">
+                            <TextBlock Text="Digits" FontSize="11" Foreground="#6B7280" />
+                            <TextBox Text="{Binding CounterPadding, UpdateSourceTrigger=PropertyChanged}" Height="24" Padding="3,1" />
+                        </StackPanel>
+                    </Grid>
+                </StackPanel>
+
+                <!-- Right: Find & Replace -->
+                <StackPanel Grid.Column="2">
+                    <TextBlock Text="Find &amp; Replace:" FontWeight="Medium" FontSize="12" Margin="0,0,0,4" />
+                    <Grid Margin="0,0,0,6">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="Find:" VerticalAlignment="Center" Margin="0,0,6,0" FontSize="11.5" Foreground="#4B5563" />
+                        <TextBox Grid.Column="1" Text="{Binding FindText, UpdateSourceTrigger=PropertyChanged}" Height="24" Padding="4,1" Margin="0,0,10,0" />
+
+                        <TextBlock Grid.Column="2" Text="Replace:" VerticalAlignment="Center" Margin="0,0,6,0" FontSize="11.5" Foreground="#4B5563" />
+                        <TextBox Grid.Column="3" Text="{Binding ReplaceText, UpdateSourceTrigger=PropertyChanged}" Height="24" Padding="4,1" />
+                    </Grid>
+
+                    <StackPanel Orientation="Horizontal" Margin="0,2,0,0">
+                        <CheckBox Content="Match case" IsChecked="{Binding MatchCase}" Margin="0,0,16,0" FontSize="11.5" />
+                        <CheckBox Content="Use Regular Expressions" IsChecked="{Binding UseRegex}" FontSize="11.5" />
+                    </StackPanel>
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <!-- 4. Preview Table -->
+        <Border Grid.Row="3" Background="White" BorderBrush="#E5E7EB" BorderThickness="1" CornerRadius="6" Margin="0,0,0,12">
+            <ListView ItemsSource="{Binding Rows}"
+                      BorderThickness="0"
+                      Background="Transparent"
+                      ScrollViewer.VerticalScrollBarVisibility="Auto">
+                <ListView.View>
+                    <GridView>
+                        <GridViewColumn Header="Original Name" Width="240">
+                            <GridViewColumn.CellTemplate>
+                                <DataTemplate>
+                                    <TextBlock Text="{Binding OriginalName}" FontSize="12.5" TextTrimming="CharacterEllipsis" />
+                                </DataTemplate>
+                            </GridViewColumn.CellTemplate>
+                        </GridViewColumn>
+
+                        <GridViewColumn Header="" Width="30">
+                            <GridViewColumn.CellTemplate>
+                                <DataTemplate>
+                                    <TextBlock Text="→" Foreground="#9CA3AF" FontWeight="Bold" HorizontalAlignment="Center" />
+                                </DataTemplate>
+                            </GridViewColumn.CellTemplate>
+                        </GridViewColumn>
+
+                        <GridViewColumn Header="New Name" Width="250">
+                            <GridViewColumn.CellTemplate>
+                                <DataTemplate>
+                                    <TextBlock Text="{Binding NewName}" FontSize="12.5" FontWeight="Medium" Foreground="#111827" TextTrimming="CharacterEllipsis" />
+                                </DataTemplate>
+                            </GridViewColumn.CellTemplate>
+                        </GridViewColumn>
+
+                        <GridViewColumn Header="Status" Width="110">
+                            <GridViewColumn.CellTemplate>
+                                <DataTemplate>
+                                    <Border Background="#F3F4F6" CornerRadius="4" Padding="6,2" HorizontalAlignment="Left">
+                                        <TextBlock Text="{Binding StatusText}" Foreground="{Binding StatusColor}" FontWeight="SemiBold" FontSize="11" />
+                                    </Border>
+                                </DataTemplate>
+                            </GridViewColumn.CellTemplate>
+                        </GridViewColumn>
+
+                        <GridViewColumn Header="Details" Width="140">
+                            <GridViewColumn.CellTemplate>
+                                <DataTemplate>
+                                    <TextBlock Text="{Binding ErrorMessage}" Foreground="#DC2626" FontSize="11.5" TextTrimming="CharacterEllipsis" />
+                                </DataTemplate>
+                            </GridViewColumn.CellTemplate>
+                        </GridViewColumn>
+                    </GridView>
+                </ListView.View>
+            </ListView>
+        </Border>
+
+        <!-- 5. Footer Summary & Action Buttons -->
+        <Grid Grid.Row="4">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+
+            <!-- Status Summary -->
+            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                <TextBlock Text="{Binding StatusSummary}"
+                           FontSize="12.5" FontWeight="Medium"
+                           Foreground="#374151"
+                           VerticalAlignment="Center" />
+            </StackPanel>
+
+            <!-- Buttons -->
+            <StackPanel Grid.Column="1" Orientation="Horizontal">
+                <Button Content="Rename"
+                        Command="{Binding RenameCommand}"
+                        IsEnabled="{Binding CanExecute}"
+                        IsDefault="True"
+                        Padding="18,6" Margin="0,0,8,0"
+                        Background="#0078D4" Foreground="White" BorderThickness="0"
+                        FontWeight="SemiBold" FontSize="12.5" Cursor="Hand" />
+
+                <Button Content="Cancel"
+                        Command="{Binding CancelCommand}"
+                        IsCancel="True"
+                        Padding="14,6"
+                        FontSize="12.5" Cursor="Hand" />
+            </StackPanel>
+        </Grid>
+    </Grid>
+</Window>
+

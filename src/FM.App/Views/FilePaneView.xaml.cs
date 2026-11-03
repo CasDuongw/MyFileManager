@@ -316,6 +316,15 @@ public partial class FilePaneView : UserControl
             ViewModel?.RenameCommand.Execute(null);
             e.Handled = true;
         }
+        else if (e.Key == Key.M && (Keyboard.Modifiers & ModifierKeys.Control) == ModifierKeys.Control && !Keyboard.Modifiers.HasFlag(ModifierKeys.Shift))
+        {
+            var focused = Keyboard.FocusedElement as DependencyObject;
+            if (focused is not TextBox && focused?.FindVisualAncestor<TextBox>() == null)
+            {
+                ViewModel?.MultiRenameCommand.Execute(null);
+                e.Handled = true;
+            }
+        }
         else if (e.Key == Key.F5)
         {
             ViewModel?.RefreshCommand.Execute(null);

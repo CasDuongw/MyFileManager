@@ -139,7 +139,7 @@ public class WindowsSendToService : ISendToService
     [Guid("000214F9-0000-0000-C000-000000000046")]
     private interface IShellLinkW
     {
-        void GetPath([Out, MarshalAs(UnmanagedType.LPWStr)] StringBuilder pszFile, int cchMaxPath, out IntPtr pfd, uint fFlags);
+        void GetPath([Out, MarshalAs(UnmanagedType.LPWStr)] StringBuilder pszFile, int cchMaxPath, IntPtr pfd, uint fFlags);
         void GetIDList(out IntPtr ppidl);
         void SetIDList(IntPtr pidl);
         void GetDescription([Out, MarshalAs(UnmanagedType.LPWStr)] StringBuilder pszName, int cchMaxName);
@@ -175,9 +175,10 @@ public class WindowsSendToService : ISendToService
     public static void CreateShortcutFile(string targetPath, string shortcutPath, string? workingDir = null, string? description = null)
     {
         if (!OperatingSystem.IsWindows()) return;
+        IShellLinkW? link = null;
         try
         {
-            var link = (IShellLinkW)new ShellLink();
+            link = (IShellLinkW)new ShellLink();
             link.SetPath(targetPath);
             if (!string.IsNullOrEmpty(workingDir)) link.SetWorkingDirectory(workingDir);
             else if (File.Exists(targetPath)) link.SetWorkingDirectory(Path.GetDirectoryName(targetPath) ?? "");
@@ -186,23 +187,39 @@ public class WindowsSendToService : ISendToService
             file.Save(shortcutPath, false);
         }
         catch { }
+        finally
+        {
+            if (link != null)
+            {
+                try { Marshal.FinalReleaseComObject(link); } catch { }
+            }
+        }
     }
 
     private static string? ResolveShortcutTarget(string shortcutPath)
     {
         if (!OperatingSystem.IsWindows() || !File.Exists(shortcutPath)) return null;
+        IShellLinkW? link = null;
         try
         {
-            var link = (IShellLinkW)new ShellLink();
+            link = (IShellLinkW)new ShellLink();
             var file = (IPersistFile)link;
             file.Load(shortcutPath, 0);
-            var sb = new StringBuilder(260);
-            link.GetPath(sb, sb.Capacity, out _, 0);
-            return sb.ToString();
+            var sb = new StringBuilder(1024);
+            link.GetPath(sb, sb.Capacity, IntPtr.Zero, 0);
+            string result = sb.ToString();
+            return string.IsNullOrWhiteSpace(result) ? null : result;
         }
         catch
         {
             return null;
+        }
+        finally
+        {
+            if (link != null)
+            {
+                try { Marshal.FinalReleaseComObject(link); } catch { }
+            }
         }
     }
 }

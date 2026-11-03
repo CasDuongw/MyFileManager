@@ -496,6 +496,13 @@
                       Command="{Binding CreateShortcutForSelectedCommand}"
                       Style="{StaticResource ModernMenuItemStyle}" />
 
+            <!-- Batch rename -->
+            <MenuItem Header="Batch rename..."
+                      InputGestureText="Ctrl+M"
+                      Icon="🏷"
+                      Command="{Binding MultiRenameCommand}"
+                      Style="{StaticResource ModernMenuItemStyle}" />
+
             <!-- Send to Submenu -->
             <MenuItem Header="Send to"
                       Icon="📤"

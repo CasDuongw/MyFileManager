@@ -150,6 +150,15 @@ public class CommandCatalog : ICommandCatalog
             },
             new()
             {
+                Id = "edit.batch-rename",
+                Title = "Batch Rename...",
+                Category = "Edit",
+                ShortcutText = "Ctrl+M",
+                CanExecute = () => pane != null && (pane.SelectedItems.Count > 0 || pane.SelectedItem != null),
+                Execute = () => pane?.MultiRenameCommand.Execute(null)
+            },
+            new()
+            {
                 Id = "file.copy-path-full",
                 Title = "Copy Full Path",
                 Category = "File",
