@@ -17,6 +17,7 @@ using FM.App.Models;
 using FM.App.Services;
 using FM.Core.FileSystem;
 using FM.Core.Helpers;
+using FM.Core.Elevation;
 using FM.Core.Models;
 using FM.Core.Navigation;
 using FM.Core.Operations;
@@ -62,6 +63,7 @@ public partial class FilePaneViewModel : ObservableObject, IDisposable
     private readonly IMultiRenameDialogService _multiRenameDialogService;
     private readonly ISettingsService? _settingsService;
     private readonly ITransferQueue? _transferQueue;
+    private readonly IElevationService _elevationService;
     private CancellationTokenSource? _searchCts;
     private CancellationTokenSource? _searchDebounceCts;
     private List<FileItemViewModel>? _savedFolderItems;
@@ -590,7 +592,8 @@ public partial class FilePaneViewModel : ObservableObject, IDisposable
         ISendToService? sendToService = null,
         IMultiRenameDialogService? multiRenameDialogService = null,
         ISettingsService? settingsService = null,
-        ITransferQueue? transferQueue = null)
+        ITransferQueue? transferQueue = null,
+        IElevationService? elevationService = null)
     {
         _directoryService = directoryService;
         _iconService = iconService;
@@ -609,6 +612,7 @@ public partial class FilePaneViewModel : ObservableObject, IDisposable
         _multiRenameDialogService = multiRenameDialogService ?? new WindowsMultiRenameDialogService();
         _settingsService = settingsService;
         _transferQueue = transferQueue;
+        _elevationService = elevationService ?? (_fileSystem is InMemoryFileSystem ? new FM.App.Services.Elevation.FakeElevationService() : new FM.App.Services.Elevation.WindowsElevationService());
         _driveService.DrivesChanged += OnDriveServiceDrivesChanged;
 
         UndoStack.CanUndoChanged += () =>
@@ -810,6 +814,22 @@ public partial class FilePaneViewModel : ObservableObject, IDisposable
 
         if (!result.Success)
         {
+            if (IsAccessDenied(result.ErrorMessage) && _elevationService.CanElevate &&
+                _inputDialogService.Confirm("Administrator Permission", $"Quyền truy cập bị từ chối khi tạo thư mục trong '{CurrentPath}'.\nBạn có muốn thử lại với quyền Quản trị viên (Administrator) không?"))
+            {
+                string targetDir = Path.Combine(CurrentPath, inputName.Trim());
+                var payload = new ElevationPayload(Guid.NewGuid().ToString("N"), [new ElevationItem(ElevationKind.CreateFolder, targetDir)]);
+                var elevatedRes = await _elevationService.ExecuteElevatedAsync(payload);
+                if (elevatedRes.AllSucceeded)
+                {
+                    ShowToast($"Created folder '{inputName.Trim()}' (Administrator)");
+                    await RefreshAsync();
+                    return;
+                }
+                ErrorMessage = elevatedRes.GlobalErrorMessage ?? elevatedRes.Results.FirstOrDefault()?.ErrorMessage ?? "Elevation failed";
+                return;
+            }
+
             ErrorMessage = result.ErrorMessage;
             return;
         }
@@ -859,6 +879,22 @@ public partial class FilePaneViewModel : ObservableObject, IDisposable
 
         if (!result.Success)
         {
+            if (IsAccessDenied(result.ErrorMessage) && _elevationService.CanElevate &&
+                _inputDialogService.Confirm("Administrator Permission", $"Quyền truy cập bị từ chối khi đổi tên '{target.Name}'.\nBạn có muốn thử lại với quyền Quản trị viên (Administrator) không?"))
+            {
+                string destPath = Path.Combine(Path.GetDirectoryName(target.FullPath) ?? "", newName.Trim());
+                var payload = new ElevationPayload(Guid.NewGuid().ToString("N"), [new ElevationItem(ElevationKind.Rename, target.FullPath, destPath)]);
+                var elevatedRes = await _elevationService.ExecuteElevatedAsync(payload);
+                if (elevatedRes.AllSucceeded)
+                {
+                    ShowToast($"Renamed to '{newName.Trim()}' (Administrator)");
+                    await RefreshAsync();
+                    return;
+                }
+                ErrorMessage = elevatedRes.GlobalErrorMessage ?? elevatedRes.Results.FirstOrDefault()?.ErrorMessage ?? "Elevation failed";
+                return;
+            }
+
             ErrorMessage = result.ErrorMessage;
             return;
         }
@@ -1536,6 +1572,8 @@ public partial class FilePaneViewModel : ObservableObject, IDisposable
     private async Task DeletePermanentlyCoreAsync(IReadOnlyList<string> paths)
     {
         int deleted = 0;
+        var accessDeniedPaths = new List<string>();
+
         foreach (var path in paths)
         {
             try
@@ -1561,9 +1599,41 @@ public partial class FilePaneViewModel : ObservableObject, IDisposable
                     deleted++;
                 }
             }
+            catch (UnauthorizedAccessException)
+            {
+                accessDeniedPaths.Add(path);
+            }
             catch (Exception ex)
             {
-                ErrorMessage = $"Could not delete '{Path.GetFileName(path)}': {ex.Message}";
+                if (IsAccessDenied(ex.Message))
+                {
+                    accessDeniedPaths.Add(path);
+                }
+                else
+                {
+                    ErrorMessage = $"Could not delete '{Path.GetFileName(path)}': {ex.Message}";
+                }
+            }
+        }
+
+        if (accessDeniedPaths.Count > 0 && _elevationService.CanElevate &&
+            _inputDialogService.Confirm("Administrator Permission", $"Quyền truy cập bị từ chối khi xóa {accessDeniedPaths.Count} mục.\nBạn có muốn thử lại với quyền Quản trị viên (Administrator) không?"))
+        {
+            var payload = new ElevationPayload(Guid.NewGuid().ToString("N"),
+                accessDeniedPaths.Select(p => new ElevationItem(ElevationKind.Delete, p)).ToList());
+            var elevatedRes = await _elevationService.ExecuteElevatedAsync(payload);
+            if (elevatedRes.AllSucceeded)
+            {
+                deleted += accessDeniedPaths.Count;
+                ShowToast($"Permanently deleted {deleted} item(s) (Administrator)");
+                await RefreshAsync();
+                return;
+            }
+            else
+            {
+                int elevatedSuccess = elevatedRes.Results.Count(r => r.Success);
+                deleted += elevatedSuccess;
+                ErrorMessage = elevatedRes.GlobalErrorMessage ?? elevatedRes.Results.FirstOrDefault(r => !r.Success)?.ErrorMessage ?? "Elevation failed";
             }
         }
 
@@ -1571,15 +1641,49 @@ public partial class FilePaneViewModel : ObservableObject, IDisposable
         await RefreshAsync();
     }
 
+    private static bool IsAccessDenied(string? message)
+    {
+        if (string.IsNullOrEmpty(message)) return false;
+        return message.Contains("Access", StringComparison.OrdinalIgnoreCase) ||
+               message.Contains("denied", StringComparison.OrdinalIgnoreCase) ||
+               message.Contains("từ chối", StringComparison.OrdinalIgnoreCase) ||
+               message.Contains("Unauthorized", StringComparison.OrdinalIgnoreCase);
+    }
+
     [RelayCommand]
     public async Task NewTextDocumentAsync()
     {
         if (string.IsNullOrEmpty(CurrentPath)) return;
-        var template = new ShellNewTemplate(".txt", "Text Document", ShellNewKind.NullFile);
-        string createdPath = await _shellNewService.CreateFileFromTemplateAsync(template, CurrentPath, _fileSystem);
-        ShowToast($"Created '{Path.GetFileName(createdPath)}'");
-        await RefreshAsync();
-        SelectAndFocusItem(createdPath);
+        try
+        {
+            var template = new ShellNewTemplate(".txt", "Text Document", ShellNewKind.NullFile);
+            string createdPath = await _shellNewService.CreateFileFromTemplateAsync(template, CurrentPath, _fileSystem);
+            ShowToast($"Created '{Path.GetFileName(createdPath)}'");
+            await RefreshAsync();
+            SelectAndFocusItem(createdPath);
+        }
+        catch (Exception ex) when (IsAccessDenied(ex.Message))
+        {
+            if (_elevationService.CanElevate &&
+                _inputDialogService.Confirm("Administrator Permission", $"Quyền truy cập bị từ chối khi tạo tệp trong '{CurrentPath}'.\nBạn có muốn thử lại với quyền Quản trị viên (Administrator) không?"))
+            {
+                string targetPath = Path.Combine(CurrentPath, "New Text Document.txt");
+                var payload = new ElevationPayload(Guid.NewGuid().ToString("N"), [new ElevationItem(ElevationKind.CreateFile, targetPath)]);
+                var elevatedRes = await _elevationService.ExecuteElevatedAsync(payload);
+                if (elevatedRes.AllSucceeded)
+                {
+                    ShowToast("Created 'New Text Document.txt' (Administrator)");
+                    await RefreshAsync();
+                    SelectAndFocusItem(targetPath);
+                    return;
+                }
+                ErrorMessage = elevatedRes.GlobalErrorMessage ?? elevatedRes.Results.FirstOrDefault()?.ErrorMessage ?? "Elevation failed";
+            }
+            else
+            {
+                ErrorMessage = ex.Message;
+            }
+        }
     }
 
     [RelayCommand]

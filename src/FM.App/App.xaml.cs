@@ -270,6 +270,7 @@ public partial class App : Application
         services.AddSingleton<FM.Core.ShellIntegration.IShellNewService, WindowsShellNewService>();
         services.AddSingleton<FM.Core.ShellIntegration.ISendToService, WindowsSendToService>();
         services.AddSingleton<FM.Core.Operations.MultiRename.IMultiRenameDialogService, WindowsMultiRenameDialogService>();
+        services.AddSingleton<FM.Core.Elevation.IElevationService, FM.App.Services.Elevation.WindowsElevationService>();
 
         // 3. ViewModels
         services.AddSingleton<TransferDrawerViewModel>();

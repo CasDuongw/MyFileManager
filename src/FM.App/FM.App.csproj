@@ -2,6 +2,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\FM.Core\FM.Core.csproj" />
+    <ProjectReference Include="..\FM.Elevated\FM.Elevated.csproj" ReferenceOutputAssembly="false" OutputItemType="Content" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>

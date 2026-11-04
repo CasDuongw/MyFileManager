@@ -64,6 +64,7 @@ public partial class MainViewModel : ObservableObject
     private readonly IPathResolver _pathResolver;
     private readonly FM.Core.Search.ISearchService _searchService;
     private readonly IMultiRenameDialogService _multiRenameDialogService;
+    private readonly FM.Core.Elevation.IElevationService _elevationService;
 
     private readonly ITransferQueue _transferQueue;
 
@@ -248,7 +249,8 @@ public partial class MainViewModel : ObservableObject
         IRecycleBinService? recycleBinService = null,
         IPathResolver? pathResolver = null,
         FM.Core.Search.ISearchService? searchService = null,
-        IMultiRenameDialogService? multiRenameDialogService = null)
+        IMultiRenameDialogService? multiRenameDialogService = null,
+        FM.Core.Elevation.IElevationService? elevationService = null)
 
     {
 
@@ -284,6 +286,7 @@ public partial class MainViewModel : ObservableObject
         _pathResolver = pathResolver ?? PathResolver.Instance;
         _searchService = searchService ?? new FM.Core.Search.SearchService(_fileSystem);
         _multiRenameDialogService = multiRenameDialogService ?? new WindowsMultiRenameDialogService();
+        _elevationService = elevationService ?? (_fileSystem is InMemoryFileSystem ? new FM.App.Services.Elevation.FakeElevationService() : new FM.App.Services.Elevation.WindowsElevationService());
 
         _driveService.DrivesChanged += (s, e) =>
         {
@@ -355,7 +358,8 @@ public partial class MainViewModel : ObservableObject
         searchService: _searchService,
         settingsService: _settingsService,
         multiRenameDialogService: _multiRenameDialogService,
-        transferQueue: _transferQueue);
+        transferQueue: _transferQueue,
+        elevationService: _elevationService);
 
         pane.GetOpenPanePaths = () => Panes
             .Select(p => p.CurrentPath)
