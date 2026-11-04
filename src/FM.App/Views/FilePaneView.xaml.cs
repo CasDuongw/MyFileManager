@@ -916,20 +916,7 @@ public partial class FilePaneView : UserControl
                 _currentTabAdorner = null;
             }
 
-            // Ensure any active dock preview overlays are closed across all panes
-            var mainVm = window?.DataContext as MainViewModel;
-            if (mainVm != null)
-            {
-                var workspace = window?.FindVisualChild<MultiPaneWorkspace>();
-                if (workspace != null)
-                {
-                    foreach (var pane in mainVm.Panes)
-                    {
-                        var view = workspace.GetViewForPane(pane);
-                        view?.HideDockPreview();
-                    }
-                }
-            }
+            HideAllDockPreviews(window);
         }
     }
 
@@ -1209,6 +1196,11 @@ public partial class FilePaneView : UserControl
 
     private void ShowDockPreview(DockEdge edge)
     {
+        // First hide dock preview on all other panes in the workspace so only one pane ever highlights
+        Window? window = Window.GetWindow(this) ?? Application.Current?.MainWindow;
+        var workspace = window?.FindVisualChild<MultiPaneWorkspace>();
+        workspace?.HideDockPreviewsExcept(this);
+
         double halfW = ActualWidth * 0.5;
         double halfH = ActualHeight * 0.5;
 
@@ -1266,16 +1258,19 @@ public partial class FilePaneView : UserControl
         DockPreviewOverlay.Visibility = Visibility.Collapsed;
     }
 
+    public static void HideAllDockPreviews(Window? window)
+    {
+        window ??= Application.Current?.MainWindow;
+        if (window == null) return;
+        var workspace = window.FindVisualChild<MultiPaneWorkspace>();
+        workspace?.HideAllDockPreviews();
+    }
+
     private void OnPaneDragLeave(object sender, DragEventArgs e)
     {
         if (e.Data.GetDataPresent("FM.App.TabDrag"))
         {
-            // Only hide if the cursor has actually left the physical boundaries of this pane
-            var pos = e.GetPosition(this);
-            if (pos.X < 0 || pos.X > ActualWidth || pos.Y < 0 || pos.Y > ActualHeight)
-            {
-                HideDockPreview();
-            }
+            HideDockPreview();
         }
     }
 
@@ -1284,7 +1279,7 @@ public partial class FilePaneView : UserControl
         if (e.Data.GetDataPresent("FM.App.TabDrag"))
         {
             var edge = _currentDockEdge;
-            HideDockPreview();
+            HideAllDockPreviews(Window.GetWindow(this));
 
             if (ViewModel != null)
             {
@@ -1468,6 +1463,8 @@ public partial class FilePaneView : UserControl
                         layer?.Remove(_currentTabAdorner);
                         _currentTabAdorner = null;
                     }
+
+                    HideAllDockPreviews(window ?? Window.GetWindow(this));
                 }
             }
         }
@@ -1544,6 +1541,7 @@ public partial class FilePaneView : UserControl
     {
         if (e.Data.GetDataPresent("FM.App.TabItem"))
         {
+            HideDockPreview();
             e.Effects = DragDropEffects.Move;
             e.Handled = true;
         }
@@ -1551,6 +1549,8 @@ public partial class FilePaneView : UserControl
 
     private void OnTabStripDrop(object sender, DragEventArgs e)
     {
+        HideAllDockPreviews(Window.GetWindow(this));
+
         if (!e.Data.GetDataPresent("FM.App.TabItem")) return;
 
         var sourceTab = e.Data.GetData("FM.App.TabItem") as FileTabItemViewModel;
@@ -1670,6 +1670,7 @@ public partial class FilePaneView : UserControl
     {
         if (e.Data.GetDataPresent("FM.App.TabItem"))
         {
+            HideDockPreview();
             e.Effects = DragDropEffects.Move;
             e.Handled = true;
         }

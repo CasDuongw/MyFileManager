@@ -177,6 +177,25 @@ public partial class MultiPaneWorkspace : UserControl
 
     }
 
+    public void HideAllDockPreviews()
+    {
+        foreach (var view in _paneViews.Values)
+        {
+            view.HideDockPreview();
+        }
+    }
+
+    public void HideDockPreviewsExcept(FilePaneView? exceptView)
+    {
+        foreach (var view in _paneViews.Values)
+        {
+            if (view != exceptView)
+            {
+                view.HideDockPreview();
+            }
+        }
+    }
+
 
 
     private FilePaneView GetOrCreateView(FilePaneViewModel pane)
