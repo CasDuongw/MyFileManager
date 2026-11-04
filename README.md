@@ -1,344 +1,539 @@
-# MyFileManager (v0.4)
+# MyFileManager
 
-A lightweight, high-performance dual-pane file manager for Windows 11 built with **.NET 10 (Windows)**, **WPF**, and modern **MVVM** (`CommunityToolkit.Mvvm`).
+Trình quản lý tệp đa cửa sổ (multi-pane) hiệu năng cao cho Windows, được xây dựng bằng **.NET 10**, **WPF**, và kiến trúc **MVVM** hiện đại (`CommunityToolkit.Mvvm`).
 
----
-
-## 1. What It Is
-
-`MyFileManager` is a dual-pane desktop file manager designed for keyboard-driven productivity, uncompromising data safety, and fluid Windows 11 integration. It offers side-by-side directory browsing, resilient two-phase navigation history, STA-isolated shell icon extraction, extended multi-selection, undoable file operations (New Folder, Rename), and an enterprise-grade **Transfer Engine (Copy / Move)** featuring:
-- **Transfer Drawer & Progress Panel UI:** Real-time multi-job drawer with live speeds, remaining time (ETA), individual progress bars, and cooperative `Pause`, `Resume`, and `Cancel` controls.
-- **Interactive Conflict & Failure Dialog:** Fluent modal cards showing side-by-side file comparisons, STA thumbnail previews, visual badges (Newer / Larger), and a dynamic safety banner (`Overwrite is undoable` vs `Unbacked overwrite`).
-- **Persistent Write-Ahead Undo Journal:** Append-only JSONL log (`%LOCALAPPDATA%\MyFileManager\journal\undo-journal.jsonl`) that survives application restarts and crashes, automatically recovering interrupted transfers and restoring the Undo stack on launch.
-- **Staging Backup for Undo Overwrite:** Safe, reversible overwrites via staged backups (`%LOCALAPPDATA%\MyFileManager\staging\`) with SHA-256 verification, automatic quota enforcement, and retention cleanup.
-- **Drag and Drop (OLE):** Seamless inter-pane and Windows Explorer drag-and-drop with modifier keys (`Ctrl` for Copy, `Shift` for Move), multi-selection preservation, drop effect resolution, and non-blocking fast drop dispatch.
+> **Trạng thái hiện tại:** Đang phát triển tích cực · 107 commits · 164 file mã nguồn · ~38.000 dòng code ứng dụng + ~10.900 dòng test · 521 bài kiểm thử tự động
 
 ---
 
-## 2. How to Build and Run
+## Mục Lục
 
-### Prerequisites
-- **Operating System:** Windows 10/11
-- **IDE:** Visual Studio 2022 (version 17.12 or later) with the **.NET desktop development** workload.
-- **SDK:** .NET 10.0 SDK.
+1. [Giới Thiệu](#1-giới-thiệu)
+2. [Tính Năng Đã Hoàn Thành](#2-tính-năng-đã-hoàn-thành)
+3. [Ảnh Chụp Màn Hình](#3-ảnh-chụp-màn-hình)
+4. [Hướng Dẫn Cài Đặt & Chạy](#4-hướng-dẫn-cài-đặt--chạy)
+5. [Cấu Trúc Dự Án](#5-cấu-trúc-dự-án)
+6. [Kiến Trúc Hệ Thống](#6-kiến-trúc-hệ-thống)
+7. [Phím Tắt & Thao Tác Chuột](#7-phím-tắt--thao-tác-chuột)
+8. [Kiến Trúc Transfer Engine](#8-kiến-trúc-transfer-engine)
+9. [Benchmark Hiệu Năng](#9-benchmark-hiệu-năng)
+10. [Chính Sách Kiểm Thử](#10-chính-sách-kiểm-thử)
+11. [Lịch Sử Phát Triển (Milestones)](#11-lịch-sử-phát-triển-milestones)
+12. [Roadmap & Kế Hoạch Tương Lai](#12-roadmap--kế-hoạch-tương-lai)
+13. [Hạn Chế Hiện Tại](#13-hạn-chế-hiện-tại)
 
-### Option A: Run in Visual Studio (Recommended)
-1. Double-click `MyFileManager.sln` to open the solution in Visual Studio.
-2. Ensure **`FM.App`** is set as the startup project.
-3. Press **F5** (or click **Start**). The application will compile and launch with zero manual configuration.
+---
 
-### Option B: Run via .NET CLI
+## 1. Giới Thiệu
+
+**MyFileManager** là trình quản lý tệp desktop đa cửa sổ, tập trung vào:
+
+- **Năng suất bàn phím:** Điều hướng nhanh bằng phím tắt, Quick Open (`Ctrl+P`), Command Palette (`Ctrl+Shift+P`)
+- **An toàn dữ liệu tuyệt đối:** Mọi thao tác (Copy, Move, Rename, Delete, Overwrite) đều có thể hoàn tác (Undo) với journal chống crash
+- **Tích hợp Windows sâu:** Context menu gốc Windows (IContextMenu), SendTo, ShellNew, Recycle Bin, kéo-thả OLE với Explorer
+- **Đa cửa sổ linh hoạt:** Hỗ trợ từ 1 đến 16 cửa sổ (pane), kéo-thả tab để chia/gộp/hoán đổi vị trí, lưu trữ phiên làm việc
+
+---
+
+## 2. Tính Năng Đã Hoàn Thành
+
+### 🗂️ Quản Lý Tệp Cơ Bản
+- Duyệt thư mục với danh sách ảo hóa (virtualized) — hiển thị 10.000+ mục mượt mà
+- 3 chế độ hiển thị: **Details** (bảng chi tiết), **Icons** (biểu tượng), **Preview** (xem trước)
+- Sắp xếp theo Tên / Ngày / Kích thước / Loại (tăng/giảm), thư mục luôn ở trên
+- Lọc nhanh trong thư mục (`Ctrl+Shift+F`) với so khớp không phân biệt dấu tiếng Việt
+- Gõ ký tự để nhảy đến mục khớp (type-to-select) với timeout 1 giây
+- Hiện/ẩn tệp ẩn và tệp hệ thống (`Ctrl+H`)
+
+### 📑 Hệ Thống Tab
+- Mỗi cửa sổ (pane) có hệ thống tab độc lập — nhiều thư mục cùng mở song song
+- Mỗi tab lưu riêng: lịch sử điều hướng, chế độ hiển thị, cách sắp xếp, bộ lọc, danh sách file đã cache
+- Kéo-thả tab để sắp xếp lại thứ tự trong cùng pane
+- Kéo tab giữa các pane để di chuyển tab
+- Đóng tab bằng nút × hoặc click chuột giữa
+- Phục hồi tab khi khởi động lại ứng dụng (session persistence)
+
+### 🪟 Đa Cửa Sổ (Multi-Pane Workspace)
+- 5 bố cục có sẵn: **Đơn**, **Đôi dọc**, **Đôi ngang**, **Ba cửa sổ (TripleLeft)**, **Lưới 4 ô (QuadGrid)**
+- Kéo-thả tab vào thân pane để **hoán đổi vị trí** giữa các cửa sổ
+- Kéo tab vào cạnh pane (trái/phải/trên/dưới) để **tách & dock** — mở rộng lên đến 16 pane
+- Preview overlay màu hồng hiển thị vùng sẽ dock trước khi thả
+- Thanh chia (splitter) có thể kéo để điều chỉnh kích thước giữa các pane
+
+### 🧭 Điều Hướng
+- Lịch sử Back/Forward hai pha (two-phase) — không bao giờ mất đồng bộ khi điều hướng thất bại
+- **Breadcrumb bar** tương tác: click từng phân đoạn đường dẫn để nhảy, nhấn chevron `›` để mở dropdown danh sách thư mục con
+- Thanh địa chỉ chỉnh sửa trực tiếp (`Ctrl+L`) — hỗ trợ `shell:`, `::{CLSID}`, biến môi trường (`%USERPROFILE%`), đường dẫn `~`
+- Sidebar cố định: Desktop, Documents, Downloads, This PC, Recycle Bin + tất cả ổ đĩa
+
+### 🔍 Tìm Kiếm & Quick Open
+- **Tìm kiếm đệ quy** (`Ctrl+F`): Quét toàn bộ cây thư mục con với Channel batching, tránh vòng lặp (loop avoidance)
+- **Quick Open** (`Ctrl+P`): Tìm kiếm fuzzy thư mục, tab đang mở, mục yêu thích, thư mục gần đây, ổ đĩa
+  - Xếp hạng Frecency (tần suất + gần đây) dựa trên lịch sử truy cập
+  - Chỉ mục 200.000+ thư mục với latency < 5ms mỗi phím
+  - Bộ so khớp fuzzy với diacritic-insensitive cho tiếng Việt (ví dụ: gõ "tai lieu" tìm được "tài liệu")
+- **Command Palette** (`Ctrl+Shift+P`): Truy cập nhanh mọi lệnh ứng dụng qua tên
+
+### 📋 Thao Tác Tệp
+- **Copy / Move** giữa các pane (`Ctrl+Shift+C` / `Ctrl+Shift+M`) với Transfer Engine cấp doanh nghiệp
+- **Delete / Shift+Delete**: Xóa vào Thùng rác hoặc xóa vĩnh viễn, có hộp thoại xác nhận
+- **Tạo mới** (New menu): Thư mục, tệp văn bản, và tất cả ShellNew template đã đăng ký trên Windows
+- **Đổi tên** (`F2`): Inline rename trực tiếp trên danh sách
+- **Đổi tên hàng loạt** (Multi-Rename): Pattern token `{name}`, `{ext}`, `{counter}`, `{date}`, tìm/thay thế regex, xem trước trực tiếp
+- **Giải nén ZIP** tích hợp: Kiểm tra bảo mật (zip-slip, bomb detection, file count/size limit), tích hợp hàng đợi transfer
+- **Hoàn tác** (`Ctrl+Z`): Undo cho Create, Rename, Copy, Move, Overwrite, Delete (khôi phục từ Recycle Bin)
+- **SendTo**: Menu "Send To" giống Windows Explorer (Desktop shortcut, Documents, ổ USB, nén ZIP)
+- **Create Shortcut**: Tạo shortcut `.lnk` cho tệp/thư mục đã chọn
+
+### 🖱️ Kéo & Thả (Drag and Drop)
+- Kéo-thả giữa các pane: Move cùng ổ, Copy khác ổ (mặc định theo quy tắc Windows)
+- Kéo-thả với Windows Explorer và Desktop — hai chiều
+- Giữ `Ctrl` = Copy, giữ `Shift` = Move (ghi đè hành vi mặc định)
+- Kéo vào thư mục con: highlight thư mục đích với viền xanh
+- Bảo vệ kéo vào chính mình hoặc thư mục cha: hiển thị con trỏ ⊘ No-Drop
+- Ghost adorner (bóng tab/file) theo chuột trong khi kéo
+
+### 📦 Transfer Engine & Hệ Thống An Toàn
+- **Transfer Drawer**: Panel tiến trình ở dưới cùng — tốc độ, ETA, thanh tiến trình, Pause/Resume/Cancel
+- **Hàng đợi thông minh**: Nối tiếp trên cùng ổ đĩa (tránh thrashing), song song giữa các ổ khác nhau
+- **Xung đột tệp**: Hộp thoại so sánh side-by-side với thumbnail, nhãn Newer/Larger, Apply to All
+- **Staging Backup**: Sao lưu tệp trước khi ghi đè → Undo overwrite 100% an toàn
+- **Write-Ahead Journal**: Nhật ký JSONL chống crash — khôi phục hoàn toàn sau khi ứng dụng bị kill
+- **Crash Recovery**: Tự động phát hiện transfer dở dang khi khởi động lại, dọn dẹp `.fmpart`, rollback
+
+### 🖥️ Tích Hợp Windows
+- **Context menu gốc** (IContextMenu): Hiển thị menu chuột phải giống hệt Windows Explorer — bao gồm WinRAR, Open With, Pin to Start, và mọi shell extension đã cài
+- **Recycle Bin**: Duyệt, khôi phục, làm trống Thùng rác trực tiếp trong ứng dụng
+- **This PC**: Hiển thị tất cả ổ đĩa dạng card với dung lượng trống/đã dùng
+- **Shell icon & thumbnail**: Trích xuất biểu tượng và ảnh thu nhỏ trên luồng STA riêng biệt, cache LRU 64 mục
+- **Single Instance**: Chỉ cho phép 1 bản ứng dụng chạy — bản thứ 2 gửi đường dẫn qua named pipe
+- **Crash Report**: Dialog thông báo lỗi chi tiết khi ứng dụng crash bất ngờ
+
+### ⚙️ Cài Đặt & Lưu Trữ
+- Lưu cài đặt người dùng vào `%LOCALAPPDATA%\MyFileManager\settings.json`
+- Phục hồi phiên làm việc: kích thước cửa sổ, bố cục pane, đường dẫn đang mở, tab, lịch sử điều hướng
+- Tùy chỉnh: hiện/ẩn tệp ẩn, xác nhận trước khi xóa, bố cục workspace
+
+### 📊 Theo Dõi Thay Đổi (File Watching)
+- `FileSystemWatcher` theo dõi thay đổi real-time trong thư mục đang mở
+- `PollingFolderWatcher` dự phòng cho ổ mạng không hỗ trợ FSW
+- Coalescer gộp nhiều sự kiện liên tiếp (create → rename, delete → create) thành 1 cập nhật
+- Bảo vệ inline rename: không làm gián đoạn khi đang đổi tên
+- Tự động chuyển hướng khi thư mục đang xem bị xóa
+
+---
+
+## 3. Ảnh Chụp Màn Hình
+
+> *Ảnh chụp UI thực tế sẽ được bổ sung tại đây.*
+
+---
+
+## 4. Hướng Dẫn Cài Đặt & Chạy
+
+### Yêu Cầu
+- **Hệ điều hành:** Windows 10/11
+- **IDE:** Visual Studio 2022 (v17.12+) với workload **.NET desktop development**
+- **SDK:** .NET 10.0 SDK
+
+### Cách A: Chạy trong Visual Studio (Khuyến nghị)
+1. Mở `MyFileManager.sln` bằng Visual Studio.
+2. Đặt **`FM.App`** làm Startup Project.
+3. Nhấn **F5** để biên dịch và chạy.
+
+### Cách B: Chạy bằng .NET CLI
 ```bash
-# Clone or navigate to the repository directory
 cd MyFileManager
 
-# Build entire solution (zero warnings, zero errors)
+# Biên dịch toàn bộ solution (0 warning, 0 error)
 dotnet build MyFileManager.sln
 
-# Run all test suites (306 tests)
+# Chạy toàn bộ bài kiểm thử (521 tests)
 dotnet test MyFileManager.sln
 
-# Run synthetic directory streaming benchmark
+# Chạy benchmark streaming thư mục
 dotnet run --project tests/FM.Benchmarks/FM.Benchmarks.csproj
 
-# Run in-memory 2 GB transfer engine benchmark with write-ahead journal (0 disk writes)
+# Chạy benchmark transfer engine 2GB trong bộ nhớ (0 ghi đĩa)
 dotnet run --project tests/FM.Benchmarks/FM.Benchmarks.csproj -c Release -- --transfer
 
-# Launch the WPF application
+# Chạy benchmark Quick Open fuzzy ranking
+dotnet run --project tests/FM.Benchmarks/FM.Benchmarks.csproj -c Release -- --quickopen
+
+# Khởi chạy ứng dụng
 dotnet run --project src/FM.App/FM.App.csproj
 ```
 
 ---
 
-## 3. Project Structure
+## 5. Cấu Trúc Dự Án
 
 ```
 MyFileManager/
 ├── src/
-│   ├── FM.Core/                 # Pure domain & business logic library (NO WPF dependency)
-│   │   ├── FileSystem/
-│   │   │   ├── IFileSystem.cs           # Pure filesystem abstraction for testing & storage
-│   │   │   ├── PhysicalFileSystem.cs    # Production disk implementation with Win32 P/Invoke
-│   │   │   └── InMemoryFileSystem.cs    # Zero-disk virtual streams & simulated volumes
-│   │   ├── Helpers/
-│   │   │   ├── FileEntrySorter.cs       # Folders-first deterministic sorting
-│   │   │   └── FileNameValidator.cs     # Windows naming rules & reserved device name checks
-│   │   ├── Models/
-│   │   │   ├── FileEntry.cs             # Immutable file record
-│   │   │   └── FileSortColumn.cs        # Sort column enumeration
-│   │   ├── Navigation/
-│   │   │   └── NavigationHistory.cs     # Two-phase Back/Forward navigation stack manager
-│   │   ├── Search/
-│   │   │   ├── CharacterBitmask.cs      # 64-bit character presence bitmask pre-filter
-│   │   │   ├── OptimalAlignmentScorer.cs# Smith-Waterman style DP sequence alignment scorer
-│   │   │   ├── PreparedQuery.cs         # Pre-normalized query tokens, bitmasks & path segments
-│   │   │   ├── PreparedMatcher.cs       # Parallel bounded min-heap Top-K selection & tie-breaker
-│   │   │   ├── FolderIndexEntry.cs      # Lightweight indexed folder entry with precomputed metadata
-│   │   │   ├── IFolderIndex.cs          # Folder index abstraction supporting concurrent reads
-│   │   │   ├── FolderIndex.cs           # Thread-safe in-memory folder index with atomic snapshots
-│   │   │   ├── FolderCrawler.cs         # Iterative low-priority background crawler with exclusions
-│   │   │   ├── FolderIndexCache.cs      # Binary versioned atomic cache (%LOCALAPPDATA%\MyFileManager)
-│   │   │   ├── FolderVisitStore.cs      # Frecency store with time-decay scoring (4x/2x/1x/0.5x)
-│   │   │   ├── FuzzyMatcher.cs          # Tiered fuzzy matching & gap-penalized ranking
-│   │   │   ├── RecentFolderList.cs      # Thread-safe in-memory MRU folder list (cap 10)
-│   │   │   ├── NameMatcher.cs           # Diacritic- & case-insensitive matching & ranking
-│   │   │   ├── SearchQuery.cs           # Immutable search parameters & root scopes
-│   │   │   ├── SearchResult.cs          # Entry reference with parent folder & relevance score
-│   │   │   ├── SearchScope.cs           # Scope enumeration (CurrentFolder, OpenPanes, ThisPC)
-│   │   │   ├── ISearchService.cs        # Core search engine contract
-│   │   │   └── SearchService.cs         # Recursive engine with loop avoidance & Channel batching
-│   │   ├── Operations/
-│   │   │   ├── IFileOperation.cs        # Undoable operation contract
-│   │   │   ├── UndoStack.cs             # In-memory undo history stack
-│   │   │   ├── CreateFolderOperation.cs # Reversible directory creation
-│   │   │   ├── RenameOperation.cs       # Reversible file/directory rename
-│   │   │   └── Transfer/
-│   │   │       ├── TransferModels.cs        # Enums, requests, results, and progress records
-│   │   │       ├── TransferInterfaces.cs    # ITransferEngine, ITransferQueue, ITransferJob
-│   │   │       ├── TransferPlanner.cs       # Hierarchy expansion, loop detection, free space check
-│   │   │       ├── TransferEngine.cs        # Chunked copy, .fmpart staging, atomic rename, SHA-256
-│   │   │       ├── PauseGate.cs             # Cooperative pause/resume gate with offset tracking
-│   │   │       ├── TransferQueue.cs         # Per-volume serial lanes, parallel jobs, throttled progress
-│   │   │       ├── TransferUndoOperation.cs # Safe undo for Copy, Move, and Replaced (Overwrite)
-│   │   │       ├── IStagingBackupStore.cs   # Staging backup contract for undoable overwrites
-│   │   │       ├── StagingBackupStore.cs    # Disk-backed staging, cross-volume verify, quota purge
-│   │   │       ├── IUndoJournalStore.cs     # Persistent write-ahead undo journal contract
-│   │   │       ├── FileUndoJournalStore.cs  # Append-only JSONL log, crash recovery, compaction
-│   │   │       └── JournalCodec.cs          # Streaming JSONL serialization and corrupted line handling
-│   │   └── Services/
-│   │       ├── IDirectoryService.cs     # Asynchronous batch file enumeration interface
-│   │       └── DirectoryService.cs      # Resilient Channel-based background producer
+│   ├── FM.Core/                      # Thư viện logic nghiệp vụ thuần (KHÔNG phụ thuộc WPF)
+│   │   ├── CommandLine/              # Phân tích dòng lệnh khởi động
+│   │   ├── Drives/                   # Dịch vụ liệt kê ổ đĩa
+│   │   ├── FileSystem/               # IFileSystem trừu tượng + InMemory + Physical
+│   │   ├── Helpers/                  # Sắp xếp, validate tên tệp, tiện ích đường dẫn
+│   │   ├── Logging/                  # Crash logger
+│   │   ├── Models/                   # FileEntry, FileSortColumn
+│   │   ├── Navigation/               # NavigationHistory hai pha
+│   │   ├── Operations/               # Thao tác hoàn tác được
+│   │   │   ├── MultiRename/          # Đổi tên hàng loạt (token, regex, preview)
+│   │   │   ├── Transfer/             # Transfer Engine đầy đủ
+│   │   │   │   ├── TransferPlanner   # Quét cây, phát hiện vòng lặp, kiểm tra dung lượng
+│   │   │   │   ├── TransferEngine    # Copy/Move chunk, .fmpart staging, SHA-256
+│   │   │   │   ├── PauseGate         # Tạm dừng/tiếp tục hợp tác
+│   │   │   │   ├── TransferQueue     # Hàng đợi đa ổ, nối tiếp trên cùng ổ
+│   │   │   │   ├── StagingBackup     # Sao lưu trước ghi đè cho Undo
+│   │   │   │   └── UndoJournal       # JSONL write-ahead log chống crash
+│   │   │   └── Zip/                  # Giải nén ZIP với bảo mật
+│   │   ├── PathResolution/           # Phân giải shell:, ::{CLSID}, biến môi trường
+│   │   ├── RecycleBin/               # Thùng rác Windows (SHFileOperation)
+│   │   ├── Search/                   # Tìm kiếm fuzzy, indexer, crawler
+│   │   ├── Services/                 # DirectoryService (Channel-based)
+│   │   ├── ShellIntegration/         # SendTo, ShellNew, đăng ký shell
+│   │   └── Watching/                 # FileSystemWatcher + Polling + Coalescer
 │   │
-│   └── FM.App/                  # WPF Application (Views & ViewModels only)
-│       ├── Collections/
-│       │   └── BulkObservableCollection.cs # High-performance batch collection
-│       ├── Helpers/
-│       │   ├── DependencyObjectExtensions.cs # Visual tree hit-testing helpers
-│       │   ├── DropEffectResolver.cs    # Pure OLE drop effect & destination validation helper
-│       │   └── FormatHelper.cs          # Size & type formatting utilities
+│   └── FM.App/                       # Ứng dụng WPF (Views & ViewModels)
+│       ├── Collections/              # BulkObservableCollection hiệu năng cao
+│       ├── Converters/               # Value converters cho XAML binding
+│       ├── Helpers/                  # Visual tree, drop effect resolver, format
+│       ├── Models/                   # Tab, Breadcrumb, DockEdge, ViewMode, Layout
 │       ├── Services/
-│       │   ├── IIconService.cs          # Shell icon retrieval contract
-│       │   ├── IconService.cs           # Dedicated STA thread worker + SemaphoreSlim(4)
-│       │   ├── IThumbnailService.cs     # Shell thumbnail extraction contract
-│       │   ├── ThumbnailService.cs      # STA thread worker with IShellItemImageFactory & 64-item cache
-│       │   ├── ISettingsService.cs      # User settings persistence contract
-│       │   ├── SettingsService.cs       # AppData settings.json persistence with clamping
-│       │   ├── IInputDialogService.cs   # Dialog contract for user prompts
-│       │   ├── InputDialogService.cs    # WPF dialog window implementation
-│       │   ├── IShellLauncher.cs        # OS shell process launcher abstraction
-│       │   ├── ShellLauncher.cs         # Shell execution implementation
-│       │   ├── ITransferDialogService.cs# Transfer interaction dialog abstraction
-│       │   ├── TransferDialogService.cs # WPF dialog implementation for conflicts and failures
-│       │   └── WpfTransferInteraction.cs# Adapter connecting Core ITransferInteraction to UI
-│       ├── ViewModels/
-│       │   ├── FileItemViewModel.cs     # Lazy icon-loaded file item representation
-│       │   ├── FilePaneViewModel.cs     # Pane navigation, sorting, multi-selection, and status
-│       │   ├── SidebarItemViewModel.cs  # Favorites & drives sidebar item (with drive icons)
-│       │   ├── ConflictDialogViewModel.cs# MVVM ViewModel for conflict comparison and thumbnails
-│       │   ├── TransferJobViewModel.cs  # Individual transfer job wrapper with progress and commands
-│       │   ├── TransferDrawerViewModel.cs# Bottom drawer coordinator, job list, auto-remove timer
-│       │   └── MainViewModel.cs         # Root dual-pane coordinator, transfer queue & shortcuts
-│       ├── Views/
-│       │   ├── FilePaneView.xaml(.cs)   # Virtualized listview, address bar, OLE drag-drop handling
-│       │   ├── TransferDrawerView.xaml(.cs)# Collapsible transfer progress drawer UserControl
-│       │   ├── ConflictDialog.xaml(.cs) # Windows 11 Fluent conflict comparison modal dialog
-│       │   ├── FailureDialog.xaml(.cs)  # Transfer failure and retry modal dialog
-│       │   ├── InputDialogWindow.xaml   # Modern Windows 11 style text input dialog
-│       │   └── MainWindow.xaml(.cs)     # Shell layout, drawer host, splitter, keyboard shortcuts
-│       ├── App.xaml(.cs)                # DI container setup & pre-Show window bounds clamping
-│       └── FM.App.csproj
+│       │   ├── QuickOpen/            # Nguồn dữ liệu & catalog cho Quick Open
+│       │   ├── SingleInstance/       # Named pipe single-instance enforcement
+│       │   ├── Icon/Thumbnail        # STA thread worker + cache
+│       │   ├── Settings              # AppData JSON persistence
+│       │   ├── Shell                 # ShellNew, SendTo, context menu
+│       │   └── Transfer Dialog       # Conflict/failure dialog WPF
+│       ├── ViewModels/               # 11 ViewModels
+│       │   ├── MainViewModel         # Điều phối workspace, sidebar, transfer queue
+│       │   ├── FilePaneViewModel     # Logic pane: tab, navigation, sort, search
+│       │   ├── QuickOpenViewModel    # Quick Open & Command Palette
+│       │   ├── MultiRenameViewModel  # Đổi tên hàng loạt
+│       │   ├── TransferDrawer/Job    # Panel tiến trình transfer
+│       │   └── ...                   # Conflict, DriveCard, RecycleBin, Sidebar
+│       └── Views/                    # 9 UserControl + MainWindow + App
+│           ├── FilePaneView          # Pane chính: listview, breadcrumb, drag-drop
+│           ├── MultiPaneWorkspace    # Bố cục đa cửa sổ + splitter
+│           ├── QuickOpenView         # Overlay Quick Open
+│           ├── TransferDrawerView    # Panel tiến trình
+│           ├── ConflictDialog        # Hộp thoại xung đột tệp
+│           ├── MultiRenameDialog     # Hộp thoại đổi tên hàng loạt
+│           └── ...                   # CrashReport, Failure, Input
 │
 ├── tests/
-│   ├── Common/
-│   │   └── TestWorkspace.cs             # Bounded %TEMP%\FM_* workspace manager (max 200 files / 1 MiB)
-│   ├── FM.Core.Tests/           # Core library xUnit test suite (170 tests)
-│   ├── FM.App.Tests/            # App-level xUnit test suite (136 tests)
-│   └── FM.Benchmarks/           # Performance benchmark harness
-│       └── Program.cs                   # Navigation and 2 GB transfer benchmarks
+│   ├── Common/TestWorkspace.cs       # Test workspace giới hạn (max 200 file / 1 MiB)
+│   ├── FM.Core.Tests/                # 288 bài kiểm thử logic nghiệp vụ
+│   ├── FM.App.Tests/                 # 233 bài kiểm thử ViewModel & tích hợp
+│   └── FM.Benchmarks/               # Benchmark hiệu năng (0 ghi đĩa)
 │
-├── MyFileManager.sln            # Visual Studio Solution
-├── .gitignore                   # Standard Visual Studio / dotnet template
-└── README.md                    # Project documentation
+├── MyFileManager.sln
+└── README.md
 ```
 
 ---
 
-## 4. Keyboard & Mouse Shortcuts
+## 6. Kiến Trúc Hệ Thống
 
-| Shortcut / Action | Function | Scope |
-| :--- | :--- | :--- |
-| **`Tab`** | Switch active pane between Left and Right | File list focused (preserves normal Tab in address bar) |
-| **`Ctrl + H`** | Toggle display of hidden and system files | Active pane & persisted in AppSettings |
-| **`Ctrl + Shift + C`** | Copy selected items to the opposite pane | Active pane |
-| **`Ctrl + Shift + M`** | Move selected items to the opposite pane | Active pane |
-| **`Ctrl + Shift + N`** | Create a new folder | Active pane |
-| **`F2`** | Rename selected item | Active pane |
-| **`Ctrl + Z`** | Undo last file operation (New Folder, Rename, Copy, Move, Overwrite) | Active pane |
-| **`Enter`** | Open folder, launch file with default app, or navigate address bar | Active pane |
-| **`Backspace`** | Navigate up to parent folder | Active pane |
-| **`Alt + Left`** | Navigate backward in history | Active pane |
-| **`Alt + Right`** | Navigate forward in history | Active pane |
-| **`Ctrl + L`** | Focus and select text in the address bar | Active pane |
-| **`F5`** | Refresh file listing | Active pane |
-| **`Ctrl + P`** | Quick Open (jump to folders, tabs, favorites, recents, drives) | Global overlay |
-| **`Ctrl + Shift + P`** | Command Palette (menu-style app actions, or type `>` in Quick Open) | Global overlay |
-| **`Ctrl + Shift + F`** | Focus folder filter box | Toolbar / Active pane |
-| **`Esc`** | Clear filter and return focus to list (or cancel address editing) | Filter box / Active pane |
-| **Printable chars** | Type-to-select matching item (prefix preferred, 1s idle timeout) | Active file list |
-| **Mouse Drag** | Drag selected items between panes or to/from Windows Explorer | Multi-selection preserved |
-| **`Ctrl + Drag`** | Force Copy operation during drag | Drag & Drop |
-| **`Shift + Drag`** | Force Move operation during drag | Drag & Drop |
+### Nguyên Tắc Thiết Kế
+- **FM.Core 100% không phụ thuộc WPF** — toàn bộ logic nghiệp vụ có thể test với fake/mock, không cần UI
+- **MVVM nghiêm ngặt** với `CommunityToolkit.Mvvm` source generators — View không chứa logic
+- **Dependency Injection** qua `Microsoft.Extensions.DependencyInjection`
+- **Mọi thao tác I/O chạy trên background thread** — UI thread không bao giờ bị block
+
+### Sơ Đồ Kiến Trúc Tổng Quan
+
+```
+┌─────────────────────────────────────────────────────┐
+│                    FM.App (WPF)                     │
+│  ┌──────────┐  ┌──────────────┐  ┌───────────────┐ │
+│  │  Views    │  │  ViewModels  │  │  Services     │ │
+│  │  (XAML)   │──│  (MVVM)      │──│  (Icon, DI,   │ │
+│  │          │  │              │  │   Settings)   │ │
+│  └──────────┘  └──────┬───────┘  └───────────────┘ │
+│                       │                             │
+├───────────────────────┼─────────────────────────────┤
+│                       │                             │
+│                FM.Core (Pure .NET)                   │
+│  ┌──────────┐  ┌──────┴───────┐  ┌───────────────┐ │
+│  │FileSystem│  │  Operations  │  │   Search      │ │
+│  │(Physical/│  │  (Transfer,  │  │   (Fuzzy,     │ │
+│  │ InMemory)│  │   Rename,    │  │    Crawler,   │ │
+│  │          │  │   Undo)      │  │    Index)     │ │
+│  └──────────┘  └──────────────┘  └───────────────┘ │
+│  ┌──────────┐  ┌──────────────┐  ┌───────────────┐ │
+│  │Navigation│  │  RecycleBin  │  │   Watching    │ │
+│  │(History) │  │  (Shell API) │  │   (FSW/Poll)  │ │
+│  └──────────┘  └──────────────┘  └───────────────┘ │
+└─────────────────────────────────────────────────────┘
+```
+
+### Các Thành Phần Chính
+
+| Thành phần | Dòng code | Vai trò |
+|:---|---:|:---|
+| `FilePaneViewModel` | 3.361 | Logic pane: tabs, navigation, sort, search, file ops, drag-drop, watcher |
+| `MainViewModel` | 2.593 | Điều phối workspace, sidebar, layout, transfer queue, session persist |
+| `FilePaneView.xaml/.cs` | ~3.600 | UI pane: virtualized listview, breadcrumb, OLE drag-drop, dock preview |
+| `MultiPaneWorkspace.xaml/.cs` | ~1.300 | Bố cục đa pane, splitter, dock preview, quản lý view instances |
+| `TransferEngine` | ~600 | Copy/Move chunk, .fmpart staging, SHA-256 verification |
+| `SearchService` | ~400 | Tìm kiếm đệ quy Channel-based, loop avoidance |
+| `FuzzyMatcher` | ~300 | Fuzzy ranking diacritic-insensitive, gap-penalized scoring |
 
 ---
 
-## 5. Transfer Architecture & Safety Guarantees
+## 7. Phím Tắt & Thao Tác Chuột
 
-### 5.1 Architecture Overview
-The transfer engine is organized into decoupled, testable components:
-- **`TransferPlanner`**: Pre-scans selected source paths, expands directory hierarchies, skips reparse points/symlinks to prevent infinite loops, validates volume free disk space (accounting for existing target files), and computes collision-free `KeepBoth` names.
-- **`TransferEngine`**: Orchestrates copy and move execution:
-  - **Copy**: Transferred into a temporary staging file (`<dest_path>.<guid>.fmpart`) in 1–4 MiB chunks. Streams SHA-256 hashes concurrently during copy. Preserves original timestamps. Atomically renames `.fmpart` to the final destination upon successful verification. Cleans up `.fmpart` files if cancelled or failed.
-  - **Same-Volume Move**: Executes an atomic OS filesystem move (no read streams opened, instantaneous metadata update). Cooperatively pauses between items if paused.
-  - **Cross-Volume Move**: Performs a verified copy to destination first. **Only deletes the source file after destination byte count and SHA-256 hash are verified**. Cleans up empty source directories bottom-up.
-- **`PauseGate`**: Implements cooperative thread-safe pausing between chunks. On pause, state transitions `Running` $\to$ `Pausing` $\to$ `Paused`. On resume, file streaming continues from the exact byte offset without restarting. Immediate cancellation is supported while paused.
-- **`TransferQueue`**: Enforces strict serial execution for jobs sharing the same destination volume (preventing disk head thrashing), while allowing up to 2 parallel lanes across distinct physical volumes. Emits throttled progress notifications ($\le 10/\text{sec}$) via `TimeProvider`.
-- **`IStagingBackupStore` / `StagingBackupStore`**: Stores pre-mutation copies of destination files before they are overwritten into `%LOCALAPPDATA%\MyFileManager\staging\<opId>\`. Validates destination free space and SHA-256 integrity on cross-volume moves. Enforces retention policies (deletes staging backups older than 7 days or when exceeding 5 GB quota).
-- **`IUndoJournalStore` / `FileUndoJournalStore`**: Write-ahead append-only JSONL journal (`%LOCALAPPDATA%\MyFileManager\journal\undo-journal.jsonl`). Interrupted transfers are automatically detected and rolled back on launch. Committed entries are replayed into each pane's `UndoStack`. Performs atomic file compaction on startup to prevent unbounded journal growth.
-- **`TransferUndoOperation`**: Encapsulates undo logic for transfers:
-  - **Copy Undo**: Deletes created files only if their size and timestamps still match (rejects deletion of files modified post-copy) and removes empty parent directories bottom-up.
-  - **Move Undo**: Restores moved items only if the original location is free and files are unmodified.
-  - **Overwrite Undo**: Seamlessly restores original destination files from staging backups, verifies backup presence, and safely updates the journal state.
+### Điều Hướng
+
+| Phím tắt | Chức năng |
+|:---|:---|
+| `Enter` | Mở thư mục / chạy file / xác nhận thanh địa chỉ |
+| `Backspace` | Lên thư mục cha |
+| `Alt + ←` | Quay lại (Back) |
+| `Alt + →` | Đi tới (Forward) |
+| `Ctrl + L` | Focus vào thanh địa chỉ |
+| `F5` | Làm mới danh sách |
+| `Tab` | Chuyển pane hoạt động (khi focus ở danh sách file) |
+
+### Thao Tác Tệp
+
+| Phím tắt | Chức năng |
+|:---|:---|
+| `Ctrl + Shift + N` | Tạo thư mục mới |
+| `F2` | Đổi tên |
+| `Delete` | Xóa vào Thùng rác |
+| `Shift + Delete` | Xóa vĩnh viễn |
+| `Ctrl + Shift + C` | Copy sang pane đối diện |
+| `Ctrl + Shift + M` | Move sang pane đối diện |
+| `Ctrl + Z` | Hoàn tác (Undo) |
+
+### Tìm Kiếm & Quick Open
+
+| Phím tắt | Chức năng |
+|:---|:---|
+| `Ctrl + P` | Quick Open (tìm thư mục, tab, favorites, recents, drives) |
+| `Ctrl + Shift + P` | Command Palette (tìm & chạy lệnh ứng dụng) |
+| `Ctrl + Shift + F` | Focus vào ô lọc thư mục |
+| `Ctrl + F` | Tìm kiếm đệ quy |
+| `Esc` | Xóa bộ lọc / đóng dialog / hủy chỉnh sửa |
+| Gõ ký tự | Nhảy đến mục khớp (type-to-select, timeout 1s) |
+
+### Kéo & Thả
+
+| Thao tác | Chức năng |
+|:---|:---|
+| Kéo file giữa các pane | Move (cùng ổ) hoặc Copy (khác ổ) theo mặc định |
+| `Ctrl` + Kéo | Luôn Copy |
+| `Shift` + Kéo | Luôn Move |
+| Kéo vào thư mục con | Thả trực tiếp vào thư mục con đó |
+| Kéo tab trong pane | Sắp xếp lại thứ tự tab |
+| Kéo tab sang pane khác | Di chuyển tab sang pane đó |
+| Kéo tab vào thân pane | Hoán đổi vị trí 2 pane |
+
+### Hiển Thị
+
+| Phím tắt | Chức năng |
+|:---|:---|
+| `Ctrl + H` | Hiện/ẩn tệp ẩn & tệp hệ thống |
 
 ---
 
-## 6. Performance Measurements & Benchmarks
+## 8. Kiến Trúc Transfer Engine
 
-The benchmark suite (`tests/FM.Benchmarks`) enforces a strict **zero-disk-generation** policy:
-1. **Directory Streaming**: Synthetic in-memory streaming through the real `FilePaneViewModel` hosted in an active WPF `Window` (1024x768) measuring layout, virtualization, and UI stalls.
-2. **Transfer Engine**: In-memory 2 GB virtual file copy between simulated volumes with persistent write-ahead undo journaling and deterministic byte patterns.
+### Tổng Quan
+Transfer Engine được thiết kế theo nguyên tắc **không bao giờ mất dữ liệu** qua nhiều lớp bảo vệ:
 
-### Benchmark Environment:
-- **CPU:** 12th Gen Intel(R) Core(TM) i5-12450HX (12 logical processors)
+```
+                    ┌──────────────┐
+   User Request ──► │TransferPlanner│ Quét cây, phát hiện vòng lặp, kiểm tra dung lượng
+                    └──────┬───────┘
+                           │
+                    ┌──────▼───────┐
+                    │TransferQueue │ Nối tiếp cùng ổ, song song khác ổ (max 2 luồng)
+                    └──────┬───────┘
+                           │
+                    ┌──────▼───────┐
+                    │TransferEngine│ Copy chunk → .fmpart → SHA-256 → atomic rename
+                    └──────┬───────┘
+                           │
+              ┌────────────┼────────────┐
+              │            │            │
+       ┌──────▼─────┐ ┌───▼────┐ ┌─────▼──────┐
+       │StagingBackup│ │PauseGate│ │ UndoJournal│
+       │(undo overw.)│ │(pause/ │ │(JSONL crash│
+       │             │ │ resume)│ │ recovery)  │
+       └─────────────┘ └────────┘ └────────────┘
+```
+
+### Chi Tiết Hoạt Động
+
+| Thành phần | Chức năng |
+|:---|:---|
+| **TransferPlanner** | Mở rộng cây thư mục, bỏ qua reparse point/symlink, kiểm tra dung lượng trống, tạo tên KeepBoth |
+| **TransferEngine** | Copy qua file tạm `.fmpart` (1-4 MiB chunk), hash SHA-256 song song, rename nguyên tử khi xong |
+| **PauseGate** | Tạm dừng/tiếp tục hợp tác giữa các chunk — tiếp tục từ đúng byte offset, hủy tức thì khi đang pause |
+| **TransferQueue** | Nối tiếp trên cùng ổ vật lý (tránh head thrashing), song song tối đa 2 lane khác ổ, progress throttle ≤ 10/giây |
+| **StagingBackupStore** | Sao lưu file gốc trước khi ghi đè vào `%LOCALAPPDATA%\MyFileManager\staging\` — quota 5GB, tự dọn sau 7 ngày |
+| **FileUndoJournalStore** | JSONL append-only log — phát hiện transfer dở khi khởi động → tự rollback, compaction khi khởi động |
+| **TransferUndoOperation** | Undo Copy (xóa nếu chưa bị sửa), Undo Move (khôi phục vị trí gốc), Undo Overwrite (khôi phục từ staging) |
+
+### Đảm Bảo An Toàn
+- **Move cross-volume**: Copy trước → xác minh SHA-256 → **chỉ xóa nguồn sau khi đã verify đích**
+- **Crash giữa chừng**: Journal ghi intent trước khi bắt đầu → khi khởi động lại, tự động dọn `.fmpart` và rollback
+- **Overwrite có thể hoàn tác**: File gốc được backup → hiển thị banner xanh "Overwrite is undoable"
+
+---
+
+## 9. Benchmark Hiệu Năng
+
+### Môi Trường Đo
+- **CPU:** 12th Gen Intel Core i5-12450HX (12 logical processors)
 - **RAM:** 16 GB DDR5
 - **OS:** Windows 11 (NT 10.0.26300.0)
-- **Runtime:** .NET 10.0 (Windows Desktop)
+- **Runtime:** .NET 10.0
 
-### Measured Results:
+### A. Streaming Thư Mục (10.000 mục, in-memory)
 
-#### A. Directory Streaming (10,000 entries, synthetic in-memory):
-| Metric | Warm-up Run | Measured Runs (Median of 5) | Note |
-| :--- | :---: | :---: | :--- |
-| **Time to First Batch** | 65 ms | **3 ms** | First 50 items displayed immediately |
-| **Time to Full List** | 778 ms | **293 ms** | Complete 10,000 item streaming & sorting |
-| **Max UI Thread Stall** | 191.20 ms | **65.22 ms** | 16 ms timer drift during layout |
-| **Collection Reset Events** | 1 | **1** | Target: <= 1 per navigation |
-| **Initial Working Set** | 28.10 MiB | 28.10 MiB | Startup working set |
-| **Final Working Set** | 135.57 MiB | 135.57 MiB | Working set after 10k items + WPF visuals |
+| Chỉ số | Warm-up | Đo thực (Median/5 lần) |
+|:---|:---:|:---:|
+| Thời gian hiển thị batch đầu | 65 ms | **3 ms** |
+| Thời gian load toàn bộ 10.000 mục | 778 ms | **293 ms** |
+| Stall tối đa UI thread | 191 ms | **65 ms** |
+| Working Set ban đầu | 28 MiB | 28 MiB |
+| Working Set sau load | 136 MiB | 136 MiB |
 
-#### B. In-Memory Transfer Engine with Write-Ahead Journal (2 GB Virtual File Copy, 0 Disk Writes):
-```
-Command: dotnet run --project tests/FM.Benchmarks/FM.Benchmarks.csproj -c Release -- --transfer
-```
-| Metric | Measured Value |
-| :--- | :--- |
-| **Total Bytes Copied** | **2,147,483,648 bytes (2.00 GiB)** |
-| **Execution Time** | **217 ms (0.217 s)** |
-| **Throughput** | **9,421.19 MB/s** |
-| **Total Allocations** | **4.49 MiB** |
-| **Working Set Initial** | **25.78 MiB** |
-| **Working Set Final** | **38.06 MiB (Delta: +12.29 MiB)** |
-| **Physical Disk Writes** | **0 bytes** (Pure in-memory virtual stream) |
+### B. Transfer Engine (2 GB file ảo, 0 ghi đĩa)
 
-#### C. Quick Open & Command Palette Fuzzy Ranking (500 Places + 80 Commands, 0 Disk Files):
-```
-Command: dotnet run --project tests/FM.Benchmarks/FM.Benchmarks.csproj -c Release -- --quickopen
-```
-| Metric | Measured Value | Target |
-| :--- | :--- | :--- |
-| **Total Queries Tested** | **1,300 queries** | |
-| **Average Latency** | **0.009 ms** | < 5.0 ms |
-| **Median Latency (P50)** | **0.000 ms** | < 5.0 ms |
-| **95th Percentile (P95)** | **0.000 ms** | < 5.0 ms |
-| **Maximum Keystroke Latency** | **2.166 ms** | < 5.0 ms |
-| **Disk Generation** | **0 bytes** (In-memory fuzzy matcher & catalog) | 0 bytes |
+| Chỉ số | Kết quả |
+|:---|:---|
+| Tổng bytes copy | **2.147.483.648 bytes (2,00 GiB)** |
+| Thời gian thực thi | **217 ms** |
+| Throughput | **9.421 MB/s** |
+| Bộ nhớ cấp phát | **4,49 MiB** |
+| Ghi đĩa vật lý | **0 bytes** |
 
-#### D. Quick Open 200,000 Folder Index Ranking (200,000 Candidates, 0 Disk Files):
-```
-Command: dotnet run --project tests/FM.Benchmarks/FM.Benchmarks.csproj -c Release -- --quickopen-index
-```
-| Metric | Measured Value | Target |
-| :--- | :--- | :--- |
-| **Candidate Pool** | **200,000 synthetic folders** | 200k+ |
-| **Index Build Time** | **382 ms** | Instant |
-| **Total Queries Tested** | **100 queries (10 queries x 10 runs)** | |
-| **Average Latency** | **2.358 ms** | ~30 ms typical |
-| **Median Latency (P50)** | **0.000 ms** | < 30 ms |
-| **95th Percentile (P95)** | **20.832 ms** | < 100 ms |
-| **Maximum Keystroke Latency** | **37.465 ms** | < 100 ms |
-| **Disk Generation** | **0 bytes** (Pure in-memory index) | 0 bytes |
+### C. Quick Open Fuzzy Ranking (500 places + 80 commands)
+
+| Chỉ số | Kết quả | Mục tiêu |
+|:---|:---|:---|
+| Số query | 1.300 | |
+| Latency trung bình | **0,009 ms** | < 5 ms |
+| Latency tối đa | **2,166 ms** | < 5 ms |
+
+### D. Folder Index 200.000 Thư Mục
+
+| Chỉ số | Kết quả | Mục tiêu |
+|:---|:---|:---|
+| Kích thước index | 200.000 thư mục | |
+| Thời gian build index | 382 ms | |
+| Latency trung bình | **2,358 ms** | < 30 ms |
+| P95 Latency | **20,832 ms** | < 100 ms |
 
 ---
 
-## 7. Strict Low-Disk Testing & Resource Policy
+## 10. Chính Sách Kiểm Thử
 
-To protect developer SSD endurance and prevent storage bloat, all automated tests and benchmarks enforce strict resource limits:
-1. **Hard Budget:** No command or test run may generate more than 200 files or 5 MB total on disk.
-2. **Virtual Stream In-Memory Testing:** Engine unit tests run against `InMemoryFileSystem` with virtual files (length only, deterministic byte pattern generated from offset). A 5 GB test file costs **0 bytes of RAM and 0 bytes of disk**.
-3. **Physical Disk Integration Tests:** Exactly 6 physical disk tests in `TransferIntegrationTests.cs` and `JournalRealDiskTests.cs`, strictly scoped to a combined total of **8 files and 15 KB** via `TestWorkspace`.
-4. **TestWorkspace Lifecycle:** Temporary workspaces live under `%TEMP%\FM_{purpose}_{guid}`, delete automatically on `Dispose()`, and sweep stale directories older than 1 hour on startup.
+### Tổng Quan Test Suite
+- **FM.Core.Tests:** 288 bài kiểm thử — logic nghiệp vụ thuần, không WPF
+- **FM.App.Tests:** 233 bài kiểm thử — ViewModel, tích hợp, plumbing
+- **Tổng cộng: 521 bài kiểm thử**, 0 warning, 0 error
 
----
-
-## 8. Known Limitations & Roadmap for v0.5
-
-The v0.4 release achieves feature completeness for all core dual-pane file management, OLE drag-drop, interactive conflict resolution, staging backup, and crash-resilient write-ahead journaling. Remaining limitations targeted for v0.5 include:
-- **Virtual OLE Payloads:** Drag-and-drop of virtual files (e.g. Outlook email attachments, items directly dragged out of compressed archives) is not yet supported; only standard `FileDrop` paths are handled.
-- **External Explorer Dropped Moves:** When dragging files from MyFileManager to Windows Explorer, Explorer's shell completes the move; because Explorer does not inform third-party apps of external mutations, external moves to Explorer cannot be recorded into the internal Undo stack.
-- **Tabs & Breadcrumbs:** Multiple directory tabs and interactive breadcrumb navigation bars are planned for v0.5.
+### Nguyên Tắc Zero-Disk
+1. **Ngân sách cứng:** Không test nào tạo quá 200 file hoặc 5 MB trên đĩa
+2. **InMemoryFileSystem:** Test engine chạy trên virtual file system — file 5 GB tốn 0 byte RAM, 0 byte disk
+3. **TestWorkspace:** Workspace tạm trong `%TEMP%\FM_{purpose}_{guid}`, tự xóa khi Dispose(), quét stale directory > 1 giờ
 
 ---
 
-## 9. Manual Verification Checklist (F5 in Visual Studio)
+## 11. Lịch Sử Phát Triển (Milestones)
 
-### 9.1 Drag and Drop (OLE)
-1. **Inter-Pane Drag:**
-   - Select one or more files in the Left pane; drag and drop onto the Right pane's blank area:
-     - If both panes are on the same drive (e.g. `C:\`), items are **Moved** by default.
-     - If panes are on different drives (e.g. `C:\` and `D:\`), items are **Copied** by default.
-   - Hold **`Ctrl`** while dragging: cursor shows `+` (Copy), files are copied regardless of drive.
-   - Hold **`Shift`** while dragging: files are moved regardless of drive.
-   - Drag to a subfolder row: target folder row highlights with blue accent, items drop directly into the subfolder.
-   - Drag a folder into itself or its own subfolder: cursor shows `No-Drop` ($\oslash$), drop is safely rejected.
-   - Drag files and drop into their own current directory: cursor shows `No-Drop` ($\oslash$), drop is rejected.
-   - Press **`Esc`** while dragging: drag operation cancels cleanly with no mutations.
-   - Multi-Selection Drag: select 3 items, drag one of them: all 3 items are dragged together without deselecting.
-2. **Windows Explorer Integration:**
-   - Drag files from Windows Explorer or Desktop into MyFileManager: files drop cleanly and enqueue into the Transfer Drawer.
-   - Drag files from MyFileManager to Windows Explorer or Desktop: Explorer receives the files and places them at the destination.
-   - Drop causing conflict: ConflictDialog opens; Windows Explorer does not freeze while the modal dialog is displayed.
+| Milestone | Nội dung chính | Trạng thái |
+|:---|:---|:---:|
+| **M1** | Khởi tạo solution, DirectoryService, NavigationHistory, FileEntry | ✅ Hoàn thành |
+| **M2** | Dual-pane layout, sidebar (Favorites + Drives), icon caching, keyboard shortcuts, settings persistence | ✅ Hoàn thành |
+| **M3** | Single-instance (named pipe), startup settings, window bounds clamping | ✅ Hoàn thành |
+| **v0.3** | TransferEngine (Copy/Move), conflict/failure dialog, UndoStack, file operations (Create, Rename) | ✅ Hoàn thành |
+| **v0.4** | Drag-and-drop OLE, Transfer Drawer UI, Write-Ahead Journal, Staging Backup, Crash Recovery | ✅ Hoàn thành |
+| **M4** | Tìm kiếm đệ quy, fuzzy matching, folder filter, type-to-select, Quick Open, Command Palette, FolderIndex + Crawler | ✅ Hoàn thành |
+| **M5a** | Delete / Shift+Delete, Recycle Bin undo, New menu (ShellNew templates) | ✅ Hoàn thành |
+| **M5b** | Multi-Rename / Bulk Rename (token, regex, live preview) | ✅ Hoàn thành |
+| **M5c** | Giải nén ZIP tích hợp (bảo mật zip-slip/bomb, giới hạn, tích hợp queue) | ✅ Hoàn thành |
+| **M6** | Real tabs per pane, independent history/view mode/sort, watcher optimization, session persistence | ✅ Hoàn thành |
+| **Workspace** | Multi-pane grid (lên đến 16 pane), tab drag-to-dock, splitter, DockEdge preview | ✅ Hoàn thành |
+| **UI/UX** | Context menu gốc Windows, breadcrumb bar, view modes, SendTo, ghost drag adorner | ✅ Hoàn thành |
 
-### 9.2 Transfer Drawer & Progress Panel
-1. **Drawer Display:**
-   - Start a transfer: bottom drawer automatically expands, showing transfer cards with Title (*"Copying 3 items → D:\Backup"*), Current file, ProgressBar, speed, and ETA.
-   - Enqueue a second job to the same volume: card shows *"Waiting for drive C..."* (Queued state).
-   - Click the chevron button: drawer collapses into a compact 32 px summary bar (*"1 running · 1 queued · 45% · 120 MB/s"*).
-   - Completed transfers display summary and automatically disappear after 8 seconds.
-   - Click **"Clear finished"**: finished/failed/cancelled jobs are cleared immediately.
-2. **Pause, Resume, and Cancel:**
-   - Click **Pause** on a running job: state transitions to `Pausing` then `Paused`, progress bar stops.
-   - Click **Resume**: streaming resumes from the exact byte offset.
-   - Click **Cancel** on a `Queued` job: job cancels immediately without ever occupying a drive lane or running.
-   - Click **Cancel** while a conflict dialog is open: transfer cancels cleanly and dialog dismisses safely.
+**Thời gian phát triển:** 30/10/2026 → 04/11/2026 (6 ngày) · 107 commits
 
-### 9.3 Undo, Overwrite Staging, and Crash Recovery
-1. **Undo Overwrite:**
-   - Copy a file over an existing destination file: select **Overwrite** in `ConflictDialog` (green banner confirms *"Overwrite is undoable — original will be backed up"*).
-   - After transfer finishes, press **`Ctrl + Z`**: destination file is restored to its exact original contents from staging backup.
-2. **Persistent Journal Recovery:**
-   - Perform a file transfer or new folder creation.
-   - Close MyFileManager and reopen it.
-   - Press **`Ctrl + Z`**: operation is restored from `%LOCALAPPDATA%\MyFileManager\journal\undo-journal.jsonl` and successfully undone!
-3. **Crash Recovery (Kill Process):**
-   - Start copying a large file (e.g. 500 MB) with Overwrite.
-   - Mid-transfer, terminate MyFileManager via Windows Task Manager (`End Task`).
-   - Relaunch MyFileManager: on startup, the crash recovery engine detects the uncommitted operation, automatically cleans up incomplete `.fmpart` files, rolls back the destination file to its pre-crash state, and compacts the journal. Zero user data is lost.
+---
+
+## 12. Roadmap & Kế Hoạch Tương Lai
+
+### 🔴 Ưu Tiên Cao (M7 — Kế hoạch gần)
+
+| Tính năng | Mô tả |
+|:---|:---|
+| **Preview Panel** | Panel xem trước nội dung file bên phải: ảnh (JPG/PNG/GIF/WEBP), video (MP4/MKV), text, code (syntax highlight), PDF, markdown |
+| **Tìm kiếm nội dung file** | Tìm kiếm text bên trong file (grep-like), hỗ trợ regex, encoding tự động |
+| **Nén/tạo ZIP/7z/RAR** | Tạo archive từ selection — hiện tại chỉ hỗ trợ giải nén ZIP |
+| **Bookmarks & Quick Access** | Cho phép người dùng ghim thư mục yêu thích vào sidebar, hỗ trợ nhóm (tag/color) |
+| **Properties Dialog** | Hộp thoại thuộc tính file/folder chi tiết: kích thước tổng, số file con, permissions, hash MD5/SHA |
+
+### 🟡 Ưu Tiên Trung Bình (M8 — Kế hoạch trung hạn)
+
+| Tính năng | Mô tả |
+|:---|:---|
+| **Cloud Storage** | Tích hợp Google Drive, OneDrive, Dropbox — duyệt file đám mây như thư mục cục bộ |
+| **Terminal tích hợp** | Panel terminal (cmd/PowerShell/WSL) mở tại thư mục đang xem |
+| **FTP/SFTP/SMB** | Kết nối và duyệt server từ xa qua giao thức mạng |
+| **Batch file operations** | Thao tác hàng loạt nâng cao: batch move theo pattern, batch convert image format |
+| **Tag & Color label** | Gắn tag màu và nhãn cho file/folder, lưu trong metadata riêng |
+| **Dual-file compare** | So sánh nội dung 2 file side-by-side (text diff, binary diff) |
+
+### 🟢 Ưu Tiên Thấp (Tương lai xa)
+
+| Tính năng | Mô tả |
+|:---|:---|
+| **Plugin system** | Hệ thống mở rộng cho phép cộng đồng viết plugin (.NET hoặc script) |
+| **Theming & Custom CSS** | Tùy chỉnh giao diện: dark mode, custom color scheme, font |
+| **Portable mode** | Chạy từ USB mà không cần cài đặt, settings lưu cùng thư mục ứng dụng |
+| **macOS/Linux** | Port sang Avalonia UI để hỗ trợ đa nền tảng |
+| **Scripting automation** | Hỗ trợ chạy script (PowerShell/Python) trên selection |
+| **AI-powered search** | Tìm kiếm file bằng mô tả tự nhiên, phân loại file tự động |
+
+### 🔧 Cải Thiện Kỹ Thuật Cần Làm
+
+| Hạng mục | Chi tiết |
+|:---|:---|
+| **Hiệu năng khởi động** | Lazy-load sidebar, defer icon loading, splash screen |
+| **Accessibility (a11y)** | Hỗ trợ screen reader, high contrast mode, keyboard-only navigation hoàn chỉnh |
+| **Localization (i18n)** | Đa ngôn ngữ: Tiếng Việt, Tiếng Anh, Tiếng Nhật — hiện tại UI mix Việt-Anh |
+| **CI/CD Pipeline** | GitHub Actions: build + test tự động, release artifact (MSI/MSIX), code coverage badge |
+| **Installer** | Đóng gói MSIX hoặc MSI cho phân phối — hiện tại chỉ chạy từ source |
+| **Auto-update** | Tự kiểm tra và cập nhật phiên bản mới |
+| **Code coverage** | Đạt 90%+ coverage cho FM.Core, 80%+ cho FM.App |
+| **Memory profiling** | Khắc phục memory leak tiềm ẩn khi mở/đóng nhiều tab liên tục |
+| **Error telemetry** | Thu thập crash report ẩn danh (opt-in) để cải thiện độ ổn định |
+
+---
+
+## 13. Hạn Chế Hiện Tại
+
+| Hạn chế | Chi tiết |
+|:---|:---|
+| **Virtual OLE Payloads** | Chưa hỗ trợ kéo-thả file ảo (ví dụ: attachment từ Outlook, file trong archive) — chỉ xử lý `FileDrop` chuẩn |
+| **External Explorer Move** | Khi kéo file từ MyFileManager sang Explorer, Explorer tự xử lý move — không thể ghi vào Undo stack nội bộ |
+| **Giao diện chỉ tiếng Anh** | Hầu hết UI label bằng tiếng Anh, một số tooltip/badge bằng tiếng Việt — chưa có hệ thống i18n |
+| **Chỉ chạy trên Windows** | Phụ thuộc WPF và Win32 API — không khả dụng trên macOS/Linux |
+| **Không có installer** | Cần build từ source hoặc chạy `dotnet run` — chưa có MSI/MSIX |
+| **Preview panel** | Chưa có panel xem trước nội dung file |
+| **Nén file** | Chỉ hỗ trợ giải nén ZIP — chưa hỗ trợ tạo archive hoặc các định dạng khác (7z, RAR) |
+
+---
+
+## Giấy Phép
+
+Dự án cá nhân — Vương Huỳnh © 2026.
