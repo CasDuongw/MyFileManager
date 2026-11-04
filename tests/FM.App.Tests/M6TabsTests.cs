@@ -408,4 +408,34 @@ public class M6TabsTests
         Assert.Single(mainVm.ActivePane.Tabs);
         Assert.Equal(2, mainVm.Panes.Count); // Pane remains open because it has 1 tab left
     }
+
+    [Fact]
+    public void Tabs_ReorderViaMove_MaintainsActiveTabAndOrder()
+    {
+        var pane = new FilePaneViewModel(
+            _innerDirService,
+            _iconService,
+            _fs,
+            settingsService: _settingsService);
+
+        pane.NewTab(@"C:\dir1");
+        pane.NewTab(@"C:\dir2");
+        pane.NewTab(@"C:\dir3");
+
+        // Tabs: [0: Home, 1: dir1, 2: dir2, 3: dir3 (active)]
+        Assert.Equal(4, pane.Tabs.Count);
+        var activeTab = pane.ActiveTab;
+        Assert.Equal(@"C:\dir3", activeTab?.CurrentPath);
+
+        // Move dir3 from index 3 to index 1 (between Home and dir1)
+        int oldIdx = pane.Tabs.IndexOf(activeTab!);
+        int newIdx = 1;
+        pane.Tabs.Move(oldIdx, newIdx);
+
+        Assert.Equal(4, pane.Tabs.Count);
+        Assert.Equal(@"C:\dir3", pane.Tabs[1].CurrentPath);
+        Assert.Equal(@"C:\dir1", pane.Tabs[2].CurrentPath);
+        Assert.Equal(@"C:\dir2", pane.Tabs[3].CurrentPath);
+        Assert.Same(activeTab, pane.ActiveTab);
+    }
 }

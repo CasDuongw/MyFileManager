@@ -1397,6 +1397,12 @@ public partial class FilePaneView : UserControl
         {
             return;
         }
+
+        if (sender is FrameworkElement elem && elem.DataContext is FileTabItemViewModel tab && ViewModel != null)
+        {
+            ViewModel.ActiveTab = tab;
+        }
+
         _tabItemDragStartPoint = e.GetPosition(this);
     }
 
@@ -1415,13 +1421,86 @@ public partial class FilePaneView : UserControl
         {
             if (sender is FrameworkElement elem && elem.DataContext is FileTabItemViewModel tab && ViewModel != null)
             {
-                var data = new DataObject();
-                data.SetData("FM.App.TabItem", tab);
-                data.SetData("FM.App.SourcePane", ViewModel);
-                _tabItemDragStartPoint = null;
-                DragDrop.DoDragDrop(elem, data, DragDropEffects.Move);
+                Window? window = Window.GetWindow(this);
+                UIElement? rootElement = window?.Content as UIElement ?? window;
+                AdornerLayer? layer = rootElement != null ? AdornerLayer.GetAdornerLayer(rootElement) : null;
+
+                if (layer != null && rootElement != null)
+                {
+                    var ghostBorder = CreateTabItemDragVisual(tab.Title);
+                    _currentTabAdorner = new DragAdorner(rootElement, ghostBorder);
+                    layer.Add(_currentTabAdorner);
+                    _currentTabAdorner.UpdatePosition(10, 10);
+                    DragDrop.AddGiveFeedbackHandler(elem, OnTabGiveFeedback);
+                }
+
+                elem.Opacity = 0.4;
+
+                try
+                {
+                    var data = new DataObject();
+                    data.SetData("FM.App.TabItem", tab);
+                    data.SetData("FM.App.SourcePane", ViewModel);
+                    _tabItemDragStartPoint = null;
+                    DragDrop.DoDragDrop(elem, data, DragDropEffects.Move);
+                }
+                finally
+                {
+                    elem.Opacity = 1.0;
+                    _tabItemDragStartPoint = null;
+
+                    if (_currentTabAdorner != null)
+                    {
+                        DragDrop.RemoveGiveFeedbackHandler(elem, OnTabGiveFeedback);
+                        layer?.Remove(_currentTabAdorner);
+                        _currentTabAdorner = null;
+                    }
+                }
             }
         }
+    }
+
+    private Border CreateTabItemDragVisual(string title)
+    {
+        var border = new Border
+        {
+            Background = Brushes.White,
+            BorderBrush = new SolidColorBrush(Color.FromRgb(0xD9, 0x26, 0x62)),
+            BorderThickness = new Thickness(1.5),
+            CornerRadius = new CornerRadius(5),
+            Padding = new Thickness(8, 4, 8, 4),
+            IsHitTestVisible = false,
+            Effect = new DropShadowEffect
+            {
+                Color = Colors.Black,
+                Direction = 270,
+                ShadowDepth = 4,
+                BlurRadius = 10,
+                Opacity = 0.3
+            }
+        };
+
+        var sp = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+        sp.Children.Add(new TextBlock
+        {
+            Text = "📁",
+            FontSize = 11,
+            Foreground = new SolidColorBrush(Color.FromRgb(0xD9, 0x26, 0x62)),
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(0, 0, 5, 0)
+        });
+        sp.Children.Add(new TextBlock
+        {
+            Text = title,
+            FontSize = 11,
+            FontWeight = FontWeights.SemiBold,
+            Foreground = new SolidColorBrush(Color.FromRgb(0x11, 0x18, 0x27)),
+            VerticalAlignment = VerticalAlignment.Center,
+            MaxWidth = 140,
+            TextTrimming = TextTrimming.CharacterEllipsis
+        });
+        border.Child = sp;
+        return border;
     }
 
     private void OnTabItemPreviewMouseLeftButtonUp(object sender, MouseButtonEventArgs e)
@@ -1448,6 +1527,66 @@ public partial class FilePaneView : UserControl
         }
     }
 
+    private void OnTabStripDragOver(object sender, DragEventArgs e)
+    {
+        if (e.Data.GetDataPresent("FM.App.TabItem"))
+        {
+            e.Effects = DragDropEffects.Move;
+            e.Handled = true;
+        }
+    }
+
+    private void OnTabStripDrop(object sender, DragEventArgs e)
+    {
+        if (!e.Data.GetDataPresent("FM.App.TabItem")) return;
+
+        var sourceTab = e.Data.GetData("FM.App.TabItem") as FileTabItemViewModel;
+        var sourcePane = e.Data.GetData("FM.App.SourcePane") as FilePaneViewModel;
+        if (sourceTab == null || ViewModel == null) return;
+
+        Point dropPoint = e.GetPosition(TabItemsControl);
+        int targetIdx = -1;
+
+        for (int i = 0; i < ViewModel.Tabs.Count; i++)
+        {
+            var container = TabItemsControl.ItemContainerGenerator.ContainerFromIndex(i) as FrameworkElement;
+            if (container != null)
+            {
+                Point tabPos = container.TranslatePoint(new Point(0, 0), TabItemsControl);
+                double tabMidX = tabPos.X + container.ActualWidth / 2.0;
+                if (dropPoint.X < tabMidX)
+                {
+                    targetIdx = i;
+                    break;
+                }
+            }
+        }
+
+        if (targetIdx < 0)
+        {
+            targetIdx = ViewModel.Tabs.Count - 1;
+        }
+
+        if (sourcePane == ViewModel)
+        {
+            int oldIdx = ViewModel.Tabs.IndexOf(sourceTab);
+            if (oldIdx >= 0 && targetIdx >= 0 && oldIdx != targetIdx)
+            {
+                ViewModel.Tabs.Move(oldIdx, targetIdx);
+                ViewModel.ActiveTab = sourceTab;
+            }
+        }
+        else if (sourcePane != null)
+        {
+            sourcePane.Tabs.Remove(sourceTab);
+            ViewModel.Tabs.Insert(Math.Clamp(targetIdx, 0, ViewModel.Tabs.Count), sourceTab);
+            ViewModel.ActiveTab = sourceTab;
+        }
+
+        e.Effects = DragDropEffects.Move;
+        e.Handled = true;
+    }
+
     private void OnTabItemDrop(object sender, DragEventArgs e)
     {
         if (sender is FrameworkElement elem && elem.DataContext is FileTabItemViewModel tab)
@@ -1465,12 +1604,17 @@ public partial class FilePaneView : UserControl
                         if (oldIdx >= 0 && newIdx >= 0 && oldIdx != newIdx)
                         {
                             ViewModel.Tabs.Move(oldIdx, newIdx);
+                            ViewModel.ActiveTab = sourceTab;
                         }
                     }
                     else if (sourcePane != null)
                     {
-                        sourcePane.MoveTabToPane(sourceTab, ViewModel);
+                        int targetIdx = ViewModel.Tabs.IndexOf(tab);
+                        sourcePane.Tabs.Remove(sourceTab);
+                        ViewModel.Tabs.Insert(Math.Clamp(targetIdx, 0, ViewModel.Tabs.Count), sourceTab);
+                        ViewModel.ActiveTab = sourceTab;
                     }
+                    e.Effects = DragDropEffects.Move;
                     e.Handled = true;
                 }
             }

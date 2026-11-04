@@ -763,9 +763,12 @@
                                   Grid.Column="0"
                                   HorizontalScrollBarVisibility="Auto"
                                   VerticalScrollBarVisibility="Disabled"
-                                  Focusable="False">
+                                  Focusable="False"
+                                  AllowDrop="True"
+                                  PreviewDragOver="OnTabStripDragOver"
+                                  PreviewDrop="OnTabStripDrop">
                         <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                            <ItemsControl ItemsSource="{Binding Tabs}">
+                            <ItemsControl x:Name="TabItemsControl" ItemsSource="{Binding Tabs}">
                                 <ItemsControl.ItemsPanel>
                                     <ItemsPanelTemplate>
                                         <StackPanel Orientation="Horizontal" />
@@ -814,12 +817,13 @@
                                                 </ContextMenu>
                                             </Border.ContextMenu>
                                             <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                                                <TextBlock Text="📁" FontSize="11" Foreground="#D92662" VerticalAlignment="Center" Margin="0,0,5,0" />
+                                                <TextBlock Text="📁" FontSize="11" Foreground="#D92662" VerticalAlignment="Center" Margin="0,0,5,0" IsHitTestVisible="False" />
                                                 <TextBlock Text="{Binding Title}"
                                                            FontSize="11"
                                                            MaxWidth="120"
                                                            TextTrimming="CharacterEllipsis"
-                                                           VerticalAlignment="Center">
+                                                           VerticalAlignment="Center"
+                                                           IsHitTestVisible="False">
                                                     <TextBlock.Style>
                                                         <Style TargetType="TextBlock">
                                                             <Setter Property="Foreground" Value="#4B5563" />

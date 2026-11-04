@@ -196,7 +196,7 @@ public class WindowsSendToService : ISendToService
         }
     }
 
-    private static string? ResolveShortcutTarget(string shortcutPath)
+    internal static string? ResolveShortcutTarget(string shortcutPath)
     {
         if (!OperatingSystem.IsWindows() || !File.Exists(shortcutPath)) return null;
         IShellLinkW? link = null;

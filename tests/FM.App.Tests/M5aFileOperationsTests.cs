@@ -287,4 +287,37 @@ public class M5aFileOperationsTests
         var reloaded = _settingsService.LoadSettings();
         Assert.True(reloaded.ConfirmNormalDelete);
     }
+
+    [Fact]
+    public void WindowsSendToService_GetTargets_DoesNotThrow()
+    {
+        var service = new WindowsSendToService();
+        var targets = service.GetTargets();
+        Assert.NotNull(targets);
+    }
+
+    [Fact]
+    public void WindowsSendToService_CreateAndResolveShortcut_Succeeds()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        string tempDir = Path.Combine(Path.GetTempPath(), "FMTest_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDir);
+        try
+        {
+            string targetFile = Path.Combine(tempDir, "target.txt");
+            File.WriteAllText(targetFile, "content");
+            string lnkPath = Path.Combine(tempDir, "target.lnk");
+
+            WindowsSendToService.CreateShortcutFile(targetFile, lnkPath);
+            Assert.True(File.Exists(lnkPath));
+
+            string? resolved = WindowsSendToService.ResolveShortcutTarget(lnkPath);
+            Assert.NotNull(resolved);
+            Assert.Equal(Path.GetFullPath(targetFile), Path.GetFullPath(resolved!));
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir)) Directory.Delete(tempDir, true);
+        }
+    }
 }
