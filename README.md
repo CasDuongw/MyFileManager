@@ -81,6 +81,7 @@ Trình quản lý tệp đa cửa sổ (multi-pane) hiệu năng cao cho Windows
 - **Đổi tên** (`F2`): Inline rename trực tiếp trên danh sách
 - **Đổi tên hàng loạt** (Multi-Rename): Pattern token `{name}`, `{ext}`, `{counter}`, `{date}`, tìm/thay thế regex, xem trước trực tiếp
 - **Giải nén ZIP** tích hợp: Kiểm tra bảo mật (zip-slip, bomb detection, file count/size limit), tích hợp hàng đợi transfer
+- **Nâng quyền UAC (M5d)**: Thử lại thao tác với quyền Quản trị viên (Administrator) an toàn khi gặp lỗi `UnauthorizedAccessException` thông qua worker độc lập `FM.Elevated.exe` với xác thực mã băm SHA-256 chống TOCTOU
 - **Hoàn tác** (`Ctrl+Z`): Undo cho Create, Rename, Copy, Move, Overwrite, Delete (khôi phục từ Recycle Bin)
 - **SendTo**: Menu "Send To" giống Windows Explorer (Desktop shortcut, Documents, ổ USB, nén ZIP)
 - **Create Shortcut**: Tạo shortcut `.lnk` cho tệp/thư mục đã chọn
@@ -148,7 +149,7 @@ cd MyFileManager
 # Biên dịch toàn bộ solution (0 warning, 0 error)
 dotnet build MyFileManager.sln
 
-# Chạy toàn bộ bài kiểm thử (521 tests)
+# Chạy toàn bộ bài kiểm thử (532 tests)
 dotnet test MyFileManager.sln
 
 # Chạy benchmark streaming thư mục
@@ -174,6 +175,7 @@ MyFileManager/
 │   ├── FM.Core/                      # Thư viện logic nghiệp vụ thuần (KHÔNG phụ thuộc WPF)
 │   │   ├── CommandLine/              # Phân tích dòng lệnh khởi động
 │   │   ├── Drives/                   # Dịch vụ liệt kê ổ đĩa
+│   │   ├── Elevation/                # Hợp đồng & quy tắc kiểm tra an ninh nâng quyền
 │   │   ├── FileSystem/               # IFileSystem trừu tượng + InMemory + Physical
 │   │   ├── Helpers/                  # Sắp xếp, validate tên tệp, tiện ích đường dẫn
 │   │   ├── Logging/                  # Crash logger
@@ -196,12 +198,17 @@ MyFileManager/
 │   │   ├── ShellIntegration/         # SendTo, ShellNew, đăng ký shell
 │   │   └── Watching/                 # FileSystemWatcher + Polling + Coalescer
 │   │
+│   ├── FM.Elevated/                  # Worker tiến trình đặc quyền (Console, net10.0, zero WPF)
+│   │   ├── Program.cs                # Entry point: hash verify, path security, batch executor
+│   │   └── FM.Elevated.csproj        # Console executable
+│   │
 │   └── FM.App/                       # Ứng dụng WPF (Views & ViewModels)
 │       ├── Collections/              # BulkObservableCollection hiệu năng cao
 │       ├── Converters/               # Value converters cho XAML binding
 │       ├── Helpers/                  # Visual tree, drop effect resolver, format
 │       ├── Models/                   # Tab, Breadcrumb, DockEdge, ViewMode, Layout
 │       ├── Services/
+│       │   ├── Elevation/            # Windows & Fake elevation services
 │       │   ├── QuickOpen/            # Nguồn dữ liệu & catalog cho Quick Open
 │       │   ├── SingleInstance/       # Named pipe single-instance enforcement
 │       │   ├── Icon/Thumbnail        # STA thread worker + cache
@@ -226,8 +233,8 @@ MyFileManager/
 │
 ├── tests/
 │   ├── Common/TestWorkspace.cs       # Test workspace giới hạn (max 200 file / 1 MiB)
-│   ├── FM.Core.Tests/                # 288 bài kiểm thử logic nghiệp vụ
-│   ├── FM.App.Tests/                 # 233 bài kiểm thử ViewModel & tích hợp
+│   ├── FM.Core.Tests/                # 295 bài kiểm thử logic nghiệp vụ
+│   ├── FM.App.Tests/                 # 237 bài kiểm thử ViewModel & tích hợp
 │   └── FM.Benchmarks/               # Benchmark hiệu năng (0 ghi đĩa)
 │
 ├── MyFileManager.sln
@@ -467,57 +474,98 @@ Transfer Engine được thiết kế theo nguyên tắc **không bao giờ mấ
 | **Workspace** | Multi-pane grid (lên đến 16 pane), tab drag-to-dock, splitter, DockEdge preview | ✅ Hoàn thành |
 | **UI/UX** | Context menu gốc Windows, breadcrumb bar, view modes, SendTo, ghost drag adorner | ✅ Hoàn thành |
 
-**Thời gian phát triển:** 30/10/2026 → 04/11/2026 (6 ngày) · 107 commits
+**Thời gian phát triển:** 30/10/2026 → 04/11/2026 (6 ngày) · 109 commits
 
 ---
 
 ## 12. Roadmap & Kế Hoạch Tương Lai
 
-### 🔴 Ưu Tiên Cao (M7 — Kế hoạch gần)
+### 12.1. Chiến Lược Phát Triển Tổng Thể
+Dự án **MyFileManager** được định hướng phát triển từ một trình duyệt file 2 cửa sổ cơ bản thành một **nền tảng quản lý tệp thông minh, toàn diện, bảo mật cao và hiệu năng vượt trội trên Windows**, từng bước mở rộng sang hệ sinh thái đa nền tảng và hỗ trợ cộng đồng mở rộng.
 
-| Tính năng | Mô tả |
+```mermaid
+flowchart LR
+    M1_M6["M1-M6 (Đã Hoàn Thành)\nCore, Dual/Multi-Pane,\nTransfer Engine, Tabs,\nSearch, UAC Elevation"] --> M7["M7: Quản Lý Nội Dung\nPreview Panel,\nContent Search, Nén Archive,\nProperties & Hash"]
+    M7 --> M8["M8: Mở Rộng Hệ Thống\nCloud (Drive/OneDrive),\nTerminal Drawer,\nFTP/SFTP, Dark Mode"]
+    M8 --> M9["M9: Hệ Sinh Thái\nPlugin System, Avalonia Port,\nMSIX/Winget, Auto-Update"]
+```
+
+---
+
+### 12.2. Giai Đoạn M7: Nâng Tầm Trải Nghiệm & Quản Lý Nội Dung (Q4/2026)
+
+#### 🎯 Sub-milestone M7a: Preview Panel Đa Năng (File Content Preview)
+* **Mục tiêu:** Bổ sung panel xem trước nội dung tệp ở cạnh phải màn hình hoặc overlay xem nhanh kiểu macOS Quick Look (phím tắt `Space` hoặc `Ctrl+Q`).
+* **Định dạng hỗ trợ:**
+  * **Hình ảnh:** JPG, JPEG, PNG, GIF (animated playback), BMP, WEBP, ICO, SVG, TIFF (kèm thông số Exif: camera, ISO, khẩu độ, ngày chụp; hỗ trợ phóng to/thu nhỏ, xoay ảnh).
+  * **Video & Âm thanh:** MP4, MKV, AVI, MOV, MP3, WAV, FLAC, M4A với bộ điều khiển phát cơ bản (play/pause, thanh tua, âm lượng).
+  * **Văn bản & Mã nguồn:** TXT, LOG, JSON, XML, YAML, C#, C++, Python, JavaScript, TypeScript, HTML, CSS (tự động nhận diện encoding, syntax highlighting, đánh số dòng, wrap text).
+  * **Tài liệu & Đánh dấu:** Markdown (render HTML xem trước hoàn chỉnh kèm code block và bảng), PDF (render trang xem trước mượt mà không phụ thuộc Adobe Acrobat).
+* **Kiến trúc & Giới hạn an toàn:**
+  * Toàn bộ việc đọc tệp chạy trên background thread, nạp tối đa 20 MB đầu của file text để tránh tràn RAM.
+  * Hủy tác vụ nạp (cancellation token) tức thì khi người dùng di chuyển sang chọn file khác trong danh sách.
+
+#### 🎯 Sub-milestone M7b: Tìm Kiếm Nội Dung Tệp (File Content Search & Grep)
+* **Mục tiêu:** Cho phép người dùng tìm kiếm chuỗi văn bản hoặc biểu thức chính quy (Regex) bên trong nội dung các tệp tin trong cây thư mục.
+* **Chi tiết kỹ thuật:**
+  * Cú pháp tìm kiếm linh hoạt: `content:"chuỗi cần tìm"` hoặc bật checkbox *"Tìm trong nội dung"*.
+  * Tự động phát hiện encoding tệp (BOM detection, UTF-8 validator, Windows-1258 tiếng Việt, UTF-16 LE/BE).
+  * Heuristic phát hiện tệp nhị phân (null-byte inspection trong 1.024 byte đầu) để bỏ qua các tệp thực thi / media, tránh lãng phí CPU.
+  * Hiển thị danh sách kết quả kèm số dòng và đoạn trích (snippet) tô sáng từ khóa khớp.
+
+#### 🎯 Sub-milestone M7c: Nén Tệp & Quản Lý Archive Toàn Diện (Compression & Virtual Archive)
+* **Mục tiêu:** Nâng cấp từ giải nén ZIP hiện tại thành hệ thống quản lý nén/giải nén hoàn chỉnh.
+* **Chi tiết kỹ thuật:**
+  * Tạo file nén mới từ danh sách tệp/thư mục đã chọn (`Ctrl+Shift+Z` hoặc context menu).
+  * Định dạng hỗ trợ tạo: `.zip`, `.tar.gz`. Định dạng hỗ trợ giải nén: `.zip`, `.7z`, `.rar`, `.tar`, `.gz`.
+  * Hỗ trợ đặt mật khẩu mã hóa chuẩn AES-256 cho file nén.
+  * Tùy chọn cấp độ nén: *Store (0), Fastest (1), Fast (3), Normal (5), Maximum (7), Ultra (9)*.
+  * **Virtual Archive Navigation:** Cho phép nhấn Enter để đi vào trong file ZIP duyệt như một thư mục thông thường mà không cần giải nén ra đĩa.
+
+#### 🎯 Sub-milestone M7d: Properties Dialog & Tính Toán Mã Băm (Properties & Checksum)
+* **Mục tiêu:** Hộp thoại thuộc tính chuyên sâu phong cách Windows 11 Fluent (`Alt+Enter`).
+* **Chi tiết kỹ thuật:**
+  * Quét và đếm chính xác tổng dung lượng, số tệp con, số thư mục con theo thời gian thực mà không khóa UI.
+  * Tính toán song song các mã băm: **SHA-256, SHA-1, MD5, CRC32**.
+  * Hỗ trợ nút *"So sánh với Clipboard"* để người dùng kiểm tra ngay tính toàn vẹn của tệp tải về từ Internet.
+  * Cho phép xem và thay đổi nhanh các thuộc tính hệ thống: `ReadOnly`, `Hidden`, `Archive`, `System`.
+
+---
+
+### 12.3. Giai Đoạn M8: Mở Rộng Hệ Thống & Tích Hợp Đám Mây (Q1/2027)
+
+| Tính năng | Chi tiết kỹ thuật |
 |:---|:---|
-| **Preview Panel** | Panel xem trước nội dung file bên phải: ảnh (JPG/PNG/GIF/WEBP), video (MP4/MKV), text, code (syntax highlight), PDF, markdown |
-| **Tìm kiếm nội dung file** | Tìm kiếm text bên trong file (grep-like), hỗ trợ regex, encoding tự động |
-| **Nén/tạo ZIP/7z/RAR** | Tạo archive từ selection — hiện tại chỉ hỗ trợ giải nén ZIP |
-| **Bookmarks & Quick Access** | Cho phép người dùng ghim thư mục yêu thích vào sidebar, hỗ trợ nhóm (tag/color) |
-| **Properties Dialog** | Hộp thoại thuộc tính file/folder chi tiết: kích thước tổng, số file con, permissions, hash MD5/SHA |
+| **Lưu trữ đám mây (Cloud Storage)** | Tích hợp Google Drive, Microsoft OneDrive, Dropbox thông qua REST API ảo hóa dưới dạng Virtual Filesystem, cho phép duyệt, kéo-thả tải lên/xuống trực tiếp. |
+| **Giao thức mạng từ xa (FTP/SFTP/WebDAV/SMB)** | Kết nối đến máy chủ Linux hoặc NAS từ xa qua giao thức SFTP (SSH), FTP, WebDAV, SMB; lưu trữ thông tin đăng nhập an toàn bằng Windows Credential Manager. |
+| **Terminal Drawer tích hợp** | Panel dòng lệnh ở cạnh đáy (`Ctrl+\``) tích hợp sẵn PowerShell, CMD và WSL; tự động chuyển thư mục làm việc (`cd`) theo pane hiện hành. |
+| **Giao diện Dark Mode & Fluent Design** | Hỗ trợ chuyển đổi mượt mà giữa Dark Mode và Light Mode (tự động theo Windows hoặc tùy chọn); hiệu ứng kính mờ Windows 11 Mica / Acrylic; cho phép tùy biến màu chủ đạo (Accent Color). |
+| **So sánh tệp đôi (Dual-File Compare & Diff)** | Chọn 2 tệp văn bản ở 2 pane và kích hoạt cửa sổ so sánh song song (`Ctrl+Alt+D`); highlight trực quan các dòng được thêm, xóa hoặc sửa đổi. |
+| **Bookmarks & Tag màu (Color Labels)** | Ghim thư mục thường dùng vào sidebar phân nhóm; gắn nhãn màu (Đỏ, Xanh, Vàng, Cam) cho tệp/thư mục để phân loại dự án trực quan. |
 
-### 🟡 Ưu Tiên Trung Bình (M8 — Kế hoạch trung hạn)
+---
 
-| Tính năng | Mô tả |
+### 12.4. Giai Đoạn M9: Hệ Sinh Thái & Đa Nền Tảng (Q2/2027)
+
+| Hạng mục | Định hướng triển khai |
 |:---|:---|
-| **Cloud Storage** | Tích hợp Google Drive, OneDrive, Dropbox — duyệt file đám mây như thư mục cục bộ |
-| **Terminal tích hợp** | Panel terminal (cmd/PowerShell/WSL) mở tại thư mục đang xem |
-| **FTP/SFTP/SMB** | Kết nối và duyệt server từ xa qua giao thức mạng |
-| **Batch file operations** | Thao tác hàng loạt nâng cao: batch move theo pattern, batch convert image format |
-| **Tag & Color label** | Gắn tag màu và nhãn cho file/folder, lưu trong metadata riêng |
-| **Dual-file compare** | So sánh nội dung 2 file side-by-side (text diff, binary diff) |
+| **Hệ thống Plugin mở rộng** | Xây dựng kiến trúc Plugin Engine dựa trên .NET Assembly Isolation (`AssemblyLoadContext`); cung cấp API công khai cho cộng đồng viết thêm: Previewer mới, Lưu trữ đám mây mới, Công cụ xử lý file tự động. |
+| **Đa nền tảng (macOS / Linux)** | Tách hoàn toàn tầng giao diện WPF thành giao diện trừu tượng, triển khai phiên bản đa nền tảng bằng **Avalonia UI**, giữ nguyên 100% logic nghiệp vụ `FM.Core`. |
+| **Đóng gói & Phân phối chuẩn** | Đóng gói cài đặt Windows bằng MSIX và WiX Toolset (MSI); đưa ứng dụng lên **Microsoft Store** và kho phần mềm **Windows Package Manager** (`winget install MyFileManager`). |
+| **Tự động cập nhật (Auto-Updater)** | Tích hợp cơ chế tự động kiểm tra bản cập nhật và tải bản vá delta gọn nhẹ thông qua Velopack / Squirrel, cài đặt ngầm không làm gián đoạn người dùng. |
 
-### 🟢 Ưu Tiên Thấp (Tương lai xa)
+---
 
-| Tính năng | Mô tả |
+### 12.5. Kế Hoạch Cải Thiện Kỹ Thuật & Tối Ưu Hóa (Quality & Engineering Plan)
+
+| Trọng tâm | Kế hoạch thực hiện & Tiêu chí nghiệm thu |
 |:---|:---|
-| **Plugin system** | Hệ thống mở rộng cho phép cộng đồng viết plugin (.NET hoặc script) |
-| **Theming & Custom CSS** | Tùy chỉnh giao diện: dark mode, custom color scheme, font |
-| **Portable mode** | Chạy từ USB mà không cần cài đặt, settings lưu cùng thư mục ứng dụng |
-| **macOS/Linux** | Port sang Avalonia UI để hỗ trợ đa nền tảng |
-| **Scripting automation** | Hỗ trợ chạy script (PowerShell/Python) trên selection |
-| **AI-powered search** | Tìm kiếm file bằng mô tả tự nhiên, phân loại file tự động |
-
-### 🔧 Cải Thiện Kỹ Thuật Cần Làm
-
-| Hạng mục | Chi tiết |
-|:---|:---|
-| **Hiệu năng khởi động** | Lazy-load sidebar, defer icon loading, splash screen |
-| **Accessibility (a11y)** | Hỗ trợ screen reader, high contrast mode, keyboard-only navigation hoàn chỉnh |
-| **Localization (i18n)** | Đa ngôn ngữ: Tiếng Việt, Tiếng Anh, Tiếng Nhật — hiện tại UI mix Việt-Anh |
-| **CI/CD Pipeline** | GitHub Actions: build + test tự động, release artifact (MSI/MSIX), code coverage badge |
-| **Installer** | Đóng gói MSIX hoặc MSI cho phân phối — hiện tại chỉ chạy từ source |
-| **Auto-update** | Tự kiểm tra và cập nhật phiên bản mới |
-| **Code coverage** | Đạt 90%+ coverage cho FM.Core, 80%+ cho FM.App |
-| **Memory profiling** | Khắc phục memory leak tiềm ẩn khi mở/đóng nhiều tab liên tục |
-| **Error telemetry** | Thu thập crash report ẩn danh (opt-in) để cải thiện độ ổn định |
+| **Khởi động lạnh (Cold-Start)** | Tối ưu thời gian khởi động từ đĩa xuống **< 250 ms** thông qua công nghệ biên dịch ReadyToRun (R2R) / Native AOT, trì hoãn nạp danh sách ổ đĩa ngoại vi (deferred lazy-init). |
+| **Tối ưu hóa bộ nhớ (RAM Profiling)** | Tiến hành profiling bộ nhớ bằng JetBrains dotMemory; đảm bảo khi mở và đóng liên tục 100 tab hoặc duyệt qua 50.000 tệp, bộ nhớ Working Set không bị rò rỉ (no leak) và giải phóng sạch sau `GC.Collect()`. |
+| **Xử lý Virtual OLE Payload** | Nâng cấp tầng OLE Drag-and-Drop hỗ trợ định dạng `FileGroupDescriptor` và `FileContents`, cho phép người dùng kéo trực tiếp tệp đính kèm từ Microsoft Outlook hoặc từ phần mềm nén (WinRAR/7-Zip) thả thẳng vào pane. |
+| **Quốc tế hóa hoàn chỉnh (i18n)** | Xây dựng hệ thống tài nguyên chuỗi đa ngôn ngữ (Localization), hỗ trợ đầy đủ 3 ngôn ngữ: **Tiếng Việt, Tiếng Anh, Tiếng Nhật**; người dùng có thể đổi ngôn ngữ tức thì trong Settings mà không cần khởi động lại app. |
+| **CI/CD Pipeline tự động** | Thiết lập quy trình GitHub Actions tự động: kích hoạt build, chạy 532+ unit tests, quét mã tĩnh (SonarQube / CodeQL) và tự tạo bản Release draft mỗi khi tạo Git Tag. |
+| **Code Coverage Gate** | Nâng độ phủ kiểm thử tự động đạt tối thiểu **> 92%** cho `FM.Core` và **> 88%** cho `FM.App`. |
 
 ---
 
@@ -527,11 +575,11 @@ Transfer Engine được thiết kế theo nguyên tắc **không bao giờ mấ
 |:---|:---|
 | **Virtual OLE Payloads** | Chưa hỗ trợ kéo-thả file ảo (ví dụ: attachment từ Outlook, file trong archive) — chỉ xử lý `FileDrop` chuẩn |
 | **External Explorer Move** | Khi kéo file từ MyFileManager sang Explorer, Explorer tự xử lý move — không thể ghi vào Undo stack nội bộ |
-| **Giao diện chỉ tiếng Anh** | Hầu hết UI label bằng tiếng Anh, một số tooltip/badge bằng tiếng Việt — chưa có hệ thống i18n |
+| **Giao diện chỉ tiếng Anh** | Hầu hết UI label bằng tiếng Anh, một số tooltip/badge bằng tiếng Việt — chưa có hệ thống i18n hoàn chỉnh |
 | **Chỉ chạy trên Windows** | Phụ thuộc WPF và Win32 API — không khả dụng trên macOS/Linux |
-| **Không có installer** | Cần build từ source hoặc chạy `dotnet run` — chưa có MSI/MSIX |
-| **Preview panel** | Chưa có panel xem trước nội dung file |
-| **Nén file** | Chỉ hỗ trợ giải nén ZIP — chưa hỗ trợ tạo archive hoặc các định dạng khác (7z, RAR) |
+| **Chưa có gói cài đặt MSIX/MSI** | Hiện chạy trực tiếp từ mã nguồn hoặc thư mục Release build — chưa có installer tự động |
+| **Panel xem trước** | Chưa có panel xem trước nội dung file (dự kiến hoàn thành trong Milestone M7a) |
+| **Nén file** | Chỉ hỗ trợ giải nén ZIP — tính năng tạo file nén dự kiến hoàn thành trong Milestone M7c |
 
 ---
 
