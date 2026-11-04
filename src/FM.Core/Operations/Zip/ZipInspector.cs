@@ -104,3 +104,4 @@ public static class ZipInspector
         return (totalBytes, fileCount);
     }
 }
+

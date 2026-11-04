@@ -32,3 +32,4 @@ public static class ZipSecurityLimits
     /// </summary>
     public const long RatioCheckThresholdBytes = 10L * 1024 * 1024;
 }
+
