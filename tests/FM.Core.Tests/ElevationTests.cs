@@ -105,3 +105,4 @@ public class ElevationTests
         Assert.Equal(12, ElevationExitCodes.ExecutionFailed);
     }
 }
+

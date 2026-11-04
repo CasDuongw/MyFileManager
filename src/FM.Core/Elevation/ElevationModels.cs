@@ -40,3 +40,4 @@ public static class ElevationExitCodes
     public const int PayloadCorrupt = 11;
     public const int ExecutionFailed = 12;
 }
+

@@ -112,3 +112,4 @@ public class WindowsElevationService : IElevationService
         return directPath;
     }
 }
+

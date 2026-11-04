@@ -6,3 +6,4 @@ public interface IElevationService
 
     Task<ElevationResponse> ExecuteElevatedAsync(ElevationPayload payload, CancellationToken ct = default);
 }
+
