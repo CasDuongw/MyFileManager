@@ -1165,13 +1165,20 @@ public partial class FilePaneViewModel : ObservableObject, IDisposable
         }
     }
 
-    public void MoveTabToPane(FileTabItemViewModel tab, FilePaneViewModel targetPane)
+    public void MoveTabToPane(FileTabItemViewModel tab, FilePaneViewModel targetPane, int targetIndex = -1)
     {
         if (tab == null || targetPane == null || targetPane == this) return;
 
         SaveTabState(tab);
         Tabs.Remove(tab);
-        targetPane.Tabs.Add(tab);
+        if (targetIndex >= 0 && targetIndex <= targetPane.Tabs.Count)
+        {
+            targetPane.Tabs.Insert(targetIndex, tab);
+        }
+        else
+        {
+            targetPane.Tabs.Add(tab);
+        }
         targetPane.ActiveTab = tab;
 
         if (Tabs.Count == 0)

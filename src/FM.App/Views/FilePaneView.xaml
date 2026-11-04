@@ -795,11 +795,11 @@
                                                     <Setter Property="BorderBrush" Value="#E5E7EB" />
                                                     <Style.Triggers>
                                                         <DataTrigger Binding="{Binding IsActive}" Value="True">
-                                                            <Setter Property="Background" Value="#FFFFFF" />
-                                                            <Setter Property="BorderBrush" Value="#FECDD3" />
+                                                             <Setter Property="Background" Value="#FFFFFF" />
+                                                             <Setter Property="BorderBrush" Value="#FECDD3" />
                                                         </DataTrigger>
                                                         <DataTrigger Binding="{Binding IsUnavailable}" Value="True">
-                                                            <Setter Property="Opacity" Value="0.55" />
+                                                             <Setter Property="Opacity" Value="0.55" />
                                                         </DataTrigger>
                                                     </Style.Triggers>
                                                 </Style>
