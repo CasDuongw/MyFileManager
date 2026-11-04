@@ -1151,41 +1151,45 @@ public partial class FilePaneView : UserControl
             double relX = Math.Clamp(pos.X / w, 0.0, 1.0);
             double relY = Math.Clamp(pos.Y / h, 0.0, 1.0);
 
-            // Edge docking zone: outer 25% of pane width/height.
-            // Center 50% zone is Swap zone (everywhere inside pane is responsive).
-            const double threshold = 0.25;
-
-            double distLeft = relX;
-            double distRight = 1.0 - relX;
-            double distTop = relY;
-            double distBottom = 1.0 - relY;
-
-            double minDist = Math.Min(Math.Min(distLeft, distRight), Math.Min(distTop, distBottom));
-
             var mainVm = Window.GetWindow(this)?.DataContext as MainViewModel;
             DockEdge newEdge;
 
-            // In TripleLeft layout: the Left pane (Panes[0]) is a single full-height column.
-            // Any tab dropped on it moves to the Left (taking position 0).
-            // Highlight the entire pane to clearly indicate that dropping anywhere here docks to the Left!
-            if (mainVm != null && mainVm.LayoutMode == PaneLayoutMode.TripleLeft && ViewModel == mainVm.Panes.FirstOrDefault())
+            // In multi-pane workspaces with >= 3 panes (TripleLeft, QuadGrid),
+            // dropping onto ANY pane swaps positions with that pane.
+            // The ENTIRE target pane is highlighted in pink with the "⇄ Hoán đổi vị trí" badge
+            // so the visual preview matches the drop action 100% and never jumps to an unintended pane.
+            if (mainVm != null && mainVm.Panes.Count >= 3)
             {
                 newEdge = DockEdge.Center;
-            }
-            else if (minDist <= threshold)
-            {
-                if (minDist == distLeft)
-                    newEdge = DockEdge.Left;
-                else if (minDist == distRight)
-                    newEdge = DockEdge.Right;
-                else if (minDist == distTop)
-                    newEdge = DockEdge.Top;
-                else
-                    newEdge = DockEdge.Bottom;
             }
             else
             {
-                newEdge = DockEdge.Center;
+                // Edge docking zone: outer 25% of pane width/height.
+                // Center 50% zone is Swap zone (everywhere inside pane is responsive).
+                const double threshold = 0.25;
+
+                double distLeft = relX;
+                double distRight = 1.0 - relX;
+                double distTop = relY;
+                double distBottom = 1.0 - relY;
+
+                double minDist = Math.Min(Math.Min(distLeft, distRight), Math.Min(distTop, distBottom));
+
+                if (minDist <= threshold)
+                {
+                    if (minDist == distLeft)
+                        newEdge = DockEdge.Left;
+                    else if (minDist == distRight)
+                        newEdge = DockEdge.Right;
+                    else if (minDist == distTop)
+                        newEdge = DockEdge.Top;
+                    else
+                        newEdge = DockEdge.Bottom;
+                }
+                else
+                {
+                    newEdge = DockEdge.Center;
+                }
             }
 
             if (newEdge != _currentDockEdge)

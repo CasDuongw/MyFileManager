@@ -363,6 +363,49 @@ public class MultiPaneWorkspaceTests
     }
 
     [Fact]
+    public void DockPane_InTripleLeft_DroppingTopRightOnBottomRight_SwapsRightPanes_LeftPaneUnchanged()
+    {
+        var vm = new MainViewModel(_dirService, _iconService, _settingsService, _fs);
+        vm.SetLayoutCommand.Execute("TripleLeft");
+        Assert.Equal(3, vm.Panes.Count);
+
+        var p0_left = vm.Panes[0];
+        var p1_topRight = vm.Panes[1];
+        var p2_bottomRight = vm.Panes[2];
+
+        // Drag Top-Right pane onto Bottom-Right pane with DockEdge.Bottom (or Center)
+        vm.DockPane(p1_topRight, p2_bottomRight, DockEdge.Bottom);
+
+        // Top-Right and Bottom-Right must swap!
+        // The Left pane (Panes[0]) must NOT be affected!
+        Assert.Equal(p0_left, vm.Panes[0]);
+        Assert.Equal(p2_bottomRight, vm.Panes[1]);
+        Assert.Equal(p1_topRight, vm.Panes[2]);
+        Assert.Same(p1_topRight, vm.ActivePane);
+    }
+
+    [Fact]
+    public void DockPane_InTripleLeft_DroppingTopRightOnBottomRightNearLeftBorder_DoesNotJumpToLeftPane()
+    {
+        var vm = new MainViewModel(_dirService, _iconService, _settingsService, _fs);
+        vm.SetLayoutCommand.Execute("TripleLeft");
+        Assert.Equal(3, vm.Panes.Count);
+
+        var p0_left = vm.Panes[0];
+        var p1_topRight = vm.Panes[1];
+        var p2_bottomRight = vm.Panes[2];
+
+        // Drag Top-Right onto Bottom-Right with DockEdge.Left (near the left border of bottom-right pane)
+        vm.DockPane(p1_topRight, p2_bottomRight, DockEdge.Left);
+
+        // Must still swap with Bottom-Right, NEVER jumping to Left pane!
+        Assert.Equal(p0_left, vm.Panes[0]);
+        Assert.Equal(p2_bottomRight, vm.Panes[1]);
+        Assert.Equal(p1_topRight, vm.Panes[2]);
+        Assert.Same(p1_topRight, vm.ActivePane);
+    }
+
+    [Fact]
     public void DockPane_InTripleLeft_DroppingLeftPaneBelowTopRightPane_MovesDraggedPaneToBottomRight()
     {
         var vm = new MainViewModel(_dirService, _iconService, _settingsService, _fs);

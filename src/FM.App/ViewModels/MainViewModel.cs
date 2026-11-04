@@ -1294,11 +1294,11 @@ public partial class MainViewModel : ObservableObject
 
             {
 
-                if (edge == DockEdge.Left)
+                if (edge == DockEdge.Left && tIdx == 1)
 
                 {
 
-                    // Dragged towards the left edge -> user wants to move this pane to the LEFT column!
+                    // Dragged towards the left edge of Top-Right pane -> user wants to move this pane to the LEFT column!
 
                     SwapPanes(sIdx, 0);
 
