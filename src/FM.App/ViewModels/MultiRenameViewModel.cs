@@ -95,6 +95,7 @@ public sealed partial class MultiRenameViewModel : ObservableObject
     public ObservableCollection<MultiRenameRowViewModel> Rows { get; } = new();
 
     public MultiRenamePlan? CurrentPlan { get; private set; }
+    private readonly object _rowsLock = new();
 
     public MultiRenameViewModel(
         IReadOnlyList<MultiRenameItemInput> inputs,
@@ -195,6 +196,11 @@ public sealed partial class MultiRenameViewModel : ObservableObject
 
     public async Task CalculatePreviewAsync(CancellationToken ct = default)
     {
+        if (ct == default)
+        {
+            _previewCts?.Cancel();
+        }
+
         var options = new MultiRenameOptions(
             Pattern: Pattern,
             ExtCase: ExtCase,
@@ -211,32 +217,35 @@ public sealed partial class MultiRenameViewModel : ObservableObject
 
         RunOnUi(() =>
         {
-            if (ct.IsCancellationRequested) return;
+            lock (_rowsLock)
+            {
+                if (ct.IsCancellationRequested) return;
 
-            CurrentPlan = plan;
-            Rows.Clear();
-            foreach (var r in rowList)
-            {
-                Rows.Add(r);
-            }
+                CurrentPlan = plan;
+                Rows.Clear();
+                foreach (var r in rowList)
+                {
+                    Rows.Add(r);
+                }
 
-            if (plan.HasErrors)
-            {
-                StatusSummary = $"{plan.ErrorCount} conflict(s) or invalid name(s) detected. Fix errors to proceed.";
-                CanExecute = false;
-            }
-            else if (plan.TotalChanged == 0)
-            {
-                StatusSummary = "No files will be modified (all names unchanged).";
-                CanExecute = false;
-            }
-            else
-            {
-                StatusSummary = $"{plan.TotalChanged} of {plan.Items.Count} item(s) will be renamed.";
-                CanExecute = true;
-            }
+                if (plan.HasErrors)
+                {
+                    StatusSummary = $"{plan.ErrorCount} conflict(s) or invalid name(s) detected. Fix errors to proceed.";
+                    CanExecute = false;
+                }
+                else if (plan.TotalChanged == 0)
+                {
+                    StatusSummary = "No files will be modified (all names unchanged).";
+                    CanExecute = false;
+                }
+                else
+                {
+                    StatusSummary = $"{plan.TotalChanged} of {plan.Items.Count} item(s) will be renamed.";
+                    CanExecute = true;
+                }
 
-            IsCalculating = false;
+                IsCalculating = false;
+            }
         });
     }
 
