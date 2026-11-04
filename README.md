@@ -2,7 +2,7 @@
 
 Trình quản lý tệp đa cửa sổ (multi-pane) hiệu năng cao cho Windows, được xây dựng bằng **.NET 10**, **WPF**, và kiến trúc **MVVM** hiện đại (`CommunityToolkit.Mvvm`).
 
-> **Trạng thái hiện tại:** Đang phát triển tích cực · 107 commits · 164 file mã nguồn · ~38.000 dòng code ứng dụng + ~10.900 dòng test · 521 bài kiểm thử tự động
+> **Trạng thái hiện tại:** Đang phát triển tích cực · 109 commits · 170+ file mã nguồn · ~39.000 dòng code ứng dụng + ~11.000 dòng test · 532 bài kiểm thử tự động (100% PASS)
 
 ---
 
@@ -438,9 +438,9 @@ Transfer Engine được thiết kế theo nguyên tắc **không bao giờ mấ
 ## 10. Chính Sách Kiểm Thử
 
 ### Tổng Quan Test Suite
-- **FM.Core.Tests:** 288 bài kiểm thử — logic nghiệp vụ thuần, không WPF
-- **FM.App.Tests:** 233 bài kiểm thử — ViewModel, tích hợp, plumbing
-- **Tổng cộng: 521 bài kiểm thử**, 0 warning, 0 error
+- **FM.Core.Tests:** 295 bài kiểm thử — logic nghiệp vụ thuần, không WPF
+- **FM.App.Tests:** 237 bài kiểm thử — ViewModel, tích hợp, plumbing
+- **Tổng cộng: 532 bài kiểm thử**, 0 warning, 0 error
 
 ### Nguyên Tắc Zero-Disk
 1. **Ngân sách cứng:** Không test nào tạo quá 200 file hoặc 5 MB trên đĩa
@@ -462,6 +462,7 @@ Transfer Engine được thiết kế theo nguyên tắc **không bao giờ mấ
 | **M5a** | Delete / Shift+Delete, Recycle Bin undo, New menu (ShellNew templates) | ✅ Hoàn thành |
 | **M5b** | Multi-Rename / Bulk Rename (token, regex, live preview) | ✅ Hoàn thành |
 | **M5c** | Giải nén ZIP tích hợp (bảo mật zip-slip/bomb, giới hạn, tích hợp queue) | ✅ Hoàn thành |
+| **M5d** | Nâng quyền UAC (UAC Elevation Worker độc lập `FM.Elevated`, xác thực SHA-256 chống TOCTOU, path denylist, retry khi bị từ chối) | ✅ Hoàn thành |
 | **M6** | Real tabs per pane, independent history/view mode/sort, watcher optimization, session persistence | ✅ Hoàn thành |
 | **Workspace** | Multi-pane grid (lên đến 16 pane), tab drag-to-dock, splitter, DockEdge preview | ✅ Hoàn thành |
 | **UI/UX** | Context menu gốc Windows, breadcrumb bar, view modes, SendTo, ghost drag adorner | ✅ Hoàn thành |
