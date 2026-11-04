@@ -67,6 +67,7 @@ public partial class FilePaneViewModel : ObservableObject, IDisposable
 
     public Func<IReadOnlyList<string>>? GetOpenPanePaths { get; set; }
     public Func<IReadOnlyList<string>>? GetApprovedRoots { get; set; }
+    public Func<TransferKind, IReadOnlyList<string>, string, ITransferJob?>? EnqueueTransferAction { get; set; }
     public event Action? FindBarOpened;
     private readonly NavigationHistory _history = new();
     private CancellationTokenSource? _loadCts;
@@ -427,6 +428,11 @@ public partial class FilePaneViewModel : ObservableObject, IDisposable
         OnPropertyChanged(nameof(SelectedItemPath));
         OnPropertyChanged(nameof(SelectedItemIcon));
         OnPropertyChanged(nameof(HasSelectedItem));
+        OnPropertyChanged(nameof(CanExtractZip));
+        OnPropertyChanged(nameof(ExtractToFolderText));
+        ExtractAllCommand.NotifyCanExecuteChanged();
+        ExtractHereCommand.NotifyCanExecuteChanged();
+        ExtractToSubfolderCommand.NotifyCanExecuteChanged();
     }
 
     public string SelectedItemName => SelectedItem?.Name ?? "No item selected";
@@ -894,6 +900,85 @@ public partial class FilePaneViewModel : ObservableObject, IDisposable
             }
         }
     }
+
+    #region ZIP Extraction Commands
+
+    public bool CanExtractZip =>
+        SelectedItem != null &&
+        !SelectedItem.IsDirectory &&
+        SelectedItem.FullPath.EndsWith(".zip", StringComparison.OrdinalIgnoreCase);
+
+    public string ExtractToFolderText
+    {
+        get
+        {
+            if (SelectedItem == null) return "Extract to folder\\";
+            string baseName = Path.GetFileNameWithoutExtension(SelectedItem.Name);
+            return $"Extract to {baseName}\\";
+        }
+    }
+
+    [RelayCommand(CanExecute = nameof(CanExtractZip))]
+    public void ExtractAll()
+    {
+        if (!CanExtractZip || SelectedItem == null) return;
+
+        string sourceZip = SelectedItem.FullPath;
+        string defaultDest = Path.Combine(CurrentPath, Path.GetFileNameWithoutExtension(SelectedItem.Name));
+
+        var input = _inputDialogService.Prompt(
+            "Extract All",
+            "Extract files to destination folder:",
+            defaultDest);
+
+        if (string.IsNullOrWhiteSpace(input)) return;
+
+        EnqueueExtract(sourceZip, input.Trim());
+        SetStatusText($"Extracting {Path.GetFileName(sourceZip)}...");
+    }
+
+    [RelayCommand(CanExecute = nameof(CanExtractZip))]
+    public void ExtractHere()
+    {
+        if (!CanExtractZip || SelectedItem == null) return;
+
+        string sourceZip = SelectedItem.FullPath;
+        EnqueueExtract(sourceZip, CurrentPath);
+        SetStatusText($"Extracting {Path.GetFileName(sourceZip)} to current folder...");
+    }
+
+    [RelayCommand(CanExecute = nameof(CanExtractZip))]
+    public void ExtractToSubfolder()
+    {
+        if (!CanExtractZip || SelectedItem == null) return;
+
+        string sourceZip = SelectedItem.FullPath;
+        string subfolder = Path.Combine(CurrentPath, Path.GetFileNameWithoutExtension(SelectedItem.Name));
+        EnqueueExtract(sourceZip, subfolder);
+        SetStatusText($"Extracting {Path.GetFileName(sourceZip)} to {Path.GetFileName(subfolder)}...");
+    }
+
+    public ITransferJob? EnqueueExtract(string sourceZip, string destinationDirectory)
+    {
+        if (EnqueueTransferAction != null)
+        {
+            return EnqueueTransferAction(TransferKind.Extract, new[] { sourceZip }, destinationDirectory);
+        }
+
+        if (_transferQueue != null)
+        {
+            var req = new TransferRequest(
+                TransferKind.Extract,
+                new[] { sourceZip },
+                destinationDirectory,
+                new TransferOptions(DefaultConflict: ConflictAction.KeepBoth));
+            return _transferQueue.Enqueue(req);
+        }
+
+        return null;
+    }
+
+    #endregion
 
     #region Context Menu & Clipboard Commands
 

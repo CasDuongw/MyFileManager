@@ -123,6 +123,15 @@ public class CommandCatalog : ICommandCatalog
             },
             new()
             {
+                Id = "file.extract-zip",
+                Title = "Extract ZIP Archive...",
+                Category = "File",
+                ShortcutText = "",
+                CanExecute = () => pane?.CanExtractZip == true,
+                Execute = () => pane?.ExtractAll()
+            },
+            new()
+            {
                 Id = "edit.select-all",
                 Title = "Select All",
                 Category = "Edit",

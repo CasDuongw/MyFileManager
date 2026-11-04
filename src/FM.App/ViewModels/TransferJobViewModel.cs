@@ -17,6 +17,17 @@ public sealed partial class TransferJobViewModel : ObservableObject
     {
         get
         {
+            if (Kind == TransferKind.Extract)
+            {
+                int c = _job.Request.Sources.Count;
+                if (c == 1)
+                {
+                    string archiveName = System.IO.Path.GetFileName(_job.Request.Sources[0]);
+                    return $"Extracting {archiveName} → {_job.Request.DestinationDirectory}";
+                }
+                return $"Extracting {c} archives → {_job.Request.DestinationDirectory}";
+            }
+
             string verb = Kind == TransferKind.Copy ? "Copying" : "Moving";
             int count = _job.Request.Sources.Count;
             string countText = count == 1 ? "1 item" : $"{count} items";

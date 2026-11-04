@@ -3,7 +3,8 @@ namespace FM.Core.Operations.Transfer;
 public enum TransferKind
 {
     Copy,
-    Move
+    Move,
+    Extract
 }
 
 public enum TransferPhase
@@ -109,7 +110,8 @@ public enum ItemOutcome
     Replaced,
     KeptBoth,
     Skipped,
-    Failed
+    Failed,
+    Extracted
 }
 
 public record TransferItemResult(

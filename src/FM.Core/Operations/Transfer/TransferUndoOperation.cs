@@ -23,7 +23,9 @@ public sealed class TransferUndoOperation : IFileOperation
     public string Description =>
         Kind == TransferKind.Copy
             ? $"Copy of {Result.Items.Count(i => !i.IsDirectory && (i.Outcome == ItemOutcome.Copied || i.Outcome == ItemOutcome.KeptBoth || i.Outcome == ItemOutcome.Replaced))} files"
-            : $"Move of {Result.Items.Count(i => !i.IsDirectory && (i.Outcome == ItemOutcome.Moved || i.Outcome == ItemOutcome.Replaced))} files";
+            : (Kind == TransferKind.Extract
+                ? $"Extraction of {Result.Items.Count(i => !i.IsDirectory && (i.Outcome == ItemOutcome.Extracted || i.Outcome == ItemOutcome.KeptBoth || i.Outcome == ItemOutcome.Replaced))} files"
+                : $"Move of {Result.Items.Count(i => !i.IsDirectory && (i.Outcome == ItemOutcome.Moved || i.Outcome == ItemOutcome.Replaced))} files");
 
     public TransferUndoOperation(
         IFileSystem fs,
@@ -95,7 +97,7 @@ public sealed class TransferUndoOperation : IFileOperation
             }
 
             OperationResult undoResult;
-            if (Kind == TransferKind.Copy)
+            if (Kind == TransferKind.Copy || Kind == TransferKind.Extract)
             {
                 undoResult = await UndoCopyAsync(ct).ConfigureAwait(false);
             }
@@ -127,7 +129,7 @@ public sealed class TransferUndoOperation : IFileOperation
 
         // 1. Delete created files whose size and timestamp still match
         var createdFiles = Result.Items
-            .Where(i => !i.IsDirectory && (i.Outcome == ItemOutcome.Copied || i.Outcome == ItemOutcome.KeptBoth) && i.DestinationPath != null);
+            .Where(i => !i.IsDirectory && (i.Outcome == ItemOutcome.Copied || i.Outcome == ItemOutcome.KeptBoth || i.Outcome == ItemOutcome.Extracted) && i.DestinationPath != null);
 
         foreach (var item in createdFiles)
         {
@@ -212,7 +214,7 @@ public sealed class TransferUndoOperation : IFileOperation
 
         // 3. Remove created directories bottom-up only if empty
         var createdDirs = Result.Items
-            .Where(i => i.IsDirectory && i.Outcome == ItemOutcome.Copied && i.DestinationPath != null)
+            .Where(i => i.IsDirectory && (i.Outcome == ItemOutcome.Copied || i.Outcome == ItemOutcome.Extracted) && i.DestinationPath != null)
             .OrderByDescending(i => i.DestinationPath!.Length);
 
         foreach (var dir in createdDirs)

@@ -1,5 +1,7 @@
 using System.IO;
+using System.IO.Compression;
 using FM.Core.FileSystem;
+using FM.Core.Operations.Zip;
 
 namespace FM.Core.Operations.Transfer;
 
@@ -49,6 +51,11 @@ public static class TransferPlanner
         progress?.Report(new TransferProgress(TransferPhase.Validating, null, 0, 0, 0, null, 0, null, 0, null));
 
         string normDest = Normalize(request.DestinationDirectory);
+
+        if (request.Kind == TransferKind.Extract)
+        {
+            return CreateExtractPlan(fs, request, normDest, progress, ct);
+        }
 
         // Check each top-level source
         foreach (var source in request.Sources)
@@ -192,6 +199,90 @@ public static class TransferPlanner
                 plannedItems.Add(new PlannedItem(normEntry, childRel, false, info.Size, info.Modified, info.IsReparsePoint));
             }
         }
+    }
+
+    private static TransferPlan CreateExtractPlan(
+        IFileSystem fs,
+        TransferRequest request,
+        string normDest,
+        IProgress<TransferProgress>? progress,
+        CancellationToken ct)
+    {
+        // Check sources exist and are files
+        foreach (var source in request.Sources)
+        {
+            ct.ThrowIfCancellationRequested();
+            string normSource = Normalize(source);
+            var info = fs.GetInfo(normSource);
+            if (info == null || !info.Exists || info.IsDirectory)
+            {
+                throw new FileNotFoundException($"ZIP archive not found: '{source}'", source);
+            }
+        }
+
+        progress?.Report(new TransferProgress(TransferPhase.Scanning, null, 0, 0, 0, null, 0, null, 0, null));
+
+        var plannedItems = new List<PlannedItem>();
+
+        foreach (var source in request.Sources)
+        {
+            ct.ThrowIfCancellationRequested();
+            string normSource = Normalize(source);
+
+            using var zipStream = fs.OpenRead(normSource);
+            using var archive = new ZipArchive(zipStream, ZipArchiveMode.Read, leaveOpen: false);
+
+            ZipInspector.InspectArchive(archive, normDest);
+
+            foreach (var entry in archive.Entries)
+            {
+                ct.ThrowIfCancellationRequested();
+                bool isDir = entry.FullName.EndsWith('/') || entry.FullName.EndsWith('\\') || string.IsNullOrEmpty(entry.Name);
+                string safeDst = ZipPathSanitizer.GetSafeDestinationPath(normDest, entry.FullName);
+                string relPath = Path.GetRelativePath(normDest, safeDst);
+
+                DateTime modified;
+                try
+                {
+                    modified = entry.LastWriteTime.UtcDateTime;
+                }
+                catch
+                {
+                    modified = DateTime.UtcNow;
+                }
+
+                plannedItems.Add(new PlannedItem(
+                    entry.FullName,
+                    relPath,
+                    isDir,
+                    isDir ? 0 : entry.Length,
+                    modified,
+                    false));
+            }
+        }
+
+        long overallTotalBytes = plannedItems.Where(i => !i.IsDirectory).Sum(i => i.Size);
+        int filesTotal = plannedItems.Count(i => !i.IsDirectory);
+
+        string destVolumeId = fs.GetVolumeId(normDest);
+        string sourceVolumeId = fs.GetVolumeId(request.Sources[0]);
+        bool isCrossVolume = !string.Equals(sourceVolumeId, destVolumeId, StringComparison.OrdinalIgnoreCase);
+
+        long availableFreeSpace = fs.GetFreeSpace(normDest);
+        if (availableFreeSpace < overallTotalBytes)
+        {
+            throw new IOException(
+                $"Insufficient disk space on destination volume '{destVolumeId}'. Required: {overallTotalBytes} bytes, Available: {availableFreeSpace} bytes.");
+        }
+
+        return new TransferPlan(
+            request,
+            plannedItems,
+            overallTotalBytes,
+            filesTotal,
+            isCrossVolume,
+            sourceVolumeId,
+            destVolumeId);
     }
 
     public static string GetKeepBothName(IFileSystem fs, string directory, string originalName, bool isDirectory)

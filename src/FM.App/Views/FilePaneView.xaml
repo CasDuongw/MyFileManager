@@ -477,6 +477,25 @@
                       Command="{Binding PinToStartCommand}"
                       Style="{StaticResource ModernMenuItemStyle}" />
 
+            <!-- Extract ZIP Menu Items -->
+            <MenuItem Header="Extract All..."
+                      Icon="📦"
+                      Command="{Binding ExtractAllCommand}"
+                      Visibility="{Binding CanExtractZip, Converter={StaticResource BoolToVis}}"
+                      Style="{StaticResource ModernMenuItemStyle}" />
+            <MenuItem Header="Extract here"
+                      Icon="📂"
+                      Command="{Binding ExtractHereCommand}"
+                      Visibility="{Binding CanExtractZip, Converter={StaticResource BoolToVis}}"
+                      Style="{StaticResource ModernMenuItemStyle}" />
+            <MenuItem Header="{Binding ExtractToFolderText}"
+                      Icon="📁"
+                      Command="{Binding ExtractToSubfolderCommand}"
+                      Visibility="{Binding CanExtractZip, Converter={StaticResource BoolToVis}}"
+                      Style="{StaticResource ModernMenuItemStyle}" />
+            <Separator Visibility="{Binding CanExtractZip, Converter={StaticResource BoolToVis}}"
+                       Style="{StaticResource ModernMenuSeparatorStyle}" />
+
             <!-- Compress to... Submenu -->
             <MenuItem Header="Compress to..."
                       Icon="🗜"

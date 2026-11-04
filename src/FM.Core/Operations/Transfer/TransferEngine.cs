@@ -1,6 +1,8 @@
 using System.IO;
+using System.IO.Compression;
 using System.Security.Cryptography;
 using FM.Core.FileSystem;
+using FM.Core.Operations.Zip;
 
 namespace FM.Core.Operations.Transfer;
 
@@ -84,7 +86,11 @@ public sealed class TransferEngine : ITransferEngine
         TransferResult result;
         try
         {
-            if (request.Kind == TransferKind.Move && !plan.IsCrossVolume)
+            if (request.Kind == TransferKind.Extract)
+            {
+                result = await ExecuteExtractAsync(plan, executedResults, progress, gate, ct).ConfigureAwait(false);
+            }
+            else if (request.Kind == TransferKind.Move && !plan.IsCrossVolume)
             {
                 result = await ExecuteSameVolumeMoveAsync(plan, executedResults, progress, gate, ct).ConfigureAwait(false);
             }
@@ -119,6 +125,7 @@ public sealed class TransferEngine : ITransferEngine
                     bool hasUndoableItem = executedResults.Any(r =>
                         r.Outcome == ItemOutcome.Copied ||
                         r.Outcome == ItemOutcome.Moved ||
+                        r.Outcome == ItemOutcome.Extracted ||
                         r.Outcome == ItemOutcome.KeptBoth ||
                         r.Outcome == ItemOutcome.Replaced);
 
@@ -139,6 +146,245 @@ public sealed class TransferEngine : ITransferEngine
         }
 
         return result;
+    }
+
+    // -------------------------------------------------------------------------
+    // ZIP Extraction
+    // -------------------------------------------------------------------------
+
+    private async Task<TransferResult> ExecuteExtractAsync(
+        TransferPlan plan,
+        List<TransferItemResult> results,
+        IProgress<TransferProgress>? progress,
+        PauseGate? gate,
+        CancellationToken ct)
+    {
+        ConflictDecision? rememberedConflict = null;
+        int filesDone = 0;
+        long overallBytesDone = 0;
+        long startTimestamp = _timeProvider.GetTimestamp();
+        byte[] buffer = new byte[Math.Max(64 * 1024, plan.Request.Options.BufferSize)];
+
+        foreach (var sourceZip in plan.Request.Sources)
+        {
+            ct.ThrowIfCancellationRequested();
+            string normSource = InMemoryFileSystem.Normalize(sourceZip);
+
+            using var zipStream = _fs.OpenRead(normSource);
+            using var archive = new ZipArchive(zipStream, ZipArchiveMode.Read, leaveOpen: false);
+
+            foreach (var entry in archive.Entries)
+            {
+                ct.ThrowIfCancellationRequested();
+                if (gate != null) await gate.WaitIfPausedAsync(ct).ConfigureAwait(false);
+
+                bool isDirectory = entry.FullName.EndsWith('/') || entry.FullName.EndsWith('\\') || string.IsNullOrEmpty(entry.Name);
+                string safeDestination = ZipPathSanitizer.GetSafeDestinationPath(plan.Request.DestinationDirectory, entry.FullName);
+
+                DateTime entryModified;
+                try
+                {
+                    entryModified = entry.LastWriteTime.UtcDateTime;
+                }
+                catch
+                {
+                    entryModified = DateTime.UtcNow;
+                }
+
+                if (isDirectory)
+                {
+                    if (!_fs.DirectoryExists(safeDestination))
+                    {
+                        _fs.CreateDirectory(safeDestination);
+                    }
+                    results.Add(new TransferItemResult(entry.FullName, safeDestination, true, ItemOutcome.Extracted, 0, entryModified, null));
+                    continue;
+                }
+
+                // File entry extraction
+                string destDir = Path.GetDirectoryName(safeDestination) ?? plan.Request.DestinationDirectory;
+                if (!_fs.DirectoryExists(destDir))
+                {
+                    _fs.CreateDirectory(destDir);
+                }
+
+                var conflictResult = await ResolveConflictAsync(
+                    entry.FullName,
+                    safeDestination,
+                    entry.Length,
+                    entryModified,
+                    false,
+                    plan.Request,
+                    rememberedConflict,
+                    ct).ConfigureAwait(false);
+
+                rememberedConflict = conflictResult.RememberedDecision;
+
+                if (conflictResult.Action == ConflictAction.Cancel)
+                {
+                    return new TransferResult(TransferState.Cancelled, results);
+                }
+                if (conflictResult.Action == ConflictAction.Skip)
+                {
+                    results.Add(new TransferItemResult(entry.FullName, safeDestination, false, ItemOutcome.Skipped, entry.Length, null, null));
+                    filesDone++;
+                    continue;
+                }
+
+                string finalDestinationPath = conflictResult.FinalDestinationPath;
+                ItemOutcome outcome = conflictResult.Outcome == ItemOutcome.Replaced ? ItemOutcome.Replaced : (conflictResult.Outcome == ItemOutcome.KeptBoth ? ItemOutcome.KeptBoth : ItemOutcome.Extracted);
+
+                string tempPath = Path.Combine(destDir, $"{Path.GetFileName(finalDestinationPath)}.fmpart");
+                string? plannedBackup = (outcome == ItemOutcome.Replaced && _stager != null)
+                    ? _stager.GetPlannedBackupPath(finalDestinationPath, plan.Request.OperationId, filesDone)
+                    : null;
+
+                if (_journal != null)
+                {
+                    try
+                    {
+                        await _journal.AppendIntentAsync(
+                            plan.Request.OperationId,
+                            new JournalIntentEntry(entry.FullName, finalDestinationPath, plannedBackup, tempPath),
+                            CancellationToken.None).ConfigureAwait(false);
+                    }
+                    catch { }
+                }
+
+                string? backupPath = null;
+                long entryBytesWritten = 0;
+                try
+                {
+                    if (outcome == ItemOutcome.Replaced && _stager != null)
+                    {
+                        var staged = await _stager.StageAsync(finalDestinationPath, plan.Request.OperationId, filesDone, ct).ConfigureAwait(false);
+                        backupPath = staged.BackupPath;
+                    }
+
+                    using (var entryStream = entry.Open())
+                    using (var outStream = _fs.CreateFileForWrite(tempPath))
+                    {
+                        while (true)
+                        {
+                            ct.ThrowIfCancellationRequested();
+                            if (gate != null) await gate.WaitIfPausedAsync(ct).ConfigureAwait(false);
+
+                            int read = await entryStream.ReadAsync(buffer.AsMemory(0, buffer.Length), ct).ConfigureAwait(false);
+                            if (read == 0) break;
+
+                            entryBytesWritten += read;
+
+                            // In-flight streaming zip bomb check
+                            if (entry.Length > ZipSecurityLimits.RatioCheckThresholdBytes && entry.CompressedLength > 0)
+                            {
+                                if (entryBytesWritten > entry.Length * 1.5 && entryBytesWritten > ZipSecurityLimits.RatioCheckThresholdBytes)
+                                {
+                                    throw new InvalidOperationException($"Decompressed stream for '{entry.FullName}' exceeded expected entry size (potential zip bomb).");
+                                }
+                            }
+                            if (overallBytesDone + entryBytesWritten > ZipSecurityLimits.MaxTotalUncompressedBytes)
+                            {
+                                throw new InvalidOperationException("Archive cumulative uncompressed size exceeded maximum security limit.");
+                            }
+
+                            await outStream.WriteAsync(buffer.AsMemory(0, read), ct).ConfigureAwait(false);
+
+                            long now = _timeProvider.GetTimestamp();
+                            double elapsedSec = Math.Max(0.001, (now - startTimestamp) / (double)_timeProvider.TimestampFrequency);
+                            double bps = (overallBytesDone + entryBytesWritten) / elapsedSec;
+                            long remainingBytes = Math.Max(0, plan.OverallTotalBytes - (overallBytesDone + entryBytesWritten));
+                            TimeSpan? eta = bps > 0 ? TimeSpan.FromSeconds(remainingBytes / bps) : null;
+
+                            progress?.Report(new TransferProgress(
+                                TransferPhase.Transferring,
+                                entry.FullName,
+                                entryBytesWritten,
+                                entry.Length,
+                                overallBytesDone + entryBytesWritten,
+                                plan.OverallTotalBytes,
+                                filesDone,
+                                plan.FilesTotal,
+                                bps,
+                                eta));
+                        }
+
+                        await outStream.FlushAsync(ct).ConfigureAwait(false);
+                    }
+
+                    // Atomic finalize
+                    if (_fs.FileExists(finalDestinationPath))
+                    {
+                        _fs.Delete(finalDestinationPath);
+                    }
+                    _fs.Move(tempPath, finalDestinationPath);
+                    _fs.SetModified(finalDestinationPath, entryModified);
+
+                    overallBytesDone += entryBytesWritten;
+                    filesDone++;
+
+                    results.Add(new TransferItemResult(
+                        entry.FullName,
+                        finalDestinationPath,
+                        false,
+                        outcome,
+                        entryBytesWritten,
+                        entryModified,
+                        null,
+                        backupPath));
+
+                    if (_journal != null)
+                    {
+                        try
+                        {
+                            await _journal.AppendItemAsync(
+                                plan.Request.OperationId,
+                                new JournalItemEntry(
+                                    plan.Request.Kind,
+                                    entry.FullName,
+                                    finalDestinationPath,
+                                    entryBytesWritten,
+                                    entryModified,
+                                    outcome,
+                                    false,
+                                    backupPath),
+                                CancellationToken.None).ConfigureAwait(false);
+                        }
+                        catch { }
+                    }
+                }
+                catch (OperationCanceledException)
+                {
+                    CleanupTemp(tempPath);
+                    return new TransferResult(TransferState.Cancelled, results);
+                }
+                catch (Exception ex)
+                {
+                    CleanupTemp(tempPath);
+                    if (backupPath != null && _stager != null)
+                    {
+                        try { await _stager.RestoreAsync(backupPath, finalDestinationPath, CancellationToken.None).ConfigureAwait(false); } catch { }
+                    }
+
+                    string err = ex.Message;
+                    if (ex is InvalidDataException || (ex.InnerException is InvalidDataException))
+                    {
+                        err = "This archive contains password-protected / encrypted entries or corrupted data, which cannot be extracted.";
+                    }
+
+                    results.Add(new TransferItemResult(
+                        entry.FullName,
+                        finalDestinationPath,
+                        false,
+                        ItemOutcome.Failed,
+                        entry.Length,
+                        null,
+                        err));
+                }
+            }
+        }
+
+        bool hasErrors = results.Any(r => r.Outcome == ItemOutcome.Failed);
+        return new TransferResult(hasErrors ? TransferState.CompletedWithErrors : TransferState.Completed, results);
     }
 
     // -------------------------------------------------------------------------

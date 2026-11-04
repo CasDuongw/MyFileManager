@@ -363,7 +363,7 @@ public partial class MainViewModel : ObservableObject
 
         pane.GetApprovedRoots = () => _settingsService.LoadSettings().IndexedRoots?.ToList() ?? new List<string>();
 
-
+        pane.EnqueueTransferAction = (kind, sources, dest) => EnqueueTransfer(kind, sources, dest, pane);
 
         pane.ShowHiddenFiles = ShowHiddenFiles;
 
@@ -743,7 +743,7 @@ public partial class MainViewModel : ObservableObject
 
                 {
 
-                    string verbPast = kind == TransferKind.Copy ? "Copied" : "Moved";
+                    string verbPast = kind == TransferKind.Copy ? "Copied" : (kind == TransferKind.Extract ? "Extracted" : "Moved");
 
                     summary = $"{verbPast} {transferred} item(s) successfully.";
 
