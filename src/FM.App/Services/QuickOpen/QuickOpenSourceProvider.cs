@@ -62,25 +62,37 @@ public class QuickOpenSourceProvider : IQuickOpenSourceProvider
             });
         }
 
-        // 2. Open Panes (the app's "tabs")
+        // 2. Open Panes and Tabs (M6 Real Tabs)
         foreach (var pane in vm.Panes)
         {
-            string title = string.IsNullOrWhiteSpace(pane.CurrentFolderName)
-                ? (string.IsNullOrWhiteSpace(pane.CurrentPath) ? "New Tab" : Path.GetFileName(pane.CurrentPath))
-                : pane.CurrentFolderName;
-
-            if (string.IsNullOrEmpty(title)) title = pane.CurrentPath;
-
-            results.Add(new QuickOpenItemViewModel
+            foreach (var tab in pane.Tabs)
             {
-                Title = string.IsNullOrWhiteSpace(title) ? "Pane" : title,
-                Subtitle = pane.CurrentPath,
-                Badge = "Open pane",
-                Kind = QuickOpenItemKind.Place,
-                TargetPath = pane.CurrentPath,
-                Priority = 1,
-                ExecuteAction = () => vm.SetActivePane(pane)
-            });
+                string title = !string.IsNullOrWhiteSpace(tab.Title)
+                    ? tab.Title
+                    : (!string.IsNullOrWhiteSpace(tab.CurrentPath) ? Path.GetFileName(tab.CurrentPath) : "New Tab");
+
+                if (string.IsNullOrEmpty(title)) title = tab.CurrentPath;
+
+                var targetPane = pane;
+                var targetTab = tab;
+
+                string badge = (pane.Tabs.Count <= 1 || tab == pane.ActiveTab) ? "Open pane" : "Open tab";
+
+                results.Add(new QuickOpenItemViewModel
+                {
+                    Title = string.IsNullOrWhiteSpace(title) ? "Tab" : title,
+                    Subtitle = tab.CurrentPath,
+                    Badge = badge,
+                    Kind = QuickOpenItemKind.Place,
+                    TargetPath = tab.CurrentPath,
+                    Priority = 1,
+                    ExecuteAction = () =>
+                    {
+                        vm.SetActivePane(targetPane);
+                        targetPane.ActiveTab = targetTab;
+                    }
+                });
+            }
 
             // 3. Open Pane Content: directories already loaded in this pane!
             var items = pane.UnfilteredItems;

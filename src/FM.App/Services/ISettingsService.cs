@@ -19,6 +19,23 @@ public class AppSettings
     public List<string> IndexedRoots { get; set; } = new();
     public List<string> IndexExcludes { get; set; } = new();
     public bool ConfirmNormalDelete { get; set; } = false;
+    public List<PaneTabSettings> PaneTabs { get; set; } = new();
+}
+
+public class TabStateSetting
+{
+    public string Path { get; set; } = string.Empty;
+    public string Title { get; set; } = string.Empty;
+    public string ViewMode { get; set; } = "Details";
+    public string SortColumn { get; set; } = "Name";
+    public bool SortAscending { get; set; } = true;
+    public string SpecialMode { get; set; } = "None";
+}
+
+public class PaneTabSettings
+{
+    public List<TabStateSetting> Tabs { get; set; } = new();
+    public int ActiveTabIndex { get; set; } = 0;
 }
 
 public interface ISettingsService

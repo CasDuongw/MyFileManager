@@ -96,6 +96,25 @@ public class NavigationHistory
     }
 
     /// <summary>
+    /// Creates an independent snapshot clone of this navigation history.
+    /// </summary>
+    public NavigationHistory Clone()
+    {
+        var copy = new NavigationHistory(CurrentPath);
+        var backItems = _backStack.ToArray();
+        for (int i = backItems.Length - 1; i >= 0; i--)
+        {
+            copy._backStack.Push(backItems[i]);
+        }
+        var forwardItems = _forwardStack.ToArray();
+        for (int i = forwardItems.Length - 1; i >= 0; i--)
+        {
+            copy._forwardStack.Push(forwardItems[i]);
+        }
+        return copy;
+    }
+
+    /// <summary>
     /// Returns the parent directory path of <see cref="CurrentPath"/>, or "thispc://" when at a drive root,
     /// or null if already at top or path is invalid.
     /// </summary>

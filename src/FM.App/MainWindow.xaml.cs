@@ -161,8 +161,8 @@ public partial class MainWindow : Window
     {
 
         bool isCtrl = (Keyboard.Modifiers & ModifierKeys.Control) == ModifierKeys.Control;
-
         bool isShift = (Keyboard.Modifiers & ModifierKeys.Shift) == ModifierKeys.Shift;
+        bool isAlt = (Keyboard.Modifiers & ModifierKeys.Alt) == ModifierKeys.Alt;
 
 
 
@@ -230,35 +230,35 @@ public partial class MainWindow : Window
         }
 
         // 1. Tab: Switch active pane ONLY when focus is inside a file list
-
         // Inside the address bar Tab preserves normal tab navigation. Shift+Tab is never hijacked.
-
         if (e.Key == Key.Tab && Keyboard.Modifiers == ModifierKeys.None)
-
         {
-
             var focused = Keyboard.FocusedElement as DependencyObject;
-
             bool isInsideFileList = focused != null &&
-
                 (focused.FindVisualAncestor<ListView>() != null || focused.FindVisualAncestor<ListViewItem>() != null);
 
-
-
             if (isInsideFileList)
-
             {
-
                 ViewModel?.SwitchActivePane();
-
                 FocusActivePane();
-
                 e.Handled = true;
-
                 return;
-
             }
+        }
 
+        // Ctrl+Tab / Ctrl+Shift+Tab: Next / Previous Tab
+        if (isCtrl && !isAlt && e.Key == Key.Tab)
+        {
+            if (isShift)
+            {
+                ViewModel?.PreviousTab();
+            }
+            else
+            {
+                ViewModel?.NextTab();
+            }
+            e.Handled = true;
+            return;
         }
 
 
@@ -296,9 +296,6 @@ public partial class MainWindow : Window
 
 
         // 4. Alt+Left: Back in active pane
-
-        bool isAlt = (Keyboard.Modifiers & ModifierKeys.Alt) == ModifierKeys.Alt;
-
         Key actualKey = e.Key == Key.System ? e.SystemKey : e.Key;
 
 
@@ -346,39 +343,27 @@ public partial class MainWindow : Window
 
 
         // Ctrl+T: Open new tab
-
         if (isCtrl && !isShift && e.Key == Key.T)
-
         {
-
             ViewModel?.OpenNewTab();
-
             e.Handled = true;
-
             return;
-
         }
 
-
+        // Ctrl+Shift+T: Reopen closed tab
+        if (isCtrl && isShift && e.Key == Key.T)
+        {
+            ViewModel?.ReopenClosedTab();
+            e.Handled = true;
+            return;
+        }
 
         // Ctrl+W: Close active tab
-
         if (isCtrl && !isShift && e.Key == Key.W)
-
         {
-
-            if (ViewModel?.CanClosePanes == true)
-
-            {
-
-                ViewModel.ClosePaneCommand.Execute(null);
-
-                e.Handled = true;
-
-                return;
-
-            }
-
+            ViewModel?.CloseActiveTab();
+            e.Handled = true;
+            return;
         }
 
 

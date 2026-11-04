@@ -3,6 +3,7 @@ using FM.Core.Drives;
 using FM.Core.RecycleBin;
 using FM.Core.PathResolution;
 using FM.Core.Operations.MultiRename;
+using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
@@ -69,7 +70,7 @@ public partial class FilePaneViewModel : ObservableObject, IDisposable
     public Func<IReadOnlyList<string>>? GetApprovedRoots { get; set; }
     public Func<TransferKind, IReadOnlyList<string>, string, ITransferJob?>? EnqueueTransferAction { get; set; }
     public event Action? FindBarOpened;
-    private readonly NavigationHistory _history = new();
+    private NavigationHistory _history = new();
     private CancellationTokenSource? _loadCts;
 
     [ObservableProperty]
@@ -155,6 +156,14 @@ public partial class FilePaneViewModel : ObservableObject, IDisposable
 
     partial void OnCurrentPathChanged(string value)
     {
+        if (ActiveTab != null && !_isSwitchingTabs)
+        {
+            if (!string.IsNullOrEmpty(value) || !ActiveTab.IsUnavailable)
+            {
+                ActiveTab.CurrentPath = value;
+                ActiveTab.Title = CurrentFolderName;
+            }
+        }
         NewFolderCommand.NotifyCanExecuteChanged();
         OnPropertyChanged(nameof(CurrentFolderName));
         OnPropertyChanged(nameof(Breadcrumbs));
@@ -182,6 +191,14 @@ public partial class FilePaneViewModel : ObservableObject, IDisposable
 
     [ObservableProperty]
     private FilePaneViewMode _viewMode = FilePaneViewMode.Details;
+
+    partial void OnViewModeChanged(FilePaneViewMode value)
+    {
+        if (ActiveTab != null && !_isSwitchingTabs)
+        {
+            ActiveTab.ViewMode = value;
+        }
+    }
 
     [RelayCommand]
     public void SetViewMode(string modeStr)
@@ -527,9 +544,25 @@ public partial class FilePaneViewModel : ObservableObject, IDisposable
     [NotifyPropertyChangedFor(nameof(SortStatusText))]
     private FileSortColumn _currentSortColumn = FileSortColumn.Name;
 
+    partial void OnCurrentSortColumnChanged(FileSortColumn value)
+    {
+        if (ActiveTab != null && !_isSwitchingTabs)
+        {
+            ActiveTab.CurrentSortColumn = value;
+        }
+    }
+
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(SortStatusText))]
     private bool _isSortAscending = true;
+
+    partial void OnIsSortAscendingChanged(bool value)
+    {
+        if (ActiveTab != null && !_isSwitchingTabs)
+        {
+            ActiveTab.IsSortAscending = value;
+        }
+    }
 
     public string SortStatusText => $"Sorted by {CurrentSortColumn} ({(IsSortAscending ? "▲ Asc" : "▼ Desc")})";
 
@@ -587,6 +620,15 @@ public partial class FilePaneViewModel : ObservableObject, IDisposable
         {
             System.Windows.Data.BindingOperations.EnableCollectionSynchronization(Items, _itemsLock);
         }
+
+        var initialTab = new FileTabItemViewModel
+        {
+            Title = "Home",
+            CurrentPath = CurrentPath ?? string.Empty,
+            IsActive = true
+        };
+        Tabs.Add(initialTab);
+        _activeTab = initialTab;
     }
 
     public void NotifyActivated()
@@ -900,6 +942,252 @@ public partial class FilePaneViewModel : ObservableObject, IDisposable
             }
         }
     }
+
+    #region Tab Management
+
+    public ObservableCollection<FileTabItemViewModel> Tabs { get; } = new();
+
+    [ObservableProperty]
+    private FileTabItemViewModel? _activeTab;
+
+    private readonly Stack<FileTabItemViewModel> _closedTabsHistory = new();
+    public bool CanReopenClosedTab => _closedTabsHistory.Count > 0;
+
+    public Action<FilePaneViewModel>? RequestClosePane { get; set; }
+
+    partial void OnActiveTabChanged(FileTabItemViewModel? oldValue, FileTabItemViewModel? newValue)
+    {
+        _loadCts?.Cancel();
+
+        if (oldValue != null)
+        {
+            oldValue.IsActive = false;
+            SaveTabState(oldValue);
+            StopWatcher(); // Only visible tab watches!
+        }
+
+        if (newValue != null)
+        {
+            newValue.IsActive = true;
+            ApplyTabState(newValue);
+        }
+    }
+
+    public void SaveTabState(FileTabItemViewModel tab)
+    {
+        tab.CurrentPath = CurrentPath;
+        tab.Title = CurrentFolderName;
+        tab.ViewMode = ViewMode;
+        tab.CurrentSortColumn = CurrentSortColumn;
+        tab.IsSortAscending = IsSortAscending;
+        tab.FilterText = FilterText;
+        tab.SpecialMode = SpecialMode;
+        tab.History = _history.Clone();
+        tab.CachedItems = Items.ToList();
+        tab.SelectedPaths = new HashSet<string>(SelectedItems.Select(x => x.FullPath), StringComparer.OrdinalIgnoreCase);
+    }
+
+    private bool _isSwitchingTabs;
+
+    public void ApplyTabState(FileTabItemViewModel tab)
+    {
+        _isSwitchingTabs = true;
+        try
+        {
+            ViewMode = tab.ViewMode;
+            CurrentSortColumn = tab.CurrentSortColumn;
+            IsSortAscending = tab.IsSortAscending;
+            FilterText = tab.FilterText;
+            SpecialMode = tab.SpecialMode;
+            _history = tab.History.Clone();
+
+            if (tab.CachedItems != null && tab.CachedItems.Count > 0)
+            {
+                // Fast path: restore cached items, no reload from disk!
+                CurrentPath = tab.CurrentPath;
+                AddressText = tab.CurrentPath;
+                OnPropertyChanged(nameof(CurrentPath));
+                OnPropertyChanged(nameof(CurrentFolderName));
+
+                lock (_itemsLock)
+                {
+                    Items.ReplaceAll(tab.CachedItems);
+                    _unfilteredItems.Clear();
+                    _unfilteredItems.AddRange(tab.CachedItems);
+                }
+
+                if (tab.SelectedPaths.Count > 0)
+                {
+                    var toSelect = Items.Where(i => tab.SelectedPaths.Contains(i.FullPath)).ToList();
+                    UpdateSelectedItems(toSelect);
+                }
+                else
+                {
+                    UpdateSelectedItems(Array.Empty<FileItemViewModel>());
+                }
+
+                SetStatusText($"{Items.Count} item(s)");
+                StartWatcher(tab.CurrentPath);
+            }
+            else if (!string.IsNullOrEmpty(tab.CurrentPath))
+            {
+                Navigate(tab.CurrentPath);
+            }
+        }
+        finally
+        {
+            _isSwitchingTabs = false;
+        }
+    }
+
+    [RelayCommand]
+    public void NewTab(string? initialPath = null)
+    {
+        string path = !string.IsNullOrWhiteSpace(initialPath)
+            ? initialPath
+            : (!string.IsNullOrWhiteSpace(CurrentPath) ? CurrentPath : Environment.GetFolderPath(Environment.SpecialFolder.UserProfile));
+
+        string title = Path.GetFileName(path);
+        if (string.IsNullOrEmpty(title)) title = path;
+
+        var tab = new FileTabItemViewModel
+        {
+            Title = string.IsNullOrWhiteSpace(title) ? "New Tab" : title,
+            CurrentPath = path,
+            ViewMode = ViewMode,
+            CurrentSortColumn = CurrentSortColumn,
+            IsSortAscending = IsSortAscending
+        };
+
+        Tabs.Add(tab);
+        ActiveTab = tab;
+    }
+
+    [RelayCommand]
+    public void CloseTab(FileTabItemViewModel? tab = null)
+    {
+        var target = tab ?? ActiveTab;
+        if (target == null) return;
+
+        _closedTabsHistory.Push(target.Clone());
+        int idx = Tabs.IndexOf(target);
+        bool wasActive = (ActiveTab == target);
+        Tabs.Remove(target);
+
+        if (Tabs.Count > 0)
+        {
+            if (wasActive)
+            {
+                ActiveTab = Tabs[Math.Min(idx, Tabs.Count - 1)];
+            }
+        }
+        else
+        {
+            if (RequestClosePane != null)
+            {
+                RequestClosePane(this);
+            }
+            else
+            {
+                NewTab();
+            }
+        }
+    }
+
+    [RelayCommand]
+    public void ReopenClosedTab()
+    {
+        if (_closedTabsHistory.Count == 0) return;
+
+        var tab = _closedTabsHistory.Pop();
+        Tabs.Add(tab);
+        ActiveTab = tab;
+    }
+
+    [RelayCommand]
+    public void DuplicateTab(FileTabItemViewModel? tab = null)
+    {
+        var target = tab ?? ActiveTab;
+        if (target == null) return;
+
+        SaveTabState(target);
+        var clone = target.Clone();
+        int idx = Tabs.IndexOf(target);
+        Tabs.Insert(idx + 1, clone);
+        ActiveTab = clone;
+    }
+
+    [RelayCommand]
+    public void NextTab()
+    {
+        if (Tabs.Count <= 1 || ActiveTab == null) return;
+        int next = (Tabs.IndexOf(ActiveTab) + 1) % Tabs.Count;
+        ActiveTab = Tabs[next];
+    }
+
+    [RelayCommand]
+    public void PreviousTab()
+    {
+        if (Tabs.Count <= 1 || ActiveTab == null) return;
+        int prev = (Tabs.IndexOf(ActiveTab) - 1 + Tabs.Count) % Tabs.Count;
+        ActiveTab = Tabs[prev];
+    }
+
+    [RelayCommand]
+    public void CloseOtherTabs(FileTabItemViewModel? tab = null)
+    {
+        var target = tab ?? ActiveTab;
+        if (target == null) return;
+
+        var others = Tabs.Where(t => t != target).ToList();
+        foreach (var other in others)
+        {
+            _closedTabsHistory.Push(other.Clone());
+            Tabs.Remove(other);
+        }
+        ActiveTab = target;
+    }
+
+    [RelayCommand]
+    public void CloseTabsToRight(FileTabItemViewModel? tab = null)
+    {
+        var target = tab ?? ActiveTab;
+        if (target == null) return;
+
+        int idx = Tabs.IndexOf(target);
+        if (idx < 0) return;
+
+        var toRight = Tabs.Skip(idx + 1).ToList();
+        foreach (var t in toRight)
+        {
+            _closedTabsHistory.Push(t.Clone());
+            Tabs.Remove(t);
+        }
+    }
+
+    public void MoveTabToPane(FileTabItemViewModel tab, FilePaneViewModel targetPane)
+    {
+        if (tab == null || targetPane == null || targetPane == this) return;
+
+        SaveTabState(tab);
+        Tabs.Remove(tab);
+        targetPane.Tabs.Add(tab);
+        targetPane.ActiveTab = tab;
+
+        if (Tabs.Count == 0)
+        {
+            if (RequestClosePane != null)
+            {
+                RequestClosePane(this);
+            }
+            else
+            {
+                NewTab();
+            }
+        }
+    }
+
+    #endregion
 
     #region ZIP Extraction Commands
 
@@ -2045,6 +2333,17 @@ public partial class FilePaneViewModel : ObservableObject, IDisposable
                 {
                     IsLoading = false;
                     OnPropertyChanged(nameof(SelectionStatusText));
+
+                    if (ActiveTab != null && !_isSwitchingTabs && string.Equals(ActiveTab.CurrentPath, resolvedPath, StringComparison.OrdinalIgnoreCase))
+                    {
+                        ActiveTab.Title = CurrentFolderName;
+                        ActiveTab.SpecialMode = SpecialMode;
+                        ActiveTab.ViewMode = ViewMode;
+                        ActiveTab.CurrentSortColumn = CurrentSortColumn;
+                        ActiveTab.IsSortAscending = IsSortAscending;
+                        ActiveTab.History = _history.Clone();
+                        ActiveTab.CachedItems = Items.ToList();
+                    }
                 });
             }
         }

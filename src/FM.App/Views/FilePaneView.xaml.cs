@@ -11,6 +11,7 @@ using System.Windows.Media.Effects;
 using FM.App.Helpers;
 using FM.App.ViewModels;
 using FM.App.Models;
+using FM.Core.Operations.Transfer;
 
 namespace FM.App.Views;
 
@@ -1382,6 +1383,117 @@ public partial class FilePaneView : UserControl
         }
 
         menu.IsOpen = true;
+    }
+
+    #endregion
+
+    #region Tab Strip Event Handlers
+
+    private Point? _tabItemDragStartPoint;
+
+    private void OnTabItemPreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        if (e.OriginalSource is DependencyObject dep && dep.FindVisualAncestor<Button>() != null)
+        {
+            return;
+        }
+        _tabItemDragStartPoint = e.GetPosition(this);
+    }
+
+    private void OnTabItemPreviewMouseMove(object sender, MouseEventArgs e)
+    {
+        if (_tabItemDragStartPoint == null || e.LeftButton != MouseButtonState.Pressed)
+        {
+            return;
+        }
+
+        Point current = e.GetPosition(this);
+        Vector diff = _tabItemDragStartPoint.Value - current;
+
+        if (Math.Abs(diff.X) > SystemParameters.MinimumHorizontalDragDistance ||
+            Math.Abs(diff.Y) > SystemParameters.MinimumVerticalDragDistance)
+        {
+            if (sender is FrameworkElement elem && elem.DataContext is FileTabItemViewModel tab && ViewModel != null)
+            {
+                var data = new DataObject();
+                data.SetData("FM.App.TabItem", tab);
+                data.SetData("FM.App.SourcePane", ViewModel);
+                _tabItemDragStartPoint = null;
+                DragDrop.DoDragDrop(elem, data, DragDropEffects.Move);
+            }
+        }
+    }
+
+    private void OnTabItemPreviewMouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+    {
+        _tabItemDragStartPoint = null;
+    }
+
+    private void OnTabItemMouseDown(object sender, MouseButtonEventArgs e)
+    {
+        if (sender is FrameworkElement elem && elem.DataContext is FileTabItemViewModel tab)
+        {
+            if (e.ChangedButton == MouseButton.Middle)
+            {
+                ViewModel?.CloseTab(tab);
+                e.Handled = true;
+            }
+            else if (e.ChangedButton == MouseButton.Left)
+            {
+                if (ViewModel != null)
+                {
+                    ViewModel.ActiveTab = tab;
+                }
+            }
+        }
+    }
+
+    private void OnTabItemDrop(object sender, DragEventArgs e)
+    {
+        if (sender is FrameworkElement elem && elem.DataContext is FileTabItemViewModel tab)
+        {
+            if (e.Data.GetDataPresent("FM.App.TabItem"))
+            {
+                var sourceTab = e.Data.GetData("FM.App.TabItem") as FileTabItemViewModel;
+                var sourcePane = e.Data.GetData("FM.App.SourcePane") as FilePaneViewModel;
+                if (sourceTab != null && ViewModel != null)
+                {
+                    if (sourcePane == ViewModel)
+                    {
+                        int oldIdx = ViewModel.Tabs.IndexOf(sourceTab);
+                        int newIdx = ViewModel.Tabs.IndexOf(tab);
+                        if (oldIdx >= 0 && newIdx >= 0 && oldIdx != newIdx)
+                        {
+                            ViewModel.Tabs.Move(oldIdx, newIdx);
+                        }
+                    }
+                    else if (sourcePane != null)
+                    {
+                        sourcePane.MoveTabToPane(sourceTab, ViewModel);
+                    }
+                    e.Handled = true;
+                }
+            }
+            else if (e.Data.GetDataPresent(DataFormats.FileDrop))
+            {
+                var files = e.Data.GetData(DataFormats.FileDrop) as string[];
+                if (files != null && files.Length > 0 && !string.IsNullOrEmpty(tab.CurrentPath) && ViewModel != null)
+                {
+                    var effect = ((e.KeyStates & DragDropKeyStates.ControlKey) != 0) ? TransferKind.Copy : TransferKind.Move;
+                    ViewModel.EnqueueTransferAction?.Invoke(effect, files, tab.CurrentPath);
+                    e.Handled = true;
+                }
+            }
+        }
+    }
+
+    private void OnTabItemDragOver(object sender, DragEventArgs e)
+    {
+        if (e.Data.GetDataPresent("FM.App.TabItem") || e.Data.GetDataPresent(DataFormats.FileDrop))
+        {
+            e.Effects = DragDropEffects.Move | DragDropEffects.Copy;
+            e.Handled = true;
+        }
     }
 
     #endregion

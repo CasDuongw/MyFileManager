@@ -3,6 +3,7 @@ using FM.Core.Drives;
 using FM.Core.RecycleBin;
 using FM.Core.PathResolution;
 using FM.Core.Operations.MultiRename;
+using FM.Core.Models;
 using System.Collections.ObjectModel;
 
 using System.IO;
@@ -362,6 +363,14 @@ public partial class MainViewModel : ObservableObject
             .ToList();
 
         pane.GetApprovedRoots = () => _settingsService.LoadSettings().IndexedRoots?.ToList() ?? new List<string>();
+
+        pane.RequestClosePane = p =>
+        {
+            if (CanClosePanes)
+            {
+                ClosePane(p);
+            }
+        };
 
         pane.EnqueueTransferAction = (kind, sources, dest) => EnqueueTransfer(kind, sources, dest, pane);
 
@@ -1571,46 +1580,99 @@ public partial class MainViewModel : ObservableObject
 
             var p = Panes[removeIdx];
 
-            if (p == ActivePane)
-
-            {
-
-                SetActivePane(Panes[0]);
-
-            }
-
             Panes.RemoveAt(removeIdx);
 
+            if (p == ActivePane)
+            {
+                if (Panes.Count > 0)
+                {
+                    SetActivePane(Panes[0]);
+                }
+                else
+                {
+                    SetActivePane(null);
+                }
+            }
+
             p.Activated -= OnPaneActivated;
-
             p.SelectionChanged -= OnTransferCanExecuteChanged;
-
             p.PropertyChanged -= OnPanePropertyChanged;
-
             p.FolderOpened -= OnPaneFolderOpened;
-
             p.Dispose();
-
         }
 
-
-
         OnPropertyChanged(nameof(CanClosePanes));
-
         ClosePaneCommand.NotifyCanExecuteChanged();
-
     }
 
-
+    [RelayCommand]
+    public void OpenNewTab(string? initialPath = null)
+    {
+        if (Panes.Count == 0)
+        {
+            var pane = CreatePane(initialPath);
+            Panes.Add(pane);
+            ActivePane = pane;
+        }
+        else if (ActivePane != null && Panes.Contains(ActivePane))
+        {
+            ActivePane.NewTab(initialPath);
+        }
+        else
+        {
+            Panes[0].NewTab(initialPath);
+            ActivePane = Panes[0];
+        }
+    }
 
     [RelayCommand]
-
-    public void OpenNewTab(string? initialPath = null)
-
+    public void CloseActiveTab()
     {
+        if (ActivePane != null)
+        {
+            if (ActivePane.Tabs.Count > 1)
+            {
+                ActivePane.CloseTab();
+            }
+            else if (Panes.Count > 1 && CanClosePanes)
+            {
+                ClosePane(ActivePane);
+            }
+            else
+            {
+                ActivePane.CloseTab();
+            }
+        }
+    }
 
-        SplitVerticalInternal(ActivePane, initialPath);
+    [RelayCommand]
+    public void ReopenClosedTab()
+    {
+        ActivePane?.ReopenClosedTab();
+    }
 
+    [RelayCommand]
+    public void NextTab()
+    {
+        ActivePane?.NextTab();
+    }
+
+    [RelayCommand]
+    public void PreviousTab()
+    {
+        ActivePane?.PreviousTab();
+    }
+
+    [RelayCommand]
+    public void SplitPaneVertical(FilePaneViewModel? targetPane = null)
+    {
+        SplitVertical(targetPane);
+    }
+
+    [RelayCommand]
+    public void SplitPaneHorizontal(FilePaneViewModel? targetPane = null)
+    {
+        SplitHorizontal(targetPane);
     }
 
 
@@ -1717,52 +1779,89 @@ public partial class MainViewModel : ObservableObject
 
 
 
-        var pathsToLoad = (settings.PanePaths != null && settings.PanePaths.Count > 0)
-
-            ? settings.PanePaths
-
-            : new List<string> { settings.LeftPanePath, settings.RightPanePath };
-
-
-
-        while (Panes.Count < pathsToLoad.Count)
-
+        if (settings.PaneTabs != null && settings.PaneTabs.Count > 0)
         {
+            while (Panes.Count < settings.PaneTabs.Count)
+            {
+                Panes.Add(CreatePane());
+            }
+            while (Panes.Count > settings.PaneTabs.Count && Panes.Count > 1)
+            {
+                var p = Panes[Panes.Count - 1];
+                Panes.RemoveAt(Panes.Count - 1);
+                p.Activated -= OnPaneActivated;
+                p.SelectionChanged -= OnTransferCanExecuteChanged;
+                p.PropertyChanged -= OnPanePropertyChanged;
+                p.FolderOpened -= OnPaneFolderOpened;
+                p.Dispose();
+            }
 
-            Panes.Add(CreatePane());
+            for (int i = 0; i < Panes.Count && i < settings.PaneTabs.Count; i++)
+            {
+                var pane = Panes[i];
+                pane.ShowHiddenFiles = ShowHiddenFiles;
+                var paneSetting = settings.PaneTabs[i];
+                if (paneSetting.Tabs != null && paneSetting.Tabs.Count > 0)
+                {
+                    pane.Tabs.Clear();
+                    foreach (var tabSetting in paneSetting.Tabs)
+                    {
+                        var tabVm = new FileTabItemViewModel
+                        {
+                            CurrentPath = tabSetting.Path,
+                            Title = !string.IsNullOrWhiteSpace(tabSetting.Title)
+                                ? tabSetting.Title
+                                : (Path.GetFileName(tabSetting.Path.TrimEnd('\\', '/')) is { Length: > 0 } n ? n : tabSetting.Path)
+                        };
+                        if (Enum.TryParse<FilePaneViewMode>(tabSetting.ViewMode, out var vm))
+                            tabVm.ViewMode = vm;
+                        if (Enum.TryParse<FileSortColumn>(tabSetting.SortColumn, out var sc))
+                            tabVm.CurrentSortColumn = sc;
+                        tabVm.IsSortAscending = tabSetting.SortAscending;
+                        pane.Tabs.Add(tabVm);
+                    }
 
+                    int activeIdx = Math.Clamp(paneSetting.ActiveTabIndex, 0, pane.Tabs.Count - 1);
+                    var activeTab = pane.Tabs[activeIdx];
+                    pane.ActiveTab = activeTab;
+
+                    if (!string.IsNullOrWhiteSpace(activeTab.CurrentPath) && !_fileSystem.DirectoryExists(activeTab.CurrentPath))
+                    {
+                        activeTab.IsUnavailable = true;
+                    }
+                    else
+                    {
+                        pane.Navigate(activeTab.CurrentPath);
+                    }
+                }
+            }
         }
-
-        while (Panes.Count > pathsToLoad.Count && Panes.Count > 1)
-
+        else
         {
+            var pathsToLoad = (settings.PanePaths != null && settings.PanePaths.Count > 0)
+                ? settings.PanePaths
+                : new List<string> { settings.LeftPanePath, settings.RightPanePath };
 
-            var p = Panes[Panes.Count - 1];
+            while (Panes.Count < pathsToLoad.Count)
+            {
+                Panes.Add(CreatePane());
+            }
+            while (Panes.Count > pathsToLoad.Count && Panes.Count > 1)
+            {
+                var p = Panes[Panes.Count - 1];
+                Panes.RemoveAt(Panes.Count - 1);
+                p.Activated -= OnPaneActivated;
+                p.SelectionChanged -= OnTransferCanExecuteChanged;
+                p.PropertyChanged -= OnPanePropertyChanged;
+                p.FolderOpened -= OnPaneFolderOpened;
+                p.Dispose();
+            }
 
-            Panes.RemoveAt(Panes.Count - 1);
-
-            p.Activated -= OnPaneActivated;
-
-            p.SelectionChanged -= OnTransferCanExecuteChanged;
-
-            p.PropertyChanged -= OnPanePropertyChanged;
-
-            p.FolderOpened -= OnPaneFolderOpened;
-
-            p.Dispose();
-
-        }
-
-
-
-        for (int i = 0; i < Panes.Count && i < pathsToLoad.Count; i++)
-
-        {
-
-            Panes[i].ShowHiddenFiles = ShowHiddenFiles;
-
-            Panes[i].Navigate(pathsToLoad[i]);
-
+            for (int i = 0; i < Panes.Count && i < pathsToLoad.Count; i++)
+            {
+                Panes[i].ShowHiddenFiles = ShowHiddenFiles;
+                Panes[i].Navigate(pathsToLoad[i]);
+            }
         }
 
 
@@ -2055,7 +2154,25 @@ public partial class MainViewModel : ObservableObject
 
         settings.RecentFolders = _recentFolders.Items.ToList();
 
-
+        settings.PaneTabs = Panes.Select(p =>
+        {
+            if (p.ActiveTab != null)
+            {
+                p.SaveTabState(p.ActiveTab);
+            }
+            return new PaneTabSettings
+            {
+                Tabs = p.Tabs.Select(t => new TabStateSetting
+                {
+                    Path = t.CurrentPath,
+                    Title = t.Title,
+                    ViewMode = t.ViewMode.ToString(),
+                    SortColumn = t.CurrentSortColumn.ToString(),
+                    SortAscending = t.IsSortAscending
+                }).ToList(),
+                ActiveTabIndex = p.ActiveTab != null ? Math.Max(0, p.Tabs.IndexOf(p.ActiveTab)) : 0
+            };
+        }).ToList();
 
         _settingsService.SaveSettings(settings);
 
